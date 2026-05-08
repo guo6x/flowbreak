@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /e/ai-work/flowbreak -type f -not -path */node_modules/* -not -path */.git/* -not -path */dist/* -not -path */.next/*)",
+      "mcp__ide__executeCode",
+      "WebSearch",
+      "WebFetch(domain:)",
+      "Bash(dir:*)"
+    ]
+  }
+}

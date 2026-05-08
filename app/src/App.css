@@ -1,0 +1,153 @@
+@import "tailwindcss";
+
+/* ===== FlowBreak Design System (PRD 6.1) ===== */
+@theme {
+  /* Primary Colors */
+  --color-primary: #4CAF50;
+  --color-primary-light: #81C784;
+  --color-primary-dark: #388E3C;
+
+  /* Secondary Colors */
+  --color-secondary: #2196F3;
+  --color-secondary-light: #64B5F6;
+
+  /* Accent */
+  --color-accent: #FF9800;
+  --color-accent-light: #FFB74D;
+
+  /* Semantic */
+  --color-success: #4CAF50;
+  --color-warning: #FF9800;
+  --color-error: #F44336;
+  --color-info: #2196F3;
+
+  /* Neutrals */
+  --color-white: #FFFFFF;
+  --color-gray-50: #FAFAFA;
+  --color-gray-100: #F5F5F5;
+  --color-gray-300: #E0E0E0;
+  --color-gray-400: #BDBDBD;
+  --color-gray-500: #9E9E9E;
+  --color-gray-700: #616161;
+  --color-gray-900: #212121;
+
+  /* Font */
+  --font-sans: 'Roboto', sans-serif;
+
+  /* Spacing already handled by Tailwind defaults: 1=4px, 2=8px, 4=16px, 6=24px, 8=32px */
+}
+
+/* ===== Base Styles ===== */
+@layer base {
+  * {
+    -webkit-tap-highlight-color: transparent;
+    box-sizing: border-box;
+  }
+
+  html {
+    font-size: 14px;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    padding: 0;
+    font-family: var(--font-sans);
+    background-color: var(--color-gray-100);
+    color: var(--color-gray-900);
+    line-height: 1.5;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Safe area padding for notched phones */
+  #root {
+    min-height: 100dvh;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  h1, h2, h3 {
+    line-height: 1.2;
+  }
+}
+
+/* ===== Utilities ===== */
+@utility card {
+  background-color: var(--color-white);
+  border-radius: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+@utility card-lg {
+  background-color: var(--color-white);
+  border-radius: 24px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+@utility btn-primary {
+  background-color: var(--color-primary);
+  color: white;
+  border: none;
+  border-radius: 24px;
+  padding: 14px 32px;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  &:active {
+    transform: scale(0.97);
+    background-color: var(--color-primary-dark);
+  }
+}
+
+@utility btn-secondary {
+  background-color: transparent;
+  color: var(--color-gray-700);
+  border: 1.5px solid var(--color-gray-300);
+  border-radius: 24px;
+  padding: 14px 32px;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  &:active {
+    background-color: var(--color-gray-100);
+    transform: scale(0.97);
+  }
+}
+
+@utility btn-text {
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  font-size: 14px;
+  font-weight: 500;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+/* Hide scrollbar */
+@utility no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Breathing animation for intervention */
+@keyframes breathe {
+  0%, 100% { opacity: 0.1; }
+  50% { opacity: 0.3; }
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(1.4); opacity: 0; }
+}
+
+@keyframes confetti-fall {
+  0% { transform: translateY(-100%) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+}

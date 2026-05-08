@@ -1,0 +1,23 @@
+def mirrorUrl = 'http://repo.huaweicloud.com/repository/maven/'
+
+settingsEvaluated { settings ->
+  settings.pluginManagement.repositories.clear()
+  settings.pluginManagement.repositories.maven {
+    url = uri(mirrorUrl)
+    allowInsecureProtocol = true
+  }
+}
+
+gradle.beforeProject { project ->
+  project.buildscript.repositories.clear()
+  project.buildscript.repositories.maven {
+    url = uri(mirrorUrl)
+    allowInsecureProtocol = true
+  }
+
+  project.repositories.clear()
+  project.repositories.maven {
+    url = uri(mirrorUrl)
+    allowInsecureProtocol = true
+  }
+}
