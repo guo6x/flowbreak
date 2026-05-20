@@ -145,48 +145,6 @@ public class NativeFlowPlugin extends Plugin {
         notifyListeners("permissionsChanged", getPermissionsState());
     }
 
-    private Set<String> getTargetAppsFromPrefs(SharedPreferences prefs) {
-        Set<String> appSet = null;
-        try {
-            appSet = prefs.getStringSet("targetApps", null);
-        } catch (ClassCastException e) {
-            Log.d(TAG, "targetApps is not a StringSet, trying legacy String format");
-        }
-
-        if (appSet != null) {
-            return appSet;
-        }
-
-        // Try legacy String format and migrate
-        String appsStr = "";
-        try {
-            appsStr = prefs.getString("targetApps", "");
-        } catch (ClassCastException e) {
-            // Should not happen if it wasn't a StringSet
-        }
-
-        if (!appsStr.isEmpty()) {
-            try {
-                String[] parts = appsStr.replace("[", "").replace("]", "").replace("\"", "").split(",");
-                HashSet<String> migratedApps = new HashSet<>();
-                for (String p : parts) {
-                    String trimmed = p.trim();
-                    if (!trimmed.isEmpty()) migratedApps.add(trimmed);
-                }
-                if (!migratedApps.isEmpty()) {
-                    // Migrate to new format
-                    prefs.edit().putStringSet("targetApps", migratedApps).apply();
-                    Log.i(TAG, "Migrated targetApps from legacy String to StringSet");
-                    return migratedApps;
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "Error parsing legacy targetApps string", e);
-            }
-        }
-
-        return new HashSet<>();
-    }
-
     @PluginMethod
     public void startService(PluginCall call) {
         // Read params BEFORE any resolve
@@ -215,13 +173,13 @@ public class NativeFlowPlugin extends Plugin {
         getContext().getSharedPreferences("FlowBreakPrefs", Context.MODE_PRIVATE)
                 .edit()
                 .putInt("limitMinutes", limitMinutes)
-                .putStringSet("targetApps", new java.util.HashSet<>(appList))
+                .putStringSet(PreferenceUtils.PREF_TARGET_APPS, new java.util.HashSet<>(appList))
                 .apply();
 
         Intent intent = new Intent(getContext(), FlowForegroundService.class);
         intent.setAction(FlowForegroundService.ACTION_START);
         intent.putExtra("limitMinutes", limitMinutes);
-        intent.putStringArrayListExtra("targetApps", appList);
+        intent.putStringArrayListExtra(PreferenceUtils.PREF_TARGET_APPS, appList);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             try {
@@ -265,7 +223,7 @@ public class NativeFlowPlugin extends Plugin {
 
         // Get target apps from preferences to filter stats
         SharedPreferences prefs = getContext().getSharedPreferences("FlowBreakPrefs", Context.MODE_PRIVATE);
-        Set<String> targetApps = getTargetAppsFromPrefs(prefs);
+        Set<String> targetApps = PreferenceUtils.getMigratedTargetApps(prefs);
 
         List<UsageStats> stats = usm.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, startTime, endTime);
         long totalScreenTime = 0;
@@ -334,7 +292,7 @@ public class NativeFlowPlugin extends Plugin {
         SharedPreferences prefs = getContext().getSharedPreferences("FlowBreakPrefs", Context.MODE_PRIVATE);
         SharedPreferences.Editor editor = prefs.edit()
             .putInt("limitMinutes", limitMinutes)
-            .putStringSet("targetApps", appSet);
+            .putStringSet(PreferenceUtils.PREF_TARGET_APPS, appSet);
 
         // Persist reminder settings for native service
         try {
@@ -356,7 +314,7 @@ public class NativeFlowPlugin extends Plugin {
         int limitMinutes = prefs.getInt("limitMinutes", 30);
 
         // Read as StringSet (consistent with saveSettings and startService)
-        Set<String> appSet = getTargetAppsFromPrefs(prefs);
+        Set<String> appSet = PreferenceUtils.getMigratedTargetApps(prefs);
         JSArray appsArr = new JSArray();
         for (String pkg : appSet) {
             appsArr.put(pkg);

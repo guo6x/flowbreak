@@ -47,7 +47,7 @@ public class FlowForegroundService extends Service {
     private static final String ALERT_CHANNEL_ID = "FlowBreakAlertChannel";
     private static final String PREFS_NAME = "FlowBreakPrefs";
     private static final String PREF_LIMIT_MINUTES = "limitMinutes";
-    private static final String PREF_TARGET_APPS = "targetApps";
+    private static final String PREF_TARGET_APPS = PreferenceUtils.PREF_TARGET_APPS;
     public static final String ACTION_START = "START";
     public static final String ACTION_STOP = "STOP";
     public static final String ACTION_SNOOZE = "SNOOZE";
@@ -161,45 +161,7 @@ public class FlowForegroundService extends Service {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         limitMinutes = prefs.getInt(PREF_LIMIT_MINUTES, 30);
         
-        // Try reading as StringSet (new format)
-        Set<String> savedApps = null;
-        try {
-            savedApps = prefs.getStringSet(PREF_TARGET_APPS, null);
-        } catch (ClassCastException e) {
-            Log.d(TAG, "targetApps is not a StringSet, will try legacy String format");
-        }
-
-        if (savedApps != null && !savedApps.isEmpty()) {
-            targetApps = new ArrayList<>(savedApps);
-        } else {
-            // Migration logic: check if it's stored as a JSON string (old format)
-            String appsStr = "";
-            try {
-                appsStr = prefs.getString(PREF_TARGET_APPS, "");
-            } catch (ClassCastException e) {
-                // Already tried StringSet, so this shouldn't happen, but safe to catch
-            }
-
-            if (!appsStr.isEmpty()) {
-                try {
-                    // Parse JSON array like ["com.xx","com.yy"]
-                    String[] parts = appsStr.replace("[", "").replace("]", "").replace("\"", "").split(",");
-                    HashSet<String> migratedApps = new HashSet<>();
-                    for (String p : parts) {
-                        String trimmed = p.trim();
-                        if (!trimmed.isEmpty()) migratedApps.add(trimmed);
-                    }
-                    if (!migratedApps.isEmpty()) {
-                        targetApps = new ArrayList<>(migratedApps);
-                        // Migrate to new format immediately to avoid future ClassCastException
-                        prefs.edit().putStringSet(PREF_TARGET_APPS, migratedApps).apply();
-                        Log.i(TAG, "Migrated targetApps from legacy String to StringSet");
-                    }
-                } catch (Exception e) {
-                    Log.e(TAG, "Error parsing legacy targetApps string", e);
-                }
-            }
-        }
+        targetApps = new ArrayList<>(PreferenceUtils.getMigratedTargetApps(prefs));
 
         reminderEnabled = prefs.getBoolean("reminderEnabled", true);
         reminderIntervalMinutes = prefs.getInt("reminderIntervalMinutes", 30);
@@ -219,7 +181,7 @@ public class FlowForegroundService extends Service {
                 if (intent.hasExtra("limitMinutes")) {
                     limitMinutes = intent.getIntExtra("limitMinutes", 30);
                 }
-                ArrayList<String> apps = intent.getStringArrayListExtra("targetApps");
+                ArrayList<String> apps = intent.getStringArrayListExtra(PREF_TARGET_APPS);
                 if (apps != null && !apps.isEmpty()) {
                     targetApps = apps;
                 }
