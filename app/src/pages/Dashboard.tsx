@@ -1,18 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Moon, Focus, Clock, Shield, Zap, Play, ChevronRight } from 'lucide-react';
-import { useTodayStats, useFatigueEngine } from '../hooks/useStore';
-import {
-  addScreenTime,
-  getProfile,
-  getTodayActivities,
-  logIntervention,
-  startSession,
-} from '../backend/storage';
-import InterventionOverlay from '../components/InterventionOverlay';
-import { NativeFlow } from '../backend/nativeFlow';
-import { Capacitor } from '@capacitor/core';
+import { useStore } from '../hooks/useStore';
+import { getTodayActivities } from '../backend/storage';
 
 function formatMinutes(seconds: number) {
   const h = Math.floor(seconds / 3600);
@@ -26,60 +17,23 @@ function formatDuration(seconds: number) {
   return `${seconds}秒`;
 }
 
-// Demo simulation: 模拟数据，仅在非原生平台时使用
-const DEMO_APP_POOL = ['抖音', 'B站', '微信视频号', '微博', '小红书'];
+function formatGoal(minutes: number) {
+  if (minutes < 60) return `${minutes}分钟`;
+  const hours = minutes / 60;
+  if (Number.isInteger(hours)) return `${hours}小时`;
+  return `${hours.toFixed(1)}小时`;
+}
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { stats, refresh } = useTodayStats();
-  const profile = getProfile();
-  const [isMonitoring, setIsMonitoring] = useState(false);
-  const [snoozeUntil, setSnoozeUntil] = useState(0);
-  const { score, level, elapsed } = useFatigueEngine(isMonitoring);
-
-  const prevLevelRef = useRef(level);
-  const appCursorRef = useRef(0);
-
-  useEffect(() => {
-    if (!isMonitoring) return;
-    startSession();
-    if (Capacitor.isNativePlatform()) {
-      NativeFlow.startService().catch(() => undefined);
-    }
-
-    const timer = setInterval(() => {
-      const appName = DEMO_APP_POOL[appCursorRef.current % DEMO_APP_POOL.length];
-      addScreenTime(5, appName);
-      appCursorRef.current += 1;
-      refresh();
-    }, 5000);
-    return () => {
-      clearInterval(timer);
-      if (Capacitor.isNativePlatform()) {
-        NativeFlow.stopService().catch(() => undefined);
-      }
-    };
-  }, [isMonitoring, refresh]);
-
-  useEffect(() => {
-    if (level === 'NONE') {
-      prevLevelRef.current = level;
-      return;
-    }
-    if (Date.now() < snoozeUntil) return;
-    if (prevLevelRef.current !== level) {
-      logIntervention(level);
-      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-        const msg =
-          level === 'ACTION' ? '疲劳指数较高，建议立刻休息3分钟。' :
-          level === 'COGNITION' ? '认知疲劳上升，建议短暂放松。' :
-          '出现轻度疲劳，注意眼部休息。';
-        new Notification('FlowBreak 提醒', { body: msg });
-      }
-      refresh();
-      prevLevelRef.current = level;
-    }
-  }, [level, snoozeUntil, refresh]);
+  const profile = useStore(s => s.profile);
+  const stats = useStore(s => s.todayStats);
+  const isMonitoring = useStore(s => s.isMonitoring);
+  const setMonitoring = useStore(s => s.setMonitoring);
+  const score = useStore(s => s.fatigueScore);
+  const level = useStore(s => s.fatigueLevel);
+  const currentAppName = useStore(s => s.currentAppName);
+  const screenSeconds = stats.totalScreenTime;
 
   const goalSeconds = profile.dailyGoal * 60;
   const progress = Math.min(1, stats.totalScreenTime / goalSeconds);
@@ -100,8 +54,6 @@ export default function Dashboard() {
       }));
   }, [stats.totalScreenTime, stats.restCount, stats.interventionCount]);
 
-  const showOverlay = isMonitoring && level !== 'NONE' && Date.now() >= snoozeUntil;
-
   return (
     <div className="flex flex-col pb-24 px-5 pt-6 no-scrollbar overflow-y-auto min-h-dvh">
       <div className="flex items-center justify-between mb-6">
@@ -110,16 +62,19 @@ export default function Dashboard() {
           <h1 className="text-[24px] font-bold text-gray-900">仪表盘</h1>
         </div>
         <div className="flex items-center gap-2">
-          {isMonitoring && (
-            <motion.div
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              className="flex items-center gap-1.5 bg-primary/10 px-3 py-1.5 rounded-full"
-            >
-              <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-              <span className="text-[11px] text-primary font-medium">监控中</span>
-            </motion.div>
-          )}
+          <motion.div
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            className="flex flex-col items-end"
+          >
+            <div className="flex items-center gap-1.5 bg-primary/10 px-3 py-1.5 rounded-full">
+              <div className={`w-2 h-2 rounded-full ${isMonitoring ? 'bg-primary animate-pulse' : 'bg-gray-400'}`} />
+              <span className="text-[11px] text-primary font-medium">{isMonitoring ? '监控中' : '已暂停'}</span>
+            </div>
+            {currentAppName && isMonitoring && (
+              <span className="text-[11px] text-gray-500 mt-1">当前: {currentAppName}</span>
+            )}
+          </motion.div>
         </div>
       </div>
 
@@ -134,12 +89,12 @@ export default function Dashboard() {
         <div className="relative z-10">
           <div className="flex items-start justify-between mb-4">
             <div>
-              <p className="text-white/70 text-[12px] mb-1">今日屏幕时间</p>
+              <p className="text-white/70 text-[12px] mb-1">今日目标应用时间</p>
               <h2 className="text-[40px] font-light leading-none">{formatMinutes(stats.totalScreenTime)}</h2>
             </div>
             <div className="text-right">
               <p className="text-white/70 text-[12px] mb-1">目标</p>
-              <p className="text-[16px] font-medium">{profile.dailyGoal / 60}小时</p>
+              <p className="text-[16px] font-medium">{formatGoal(profile.dailyGoal)}</p>
             </div>
           </div>
 
@@ -169,25 +124,32 @@ export default function Dashboard() {
         </div>
       </motion.div>
 
+      {/* Action buttons - rest only shows when fatigue detected */}
       <div className="flex gap-3 mb-6">
-        <motion.button
-          whileTap={{ scale: 0.95 }}
-          onClick={() => navigate('/rest')}
-          className="flex-1 card flex items-center gap-3 p-4"
-        >
-          <div className="w-10 h-10 rounded-xl bg-secondary/10 flex items-center justify-center">
-            <Moon size={20} className="text-secondary" />
-          </div>
-          <div className="text-left">
-            <p className="text-[14px] font-medium text-gray-900">开始休息</p>
-            <p className="text-[11px] text-gray-500">恢复活动</p>
-          </div>
-        </motion.button>
+        {level !== 'NONE' && (
+          <motion.button
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => navigate('/rest')}
+            className="flex-1 card flex items-center gap-3 p-4 bg-secondary/5 border border-secondary/20"
+          >
+            <div className="w-10 h-10 rounded-xl bg-secondary/10 flex items-center justify-center">
+              <Moon size={20} className="text-secondary" />
+            </div>
+            <div className="text-left">
+              <p className="text-[14px] font-medium text-gray-900">开始休息</p>
+              <p className="text-[11px] text-gray-500">
+                {level === 'ACTION' ? '强烈建议休息' : level === 'COGNITION' ? '认知疲劳' : '轻度疲劳'}
+              </p>
+            </div>
+          </motion.button>
+        )}
 
         <motion.button
           whileTap={{ scale: 0.95 }}
-          onClick={() => setIsMonitoring(v => !v)}
-          className="flex-1 card flex items-center gap-3 p-4"
+          onClick={() => setMonitoring(!isMonitoring)}
+          className={`flex-1 card flex items-center gap-3 p-4 ${level === 'NONE' ? '' : 'flex-[0.6]'}`}
         >
           <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
             isMonitoring ? 'bg-error/10' : 'bg-accent/10'
@@ -196,12 +158,25 @@ export default function Dashboard() {
           </div>
           <div className="text-left">
             <p className="text-[14px] font-medium text-gray-900">{isMonitoring ? '停止监控' : '开始监控'}</p>
-            <p className="text-[11px] text-gray-500">{isMonitoring ? `已运行 ${Math.floor(elapsed / 60)}分钟` : '疲劳检测'}</p>
+            <p className="text-[11px] text-gray-500">
+              {isMonitoring ? `运行 ${Math.floor(screenSeconds / 60)}分` : '已暂停 - 点击恢复'}
+            </p>
           </div>
         </motion.button>
       </div>
 
-      <div className="flex items-center justify-between mb-3">
+      {/* Fatigue level indicator */}
+      {level === 'NONE' && (
+        <div className="card p-4 mb-4 flex items-center gap-3 bg-primary/5 border border-primary/10">
+          <Zap size={18} className="text-primary" />
+          <div>
+            <p className="text-[13px] font-medium text-gray-900">状态良好</p>
+            <p className="text-[12px] text-gray-500">未检测到明显疲劳，继续保持</p>
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between mb-3 mt-2">
         <h3 className="text-[16px] font-bold text-gray-900">今日活动</h3>
         <button onClick={() => navigate('/stats')} className="text-[12px] text-primary font-medium flex items-center gap-0.5">
           查看全部 <ChevronRight size={14} />
@@ -210,19 +185,32 @@ export default function Dashboard() {
 
       <div className="card p-4 mb-4">
         {timeline.length === 0 && (
-          <div className="flex flex-col items-center py-8">
-            <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mb-3">
-              <Clock size={28} className="text-gray-300" />
+          <div className="flex flex-col items-center py-10">
+            <div className="relative mb-4">
+              <div className="w-20 h-20 rounded-full bg-gradient-to-br from-primary/10 to-secondary/10 flex items-center justify-center">
+                <Clock size={32} className="text-primary/40" />
+              </div>
+              {isMonitoring && (
+                <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center">
+                  <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                </div>
+              )}
             </div>
-            <p className="text-[14px] text-gray-500 mb-1">暂无活动记录</p>
-            <p className="text-[12px] text-gray-400">点击"开始监控"后，这里会展示实时活动轨迹</p>
+            <p className="text-[14px] font-medium text-gray-700 mb-1">
+              {isMonitoring ? '正在记录活动' : '监控已暂停'}
+            </p>
+            <p className="text-[12px] text-gray-400 text-center leading-relaxed max-w-[220px]">
+              {isMonitoring 
+                ? '使用设备时，这里会自动显示你的应用使用记录'
+                : '点击上方按钮开启监控，以记录你的健康使用情况'}
+            </p>
           </div>
         )}
         {timeline.map((item, i) => (
           <div key={`${item.time}-${i}`} className="flex items-center gap-3 py-2.5 border-b border-gray-300/30 last:border-b-0">
             <span className="text-[12px] text-gray-400 w-11 shrink-0">{item.time}</span>
             <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
-            <span className="text-[14px] text-gray-900 flex-1">{item.app}</span>
+            <span className="text-[14px] text-gray-900 flex-1 truncate">{item.app}</span>
             <span className="text-[12px] text-gray-500">{item.duration}</span>
           </div>
         ))}
@@ -244,8 +232,8 @@ export default function Dashboard() {
           } />
           <div className="flex-1">
             <p className="text-[14px] font-medium text-gray-900">
-              {level === 'ACTION' ? '⚠️ 需要立即休息' :
-               level === 'COGNITION' ? '🧠 认知疲劳升高' : '👁️ 轻度疲劳'}
+              {level === 'ACTION' ? '需要立即休息' :
+               level === 'COGNITION' ? '认知疲劳升高' : '轻度疲劳'}
             </p>
             <p className="text-[12px] text-gray-500">疲劳指数 {(score * 100).toFixed(0)}%</p>
           </div>
@@ -253,21 +241,6 @@ export default function Dashboard() {
             去休息
           </button>
         </motion.div>
-      )}
-
-      {showOverlay && (
-        <InterventionOverlay
-          level={level}
-          score={score}
-          elapsed={elapsed}
-          onDismiss={() => {
-            logIntervention(`${level}-confirm`);
-            refresh();
-          }}
-          onSnooze={() => {
-            setSnoozeUntil(Date.now() + 10 * 60 * 1000);
-          }}
-        />
       )}
     </div>
   );

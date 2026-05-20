@@ -38,7 +38,9 @@
             android:name=".FlowForegroundService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="specialUse" />
+            android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="健康提醒：监控连续使用时长" />
+        </service>
 
         <receiver android:name=".BootReceiver" android:exported="true">
             <intent-filter>

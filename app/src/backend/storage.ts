@@ -1,6 +1,7 @@
 // src/backend/storage.ts
 // 本地持久化层 - MVP 数据模型与业务规则
 
+
 export interface UserProfile {
   name: string;
   type: 'student' | 'worker' | 'other';
@@ -213,11 +214,15 @@ export function incrementStat(field: 'restCount' | 'interventionCount') {
 }
 
 export function addScreenTime(seconds: number, app = '视频应用') {
+  const isTarget = ['抖音', 'B站', '快手', '微信', '小红书'].includes(app) || 
+                   app === '浏览器' || 
+                   app === '视频应用';
+  if (!isTarget) return;
+
   const stats = touchTodayStats();
   updateTodayStats({
     totalScreenTime: stats.totalScreenTime + seconds,
     videoTime: stats.videoTime + seconds,
-    focusMinutes: Math.floor((stats.totalScreenTime + seconds) / 60),
   });
   appendActivity({
     id: makeId(),
@@ -226,6 +231,18 @@ export function addScreenTime(seconds: number, app = '视频应用') {
     app,
     durationSec: seconds,
   });
+}
+
+export function setTodayScreenTime(seconds: number) {
+  const key = dayKey();
+  const all = getAllStats();
+  const current = all[key] || createEmptyDailyStats(key);
+  all[key] = {
+    ...current,
+    totalScreenTime: seconds,
+    videoTime: Math.max(current.videoTime, seconds), // Native already filters in getUsageStats fix
+  };
+  setAllStats(all);
 }
 
 export function getWeekStats(): DailyStats[] {
@@ -268,10 +285,16 @@ export function getAppDistribution(): Array<{ name: string; value: number }> {
     grouped.set(e.app, (grouped.get(e.app) || 0) + e.durationSec);
   }
 
-  return [...grouped.entries()]
+  const mapped = [...grouped.entries()]
     .map(([name, secs]) => ({ name, value: Math.round((secs / total) * 100) }))
     .sort((a, b) => b.value - a.value)
     .slice(0, 5);
+
+  const sumVal = mapped.reduce((sum, item) => sum + item.value, 0);
+  if (sumVal > 0 && sumVal !== 100 && mapped.length > 0) {
+    mapped[0].value += (100 - sumVal);
+  }
+  return mapped;
 }
 
 export function logIntervention(level: string) {
@@ -301,6 +324,7 @@ export function completeRestActivity(type: 'eye' | 'stretch' | 'breathe', durati
   setCounters(counters);
 
   updateStreakOnRest();
+  addPoints(10); // Award 10 points for completing a rest activity
 }
 
 export function markStatsViewed() {

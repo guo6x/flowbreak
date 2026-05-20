@@ -40,13 +40,19 @@ export default function Onboarding() {
     }
   };
 
-  const skip = () => navigate('/login');
+  const skip = () => {
+    if (current < slides.length - 1) {
+      setCurrent(slides.length - 1);
+    } else {
+      navigate('/login');
+    }
+  };
 
   const slide = slides[current];
   const Icon = slide.icon;
 
   return (
-    <div className="flex flex-col min-h-dvh bg-white px-8 pt-16 pb-12">
+    <div className="flex flex-col min-h-dvh px-8 pt-16 pb-12">
       {/* Skip button */}
       <div className="flex justify-end">
         <button onClick={skip} className="btn-text text-gray-500">跳过</button>

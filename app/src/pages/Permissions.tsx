@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Bell, Clock, Heart, Shield, Check } from 'lucide-react';
+import { Bell, Clock, Heart, Shield, Check, Battery, Eye } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
 import { NativeFlow } from '../backend/nativeFlow';
 
@@ -15,6 +15,8 @@ interface PermItem {
 
 const permissions: PermItem[] = [
   { icon: Clock, title: '屏幕使用时间', desc: '用于检测应用使用统计数据', required: true },
+  { icon: Eye, title: '悬浮窗权限', desc: '在其他应用上层显示休息提醒', required: true },
+  { icon: Battery, title: '电池优化豁免', desc: '确保后台服务持续运行', required: true },
   { icon: Bell, title: '通知权限', desc: '在需要休息时温和地提醒你', required: false },
   { icon: Heart, title: '健康数据', desc: '获取心率等数据提升检测准确率', required: false },
 ];
@@ -22,62 +24,112 @@ const permissions: PermItem[] = [
 export default function Permissions() {
   const navigate = useNavigate();
   const [granted, setGranted] = useState<Record<number, boolean>>({});
+  const [notificationHandled, setNotificationHandled] = useState(false);
+
+  const isNative = Capacitor.isNativePlatform();
 
   useEffect(() => {
-    if (Capacitor.isNativePlatform()) {
+    if (isNative) {
       NativeFlow.checkPermissions().then(res => {
-        setGranted(prev => ({
-          ...prev,
+        setGranted({
           0: res.hasUsageStats,
-          // You could map res.hasOverlay to another index if needed
-        }));
+          1: res.hasOverlay,
+          2: res.isIgnoringBattery,
+          3: res.hasNotification,
+        });
+      }).catch(err => {
+        console.error('checkPermissions failed:', err);
       });
 
       let listener: { remove: () => Promise<void> } | null = null;
       NativeFlow.addListener('permissionsChanged', info => {
-        setGranted(prev => ({ ...prev, 0: info.hasUsageStats }));
+        setGranted({
+          0: info.hasUsageStats,
+          1: info.hasOverlay,
+          2: info.isIgnoringBattery,
+          3: info.hasNotification,
+        });
       }).then(handle => {
         listener = handle;
+      }).catch(err => {
+        console.error('addListener failed:', err);
       });
 
       return () => {
-        if (listener) listener.remove();
+        if (listener) listener.remove().catch(() => {});
       };
+    } else {
+      // Web 模式
+      if (typeof Notification !== 'undefined') {
+        setNotificationHandled(Notification.permission !== 'default');
+        setGranted(prev => ({ ...prev, 3: Notification.permission === 'granted' }));
+      } else {
+        setNotificationHandled(true); // Notifications not supported, treat as handled
+      }
     }
-
-    // Web 模式: 屏幕使用时间权限自动授予（使用模拟数据）
-    setGranted(prev => ({ ...prev, 0: true }));
-
-    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-      setGranted(prev => ({ ...prev, 1: true }));
-    }
-  }, []);
+  }, [isNative]);
 
   const toggle = async (i: number) => {
-    if (!Capacitor.isNativePlatform() && i === 0) return; // Web 模式下自动授予
-    if (Capacitor.isNativePlatform()) {
-      if (i === 0 && !granted[0]) {
-        await NativeFlow.requestUsageStatsPermission();
+    if (!isNative) {
+      // Index 0 (usage stats), 1 (overlay), 2 (battery) — non-functional on web, skip
+      if (i <= 2) return;
+      if (i === 3 && typeof Notification !== 'undefined') {
+        const permission = await Notification.requestPermission();
+        setNotificationHandled(true);
+        setGranted(prev => ({ ...prev, 3: permission === 'granted' }));
+        return;
       }
-      // Assuming i===1 is notifications, can also request overlay here if we had it in the list
-    } else if (i === 1 && typeof Notification !== 'undefined' && !granted[1]) {
-      const permission = await Notification.requestPermission();
-      setGranted(prev => ({ ...prev, [i]: permission === 'granted' }));
+      if (i === 4) {
+        setGranted(prev => ({ ...prev, 4: !prev[4] }));
+        return;
+      }
       return;
     }
-    setGranted(prev => ({ ...prev, [i]: !prev[i] }));
+
+    try {
+      if (i === 0) {
+        await NativeFlow.requestUsageStatsPermission();
+      } else if (i === 1) {
+        await NativeFlow.requestOverlayPermission();
+      } else if (i === 2) {
+        await NativeFlow.requestIgnoreBatteryOptimizations();
+      } else if (i === 3) {
+        await NativeFlow.requestNotificationPermission();
+      } else {
+        setGranted(prev => ({ ...prev, 4: !prev[4] }));
+        return;
+      }
+    } catch (err) {
+      console.error('Permission request failed:', err);
+    }
   };
 
   const proceed = () => navigate('/personalize');
-  const canProceed = permissions.every((p, i) => !p.required || granted[i]);
+  
+  const canProceed = isNative
+    ? permissions.every((p, i) => !p.required || granted[i])
+    : notificationHandled; // Web 模式下只要通知权限处理过即可继续
 
   return (
-    <div className="flex flex-col min-h-dvh bg-white px-8 pt-16 pb-12">
+    <div className="flex flex-col min-h-dvh px-8 pt-16 pb-12">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         className="flex flex-col flex-1"
       >
+        {/* Web Preview Hint */}
+        {!isNative && (
+          <div className="mb-6 p-4 bg-secondary/5 border border-secondary/10 rounded-2xl flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center text-white text-lg shrink-0">
+              <Shield size={18} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[14px] font-bold text-gray-900">Web 预览模式</p>
+              <p className="text-[12px] text-gray-500">你正在浏览器中预览，完整功能请使用 Android 应用。</p>
+            </div>
+          </div>
+        )}
+
         {/* Header */}
         <div className="w-14 h-14 rounded-2xl bg-secondary/10 flex items-center justify-center mb-6">
           <Shield size={32} className="text-secondary" />
@@ -92,14 +144,18 @@ export default function Permissions() {
           {permissions.map((p, i) => {
             const Icon = p.icon;
             const isGranted = granted[i];
+            const isAndroidOnly = i <= 2;
+            const isDisabled = !isNative && isAndroidOnly;
+            
             return (
               <motion.button
                 key={i}
-                whileTap={{ scale: 0.98 }}
+                whileTap={isDisabled ? {} : { scale: 0.98 }}
                 onClick={() => toggle(i)}
+                disabled={isDisabled}
                 className={`flex items-center gap-4 p-4 rounded-2xl border-2 transition-colors text-left ${
                   isGranted ? 'border-primary bg-primary/5' : 'border-gray-300/60 bg-white'
-                }`}
+                } ${isDisabled ? 'opacity-60 grayscale-[0.5]' : ''}`}
               >
                 <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${
                   isGranted ? 'bg-primary/15' : 'bg-gray-100'
@@ -109,8 +165,11 @@ export default function Permissions() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-[14px] font-medium text-gray-900">{p.title}</span>
-                    {p.required && (
+                    {p.required && isNative && (
                       <span className="text-[10px] bg-error/10 text-error px-1.5 py-0.5 rounded-full font-medium">必需</span>
+                    )}
+                    {!isNative && isAndroidOnly && (
+                      <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-medium">仅限 Android</span>
                     )}
                   </div>
                   <p className="text-[12px] text-gray-500 mt-0.5">{p.desc}</p>
