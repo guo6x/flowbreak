@@ -145,6 +145,48 @@ public class NativeFlowPlugin extends Plugin {
         notifyListeners("permissionsChanged", getPermissionsState());
     }
 
+    private Set<String> getTargetAppsFromPrefs(SharedPreferences prefs) {
+        Set<String> appSet = null;
+        try {
+            appSet = prefs.getStringSet("targetApps", null);
+        } catch (ClassCastException e) {
+            Log.d(TAG, "targetApps is not a StringSet, trying legacy String format");
+        }
+
+        if (appSet != null) {
+            return appSet;
+        }
+
+        // Try legacy String format and migrate
+        String appsStr = "";
+        try {
+            appsStr = prefs.getString("targetApps", "");
+        } catch (ClassCastException e) {
+            // Should not happen if it wasn't a StringSet
+        }
+
+        if (!appsStr.isEmpty()) {
+            try {
+                String[] parts = appsStr.replace("[", "").replace("]", "").replace("\"", "").split(",");
+                HashSet<String> migratedApps = new HashSet<>();
+                for (String p : parts) {
+                    String trimmed = p.trim();
+                    if (!trimmed.isEmpty()) migratedApps.add(trimmed);
+                }
+                if (!migratedApps.isEmpty()) {
+                    // Migrate to new format
+                    prefs.edit().putStringSet("targetApps", migratedApps).apply();
+                    Log.i(TAG, "Migrated targetApps from legacy String to StringSet");
+                    return migratedApps;
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error parsing legacy targetApps string", e);
+            }
+        }
+
+        return new HashSet<>();
+    }
+
     @PluginMethod
     public void startService(PluginCall call) {
         // Read params BEFORE any resolve
@@ -223,7 +265,7 @@ public class NativeFlowPlugin extends Plugin {
 
         // Get target apps from preferences to filter stats
         SharedPreferences prefs = getContext().getSharedPreferences("FlowBreakPrefs", Context.MODE_PRIVATE);
-        Set<String> targetApps = prefs.getStringSet("targetApps", new HashSet<>());
+        Set<String> targetApps = getTargetAppsFromPrefs(prefs);
 
         List<UsageStats> stats = usm.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, startTime, endTime);
         long totalScreenTime = 0;
@@ -314,7 +356,7 @@ public class NativeFlowPlugin extends Plugin {
         int limitMinutes = prefs.getInt("limitMinutes", 30);
 
         // Read as StringSet (consistent with saveSettings and startService)
-        Set<String> appSet = prefs.getStringSet("targetApps", new HashSet<>());
+        Set<String> appSet = getTargetAppsFromPrefs(prefs);
         JSArray appsArr = new JSArray();
         for (String pkg : appSet) {
             appsArr.put(pkg);

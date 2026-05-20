@@ -160,24 +160,43 @@ public class FlowForegroundService extends Service {
     private void loadFromPrefs() {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         limitMinutes = prefs.getInt(PREF_LIMIT_MINUTES, 30);
-        Set<String> savedApps = prefs.getStringSet(PREF_TARGET_APPS, null);
+        
+        // Try reading as StringSet (new format)
+        Set<String> savedApps = null;
+        try {
+            savedApps = prefs.getStringSet(PREF_TARGET_APPS, null);
+        } catch (ClassCastException e) {
+            Log.d(TAG, "targetApps is not a StringSet, will try legacy String format");
+        }
+
         if (savedApps != null && !savedApps.isEmpty()) {
             targetApps = new ArrayList<>(savedApps);
         } else {
-            // Fallback: try reading as JSON string (from NativeFlowPlugin.saveSettings)
-            String appsStr = prefs.getString(PREF_TARGET_APPS, "");
+            // Migration logic: check if it's stored as a JSON string (old format)
+            String appsStr = "";
+            try {
+                appsStr = prefs.getString(PREF_TARGET_APPS, "");
+            } catch (ClassCastException e) {
+                // Already tried StringSet, so this shouldn't happen, but safe to catch
+            }
+
             if (!appsStr.isEmpty()) {
                 try {
                     // Parse JSON array like ["com.xx","com.yy"]
                     String[] parts = appsStr.replace("[", "").replace("]", "").replace("\"", "").split(",");
-                    ArrayList<String> fallbackApps = new ArrayList<>();
+                    HashSet<String> migratedApps = new HashSet<>();
                     for (String p : parts) {
                         String trimmed = p.trim();
-                        if (!trimmed.isEmpty()) fallbackApps.add(trimmed);
+                        if (!trimmed.isEmpty()) migratedApps.add(trimmed);
                     }
-                    if (!fallbackApps.isEmpty()) targetApps = fallbackApps;
+                    if (!migratedApps.isEmpty()) {
+                        targetApps = new ArrayList<>(migratedApps);
+                        // Migrate to new format immediately to avoid future ClassCastException
+                        prefs.edit().putStringSet(PREF_TARGET_APPS, migratedApps).apply();
+                        Log.i(TAG, "Migrated targetApps from legacy String to StringSet");
+                    }
                 } catch (Exception e) {
-                    Log.e(TAG, "Error parsing targetApps from prefs", e);
+                    Log.e(TAG, "Error parsing legacy targetApps string", e);
                 }
             }
         }
@@ -193,7 +212,10 @@ public class FlowForegroundService extends Service {
         if (intent != null) {
             String action = intent.getAction();
             if (ACTION_START.equals(action)) {
-                // Check if intent has overrides, otherwise reload from prefs
+                // Always reload from prefs first to get base values
+                loadFromPrefs();
+
+                // Check if intent has overrides
                 if (intent.hasExtra("limitMinutes")) {
                     limitMinutes = intent.getIntExtra("limitMinutes", 30);
                 }
@@ -201,10 +223,6 @@ public class FlowForegroundService extends Service {
                 if (apps != null && !apps.isEmpty()) {
                     targetApps = apps;
                 }
-
-                // Always reload from prefs to catch potential reminder changes
-                // or if we started from BootReceiver with no extras
-                loadFromPrefs();
 
                 // If intent had specific overrides, we save them back to sync
                 if (intent.hasExtra("limitMinutes") || apps != null) {
