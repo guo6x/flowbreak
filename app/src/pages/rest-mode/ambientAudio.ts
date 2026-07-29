@@ -1,8 +1,17 @@
 // Web Audio API implementation for ambient pad sound and chime effects.
 // No React — only browser audio APIs.
 
-interface WebkitAudioWindow {
-  webkitAudioContext?: typeof AudioContext;
+// AudioContext constructor type. Defined explicitly so we can refer to it
+// without relying on the global `AudioContext` identifier (which may be
+// absent in some environments and would otherwise produce a
+// `ReferenceError: AudioContext is not defined` when evaluated directly).
+type AudioContextConstructor = new (
+  contextOptions?: AudioContextOptions,
+) => AudioContext;
+
+interface AudioGlobal {
+  AudioContext?: AudioContextConstructor;
+  webkitAudioContext?: AudioContextConstructor;
 }
 
 // Lazy singleton AudioContext to prevent leaks
@@ -10,12 +19,14 @@ let globalAudioCtx: AudioContext | null = null;
 
 function getAudioCtx(): AudioContext {
   if (!globalAudioCtx) {
-    // `AudioContext` is a global var declaration in lib.dom.d.ts (accessible
-    // directly, but not via `window.AudioContext`). The webkit-prefixed fallback
-    // is needed for very old iOS Safari and is not in the standard types, so we
-    // narrow through a small interface instead of using `any`.
-    const w = window as unknown as WebkitAudioWindow;
-    const Ctor = AudioContext || w.webkitAudioContext;
+    // Read both constructors off `globalThis` via a typed view so we never
+    // reference the bare `AudioContext` identifier (which can throw a
+    // ReferenceError in environments without it). Standard browsers expose
+    // `globalThis.AudioContext`; old iOS Safari only exposes the webkit
+    // fallback. If neither exists, throw and let callers degrade silently.
+    const audioGlobal = globalThis as unknown as AudioGlobal;
+    const Ctor =
+      audioGlobal.AudioContext ?? audioGlobal.webkitAudioContext;
     if (!Ctor) {
       throw new Error('AudioContext not supported in this environment');
     }

@@ -127,7 +127,7 @@ describe('RestMode completion flow (web)', () => {
     expect(screen.queryByRole('button', { name: /完成休息/ })).toBeNull();
   });
 
-  it('does not settle twice even if handleComplete is invoked again', () => {
+  it('removes the complete button after settlement so the UI cannot retrigger', () => {
     render(withRouter(<RestMode />));
 
     act(() => vi.advanceTimersByTime(1000));
@@ -137,8 +137,9 @@ describe('RestMode completion flow (web)', () => {
     fireEvent.click(completeButton);
 
     // After completion the reward view replaces the activity view, so the
-    // complete button is no longer in the DOM. This is the primary
-    // re-entry guard for web mode: the UI removes the trigger.
+    // complete button is no longer in the DOM. This is the UI-layer guard
+    // for web mode; the synchronous ref guard is covered by the native
+    // concurrency test in completionFlow.native.test.tsx.
     expect(mockCompleteRest).toHaveBeenCalledTimes(1);
 
     // There is no second button to click — verify it's gone.

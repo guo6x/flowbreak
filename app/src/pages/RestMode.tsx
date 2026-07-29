@@ -57,6 +57,18 @@ export default function RestMode() {
   // ===== Refs =====
   const stepIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const completedRestRef = useRef(false);
+  // Synchronous re-entrancy guard for the async completion flow. `completing`
+  // state is rendered asynchronously and cannot reliably prevent two rapid
+  // clicks from both entering `handleComplete` before the state commits.
+  // This ref is set synchronously at the entry of `handleComplete` and is
+  // only released on the failure path (so the user can retry). On success it
+  // stays true for the lifetime of this page instance, paired with
+  // `completedRestRef`, to guarantee settlement happens exactly once.
+  const completionInFlightRef = useRef(false);
+  // Fanfare timeouts created in handleComplete. Tracked so that unmount
+  // during the 300ms chime sequence cannot fire setState on an unmounted
+  // component or leak pending callbacks.
+  const fanfareTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const cancelledRestRef = useRef(false);
 
   // ===== Timer hook =====
@@ -188,19 +200,40 @@ export default function RestMode() {
     return () => clearTimeout(delay);
   }, [showReward]);
 
+  // ===== Fanfare timeout cleanup on unmount =====
+  // The chime sequence in handleComplete schedules up to two follow-up
+  // timeouts. If the component unmounts mid-sequence (e.g. user navigates
+  // away), clear them to avoid leaking pending callbacks.
+  useEffect(() => {
+    return () => {
+      fanfareTimeoutsRef.current.forEach(t => clearTimeout(t));
+      fanfareTimeoutsRef.current = [];
+    };
+  }, []);
+
   // ===== Completion flow =====
-  // Re-entry guard: the `completing` state already prevents double-clicks,
-  // and `completedRestRef` ensures the native complete call only fires once
-  // even if a re-render or callback retriggers handleComplete.
+  // Re-entry guard: `completionInFlightRef` is a synchronous ref-based lock
+  // that prevents two rapid clicks from both entering the async completion
+  // path before the `completing` state has a chance to commit in the UI.
+  // `completedRestRef` is the permanent settlement marker — once true, the
+  // reward has been credited and no further completion is allowed.
   const handleComplete = async () => {
-    if (completing || completedRestRef.current) return;
+    if (completionInFlightRef.current || completedRestRef.current) {
+      return;
+    }
+    completionInFlightRef.current = true;
     setCompleting(true);
     setOperationError('');
-    // Play completion fanfare
+    // Play completion fanfare. Track the timeouts so unmount during the
+    // 300ms sequence cannot leak pending callbacks.
     if (!isMuted) {
       playChime(523, 0.2);
-      setTimeout(() => playChime(659, 0.2), 150);
-      setTimeout(() => playChime(784, 0.3), 300);
+      fanfareTimeoutsRef.current.push(
+        setTimeout(() => playChime(659, 0.2), 150),
+      );
+      fanfareTimeoutsRef.current.push(
+        setTimeout(() => playChime(784, 0.3), 300),
+      );
     }
 
     // 完成时完全终止背景音乐
@@ -217,6 +250,9 @@ export default function RestMode() {
         setRewardBadgeTitle(result.achievement === 'health_guardian' ? '健康守护者' : null);
         completedRestRef.current = true;
       } catch {
+        // Release the in-flight lock so the user can tap "重试解锁".
+        // `completedRestRef` stays false — settlement has not happened.
+        completionInFlightRef.current = false;
         setOperationError('解锁失败，休息记录尚未提交，请点击重试。');
         setCompleting(false);
         return;
@@ -231,6 +267,9 @@ export default function RestMode() {
           !beforeAchievements.find(before => before.id === achievement.id)?.unlocked,
       );
       setRewardBadgeTitle(newlyUnlocked?.title ?? null);
+      // Web path also marks settlement so re-entry is blocked identically
+      // to the native path.
+      completedRestRef.current = true;
     }
     setShowReward(true);
     setCompleting(false);

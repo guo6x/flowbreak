@@ -26,6 +26,7 @@ jobs:
           cache: gradle
       - uses: android-actions/setup-android@v3
       - run: npm ci
+      - run: npm test
       - run: npm run build
       - run: npx cap sync android
       - run: ./gradlew testPlayDebugUnitTest testDomesticDebugUnitTest lintPlayDebug lintDomesticDebug assemblePlayDebug assembleDomesticDebug --stacktrace
