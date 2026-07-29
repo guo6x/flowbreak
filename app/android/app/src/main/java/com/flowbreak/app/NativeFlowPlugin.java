@@ -219,7 +219,7 @@ public class NativeFlowPlugin extends Plugin {
         JSObject result = restCoordinator.requestEmergencyUnlock(
                 prefs(), FlowRepository.get(getContext())
         );
-        if (result.optBool("allowed")) {
+        if (result.optBoolean("allowed")) {
             try {
                 serviceController.sendAction(FlowForegroundService.ACTION_EMERGENCY);
             } catch (Exception ignored) { }

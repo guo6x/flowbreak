@@ -247,7 +247,7 @@ public final class NativeFlowDataManager {
      * 顺序：先标记 dataErasing+停止监控+停止服务 -> 清 DB -> 删 exports/crashes -> clear prefs。
      * 失败时回滚 dataErasing=false。
      */
-    public void clearLocalData(SharedPreferences prefs, NativeFlowServiceController serviceController) {
+    public void clearLocalData(SharedPreferences prefs, NativeFlowServiceController serviceController) throws Exception {
         if (!prefs.edit()
                 .putBoolean("dataErasing", true)
                 .putBoolean("monitoringEnabled", false)
