@@ -56,7 +56,7 @@
             android:theme="@style/AppTheme.NoActionBar" />
 
         <service
-            android:name=".FlowForegroundService"
+            android:name="com.flowbreak.app.FlowForegroundService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="specialUse">

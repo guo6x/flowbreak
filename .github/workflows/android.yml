@@ -35,12 +35,33 @@ jobs:
         working-directory: app/android
         shell: bash
         run: |
-          play_manifest="app/build/intermediates/merged_manifests/playDebug/processPlayDebugManifest/AndroidManifest.xml"
-          domestic_manifest="app/build/intermediates/merged_manifests/domesticDebug/processDomesticDebugManifest/AndroidManifest.xml"
+          set -e
+          play_manifest=$(find app/build/intermediates -path "*merged_manifests*playDebug*" -name AndroidManifest.xml | head -1)
+          domestic_manifest=$(find app/build/intermediates -path "*merged_manifests*domesticDebug*" -name AndroidManifest.xml | head -1)
+          echo "Play manifest:     $play_manifest"
+          echo "Domestic manifest: $domestic_manifest"
+          test -n "$play_manifest"
+          test -n "$domestic_manifest"
           test -f "$play_manifest"
           test -f "$domestic_manifest"
-          ! grep -q "FlowAccessibilityService" "$play_manifest"
-          grep -q "FlowAccessibilityService" "$domestic_manifest"
+
+          # --- Shared foreground-service assertions (both channels) ---
+          for manifest in "$play_manifest" "$domestic_manifest"; do
+            echo "Checking $manifest"
+            grep -q 'com.flowbreak.app.FlowForegroundService' "$manifest"
+            grep -q 'android:foregroundServiceType="specialUse"' "$manifest"
+            grep -q 'android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE' "$manifest"
+            grep -q 'android.permission.FOREGROUND_SERVICE"' "$manifest"
+            grep -q 'android.permission.FOREGROUND_SERVICE_SPECIAL_USE' "$manifest"
+          done
+
+          # --- Channel-specific assertions ---
+          # Play channel must NOT include the accessibility service.
+          ! grep -q 'FlowAccessibilityService' "$play_manifest"
+          # Domestic channel must include the accessibility service.
+          grep -q 'com.flowbreak.app.FlowAccessibilityService' "$domestic_manifest"
+
+          echo "All manifest checks passed."
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

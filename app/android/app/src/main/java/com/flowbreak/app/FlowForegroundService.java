@@ -1,5 +1,6 @@
 package com.flowbreak.app;
 
+import android.annotation.SuppressLint;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.KeyguardManager;
@@ -13,6 +14,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.content.pm.ServiceInfo;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
@@ -36,6 +38,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
+import androidx.core.app.ServiceCompat;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -198,10 +201,39 @@ public class FlowForegroundService extends Service {
             load();
         }
 
-        startForeground(SERVICE_NOTIFICATION_ID, serviceNotification());
+        promoteToForeground();
         handler.removeCallbacks(monitor);
         handler.post(monitor);
         return START_STICKY;
+    }
+
+    /**
+     * Promote this service to foreground with the explicit special-use type.
+     *
+     * Android 14 (API 34) requires the foreground service type to be passed
+     * at runtime; older versions keep the original two-argument behaviour.
+     * The merged manifests for both Play and Domestic channels declare
+     * foregroundServiceType="specialUse" and the matching
+     * FOREGROUND_SERVICE_TYPE_SPECIAL_USE permission, which CI verifies
+     * after every build.
+     */
+    // Android Lint may associate this call with the wrong service declaration
+    // when services are split across source-set manifests. The merged manifests
+    // are verified in CI to contain foregroundServiceType="specialUse".
+    @SuppressLint("ForegroundServiceType")
+    private void promoteToForeground() {
+        Notification notification = serviceNotification();
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            ServiceCompat.startForeground(
+                    this,
+                    SERVICE_NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            );
+        } else {
+            startForeground(SERVICE_NOTIFICATION_ID, notification);
+        }
     }
 
     private void load() {
