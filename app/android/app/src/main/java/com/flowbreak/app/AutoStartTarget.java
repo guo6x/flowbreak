@@ -1,6 +1,7 @@
 package com.flowbreak.app;
 
 import android.content.Intent;
+import java.util.Locale;
 
 /**
  * 厂商自启动设置页入口解析。
@@ -33,31 +34,33 @@ public final class AutoStartTarget {
     }
 
     /**
-     * 根据厂商名称（小写）返回自启动设置页候选入口列表。
+     * 根据厂商名称返回自启动设置页候选入口列表。
+     * 内部统一转小写匹配，调用方传入原始 Build.MANUFACTURER 或小写均可。
      * 未知厂商返回空数组。调用方需逐个 try startActivity，失败后回退到应用详情页。
      *
      * 顺序与原 NativeFlowPlugin.autoStartTargets() 完全一致。
      */
     public static AutoStartTarget[] forManufacturer(String manufacturer) {
         if (manufacturer == null) return new AutoStartTarget[0];
+        String m = manufacturer.toLowerCase(Locale.ROOT);
 
         // 小米 / 红米 / 黑鲨（JoyUI 已并入 MIUI 体系，共享 Action 入口）
-        if (manufacturer.contains("xiaomi") || manufacturer.contains("redmi")
-                || manufacturer.contains("blackshark")) {
+        if (m.contains("xiaomi") || m.contains("redmi")
+                || m.contains("blackshark")) {
             return new AutoStartTarget[]{
                     AutoStartTarget.action("miui.intent.action.OP_AUTO_START"),
                     AutoStartTarget.action("miui.intent.action.POWER_HIDE_MODE_APP_LIST_MANAGER")
             };
         }
         // 华为 EMUI
-        if (manufacturer.contains("huawei")) {
+        if (m.contains("huawei")) {
             return new AutoStartTarget[]{
                     AutoStartTarget.action("huawei.intent.action.HSM_BOOTAPP_MANAGER"),
                     AutoStartTarget.action("huawei.intent.action.PROTECTED_APPS")
             };
         }
         // 荣耀 MagicOS（独立后入口与 EMUI 不同，先试 hihonor 私有 Action，回退到 EMUI 入口）
-        if (manufacturer.contains("honor") || manufacturer.contains("hihonor")) {
+        if (m.contains("honor") || m.contains("hihonor")) {
             return new AutoStartTarget[]{
                     AutoStartTarget.action("com.hihonor.manager.intent.action.APP_BOOTUP_MANAGER"),
                     AutoStartTarget.action("huawei.intent.action.HSM_BOOTAPP_MANAGER"),
@@ -65,8 +68,8 @@ public final class AutoStartTarget {
             };
         }
         // OPPO / 一加 / realme（ColorOS 12+ 宿主包名改为 oplus，老版为 coloros / oppo）
-        if (manufacturer.contains("oppo") || manufacturer.contains("realme")
-                || manufacturer.contains("oneplus") || manufacturer.contains("oplus")) {
+        if (m.contains("oppo") || m.contains("realme")
+                || m.contains("oneplus") || m.contains("oplus")) {
             return new AutoStartTarget[]{
                     AutoStartTarget.component("com.oplus.safecenter",
                             "com.oplus.safecenter.permission.startup.StartupAppListActivity"),
@@ -79,7 +82,7 @@ public final class AutoStartTarget {
             };
         }
         // vivo / iQOO（OriginOS / FuntouchOS）
-        if (manufacturer.contains("vivo") || manufacturer.contains("iqoo")) {
+        if (m.contains("vivo") || m.contains("iqoo")) {
             return new AutoStartTarget[]{
                     AutoStartTarget.component("com.vivo.permissionmanager",
                             "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"),
@@ -90,7 +93,7 @@ public final class AutoStartTarget {
             };
         }
         // 魅族 Flyme
-        if (manufacturer.contains("meizu")) {
+        if (m.contains("meizu")) {
             return new AutoStartTarget[]{
                     AutoStartTarget.component("com.meizu.safe",
                             "com.meizu.safe.permission.SmartBGActivity"),
@@ -99,7 +102,7 @@ public final class AutoStartTarget {
             };
         }
         // 三星 One UI（无"自启动"概念，引导到 Smart Manager / 设备维护，多版本兜底）
-        if (manufacturer.contains("samsung")) {
+        if (m.contains("samsung")) {
             return new AutoStartTarget[]{
                     AutoStartTarget.component("com.samsung.android.lool",
                             "com.samsung.android.lool.SmartManagerDetail"),
@@ -110,14 +113,14 @@ public final class AutoStartTarget {
             };
         }
         // 乐视 EUI（含 leeco 别名）
-        if (manufacturer.contains("letv") || manufacturer.contains("leeco")) {
+        if (m.contains("letv") || m.contains("leeco")) {
             return new AutoStartTarget[]{
                     AutoStartTarget.component("com.letv.android.letvsafe",
                             "com.letv.android.letvsafe.permission.PermissionTopActivity")
             };
         }
         // 华硕 ZenUI
-        if (manufacturer.contains("asus")) {
+        if (m.contains("asus")) {
             return new AutoStartTarget[]{
                     AutoStartTarget.component("com.asus.mobilemanager",
                             "com.asus.mobilemanager.entry.FunctionActivity"),
@@ -126,7 +129,7 @@ public final class AutoStartTarget {
             };
         }
         // 中兴 / 努比亚（MyOS / nubia UI）
-        if (manufacturer.contains("zte") || manufacturer.contains("nubia")) {
+        if (m.contains("zte") || m.contains("nubia")) {
             return new AutoStartTarget[]{
                     AutoStartTarget.component("com.zte.heartyservices",
                             "com.zte.heartyservices.startupmanager.BootUpMgrActivity"),
@@ -134,7 +137,7 @@ public final class AutoStartTarget {
             };
         }
         // 联想 / 摩托罗拉（ZUI；摩托罗拉接近原生，主要靠电池优化白名单）
-        if (manufacturer.contains("lenovo") || manufacturer.contains("motorola")) {
+        if (m.contains("lenovo") || m.contains("motorola")) {
             return new AutoStartTarget[]{
                     AutoStartTarget.component("com.lenovo.guardhouse",
                             "com.lenovo.guardhouse.autoboot.AutoBootActivity")
