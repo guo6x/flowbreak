@@ -1,10 +1,12 @@
 // src/pages/RestMode.tsx
 // PRD 2.3.2 + 6.2.3 休息引导全屏页面
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Eye, StretchHorizontal, Wind, ChevronLeft, ChevronRight, Check, Play, Pause } from 'lucide-react';
+import { X, Eye, StretchHorizontal, Wind, ChevronLeft, ChevronRight, Check, Play, Pause, Volume2, VolumeX } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
+import { Capacitor } from '@capacitor/core';
+import { NativeFlow } from '../backend/nativeFlow';
 
 // Lazy singleton AudioContext to prevent leaks
 let globalAudioCtx: AudioContext | null = null;
@@ -13,6 +15,187 @@ function getAudioCtx() {
     globalAudioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
   }
   return globalAudioCtx;
+}
+
+const themeGlows: Record<number, { colors: string[]; baseBg: string }> = {
+  0: {
+    baseBg: 'linear-gradient(135deg, #0f3014 0%, #1b4d22 50%, #2d6a4f 100%)',
+    colors: ['rgba(76, 175, 80, 0.45)', 'rgba(129, 199, 132, 0.35)', 'rgba(0, 77, 64, 0.4)']
+  },
+  1: {
+    baseBg: 'linear-gradient(135deg, #0a1f44 0%, #0d3263 50%, #154c79 100%)',
+    colors: ['rgba(0, 172, 193, 0.45)', 'rgba(63, 81, 181, 0.35)', 'rgba(128, 222, 234, 0.3)']
+  },
+  2: {
+    baseBg: 'linear-gradient(135deg, #212529 0%, #343a40 50%, #495057 100%)',
+    colors: ['rgba(224, 224, 224, 0.25)', 'rgba(159, 168, 218, 0.35)', 'rgba(55, 71, 79, 0.45)']
+  },
+  3: {
+    baseBg: 'linear-gradient(135deg, #2b0f1a 0%, #4a1228 50%, #5c1c38 100%)',
+    colors: ['rgba(244, 143, 177, 0.45)', 'rgba(206, 147, 216, 0.35)', 'rgba(255, 224, 130, 0.3)']
+  },
+  4: {
+    baseBg: 'linear-gradient(135deg, #371200 0%, #571e04 50%, #7d2d0b 100%)',
+    colors: ['rgba(255, 183, 77, 0.45)', 'rgba(255, 87, 34, 0.35)', 'rgba(103, 58, 183, 0.3)']
+  }
+};
+
+class AmbientPad {
+  private ctx: AudioContext | null = null;
+  private oscs: OscillatorNode[] = [];
+  private oscGains: GainNode[] = [];
+  private filter: BiquadFilterNode | null = null;
+  private masterGain: GainNode | null = null;
+  private lfo: OscillatorNode | null = null;
+  private lfoGain: GainNode | null = null;
+  private isPlaying: boolean = false;
+  private isMuted: boolean = false;
+  private isPaused: boolean = false;
+  private targetVolume: number = 0.08;
+
+  constructor() {}
+
+  start() {
+    if (this.isPlaying) return;
+    try {
+      this.ctx = getAudioCtx();
+      if (this.ctx.state === 'suspended') {
+        this.ctx.resume().catch(() => {});
+      }
+
+      this.masterGain = this.ctx.createGain();
+      this.masterGain.gain.setValueAtTime(0, this.ctx.currentTime);
+
+      this.filter = this.ctx.createBiquadFilter();
+      this.filter.type = 'lowpass';
+      this.filter.frequency.setValueAtTime(240, this.ctx.currentTime);
+      this.filter.Q.setValueAtTime(1, this.ctx.currentTime);
+
+      const freqs = [110, 164.81, 220, 277.18];
+      const types: OscillatorType[] = ['triangle', 'sine', 'sine', 'sine'];
+
+      freqs.forEach((freq, idx) => {
+        if (!this.ctx || !this.filter) return;
+        const osc = this.ctx.createOscillator();
+        const oscGain = this.ctx.createGain();
+
+        osc.type = types[idx] || 'sine';
+        osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+
+        if (idx > 0) {
+          osc.detune.setValueAtTime((Math.random() - 0.5) * 8, this.ctx.currentTime);
+        }
+
+        const baseGain = idx === 0 ? 0.35 : idx === 1 ? 0.25 : idx === 2 ? 0.2 : 0.15;
+        oscGain.gain.setValueAtTime(baseGain, this.ctx.currentTime);
+
+        osc.connect(oscGain);
+        oscGain.connect(this.filter);
+        osc.start(this.ctx.currentTime);
+
+        this.oscs.push(osc);
+        this.oscGains.push(oscGain);
+      });
+
+      this.lfo = this.ctx.createOscillator();
+      this.lfo.frequency.setValueAtTime(0.08, this.ctx.currentTime);
+
+      this.lfoGain = this.ctx.createGain();
+      this.lfoGain.gain.setValueAtTime(35, this.ctx.currentTime);
+
+      this.lfo.connect(this.lfoGain);
+      this.lfoGain.connect(this.filter.frequency);
+      this.lfo.start(this.ctx.currentTime);
+
+      this.filter.connect(this.masterGain);
+      this.masterGain.connect(this.ctx.destination);
+
+      const currentVol = (this.isMuted || this.isPaused) ? 0 : this.targetVolume;
+      this.masterGain.gain.linearRampToValueAtTime(currentVol, this.ctx.currentTime + 1.5);
+
+      this.isPlaying = true;
+    } catch (e) {
+      console.error('Failed to start AmbientPad:', e);
+    }
+  }
+
+  setMute(mute: boolean) {
+    this.isMuted = mute;
+    this.updateGain();
+  }
+
+  setPause(paused: boolean) {
+    this.isPaused = paused;
+    this.updateGain();
+  }
+
+  private updateGain() {
+    if (!this.masterGain || !this.ctx) return;
+    const target = (this.isMuted || this.isPaused) ? 0 : this.targetVolume;
+    try {
+      this.masterGain.gain.cancelScheduledValues(this.ctx.currentTime);
+      this.masterGain.gain.setValueAtTime(this.masterGain.gain.value, this.ctx.currentTime);
+      this.masterGain.gain.linearRampToValueAtTime(target, this.ctx.currentTime + 0.8);
+    } catch (e) {
+      console.error('Failed to update Gain:', e);
+    }
+  }
+
+  stop() {
+    if (!this.isPlaying) return;
+    try {
+      const ctx = this.ctx;
+      const masterGain = this.masterGain;
+      const filter = this.filter;
+      const lfo = this.lfo;
+      const lfoGain = this.lfoGain;
+      const oscs = this.oscs;
+      const oscGains = this.oscGains;
+
+      this.masterGain = null;
+      this.filter = null;
+      this.lfo = null;
+      this.lfoGain = null;
+      this.oscs = [];
+      this.oscGains = [];
+      this.isPlaying = false;
+
+      if (masterGain && ctx) {
+        masterGain.gain.cancelScheduledValues(ctx.currentTime);
+        masterGain.gain.setValueAtTime(masterGain.gain.value, ctx.currentTime);
+        masterGain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.3);
+      }
+
+      const scheduledStop = () => {
+        oscs.forEach(osc => {
+          try { osc.stop(); } catch {}
+          try { osc.disconnect(); } catch {}
+        });
+
+        oscGains.forEach(g => {
+          try { g.disconnect(); } catch {}
+        });
+
+        if (lfo) {
+          try { lfo.stop(); } catch {}
+          try { lfo.disconnect(); } catch {}
+        }
+        if (lfoGain) {
+          try { lfoGain.disconnect(); } catch {}
+        }
+        if (filter) {
+          try { filter.disconnect(); } catch {}
+        }
+        if (masterGain) {
+          try { masterGain.disconnect(); } catch {}
+        }
+      };
+
+      setTimeout(scheduledStop, 350);
+    } catch (e) {
+      console.error('Failed to stop AmbientPad:', e);
+    }
+  }
 }
 
 function lerpColor(c1: string, c2: string, t: number): string {
@@ -52,14 +235,6 @@ const activities = [
   },
 ];
 
-const bgGradients = [
-  'linear-gradient(135deg, #1B5E20 0%, #2E7D32 30%, #43A047 60%, #66BB6A 100%)', // 森林
-  'linear-gradient(135deg, #0D47A1 0%, #1565C0 30%, #1E88E5 60%, #42A5F5 100%)', // 海洋
-  'linear-gradient(135deg, #37474F 0%, #546E7A 30%, #78909C 60%, #B0BEC5 100%)', // 山脉
-  'linear-gradient(135deg, #880E4F 0%, #AD1457 30%, #E91E63 60%, #F48FB1 100%)', // 花园
-  'linear-gradient(135deg, #E65100 0%, #EF6C00 30%, #FB8C00 60%, #FFB74D 100%)', // 日落
-];
-
 const themedParticles: Record<number, string[]> = {
   0: ['🍃', '🌿', '🪴', '🍂', '🌱', '🪵', '🌳'],
   1: ['🫧', '🐚', '🪸', '💧', '🫧', '🌊', '🐠'],
@@ -72,24 +247,45 @@ const calmColor = '#A5D6A7';
 
 export default function RestMode() {
   const navigate = useNavigate();
+  const location = useLocation();
   const profile = useStore(s => s.profile);
   const completeRest = useStore(s => s.completeRestActivity);
+  const setBlockState = useStore(s => s.setBlockState);
 
   function useChime() {
     const playChime = (freq: number, duration: number) => {
       try {
         const ctx = getAudioCtx();
-        if (ctx.state === 'suspended') ctx.resume();
+        if (ctx.state === 'suspended') ctx.resume().catch(() => {});
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
+
+        const chimeFilter = ctx.createBiquadFilter();
+        chimeFilter.type = 'lowpass';
+        chimeFilter.frequency.setValueAtTime(1200, ctx.currentTime);
+
         osc.connect(gain);
-        gain.connect(ctx.destination);
+        gain.connect(chimeFilter);
+        chimeFilter.connect(ctx.destination);
+
         osc.type = 'sine';
-        osc.frequency.value = freq;
-        gain.gain.setValueAtTime(0.15, ctx.currentTime);
+        osc.frequency.setValueAtTime(freq, ctx.currentTime);
+
+        // 20ms 线性淡入，消去原版中因音频瞬间开启产生的“咔哒”瞬间音
+        gain.gain.setValueAtTime(0, ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.12, ctx.currentTime + 0.02);
+
         gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+
         osc.start(ctx.currentTime);
         osc.stop(ctx.currentTime + duration);
+        osc.onended = () => {
+          try {
+            osc.disconnect();
+            gain.disconnect();
+            chimeFilter.disconnect();
+          } catch { /* ignore */ }
+        };
       } catch { /* audio not available */ }
     };
     return { playChime };
@@ -97,31 +293,143 @@ export default function RestMode() {
 
   const { playChime } = useChime();
 
-  const [activityIdx, setActivityIdx] = useState(0);
+  const initialActivityIdx = (location.state as { activityIdx?: number })?.activityIdx ?? 0;
+  const isNative = Capacitor.isNativePlatform();
+  const [activityIdx, setActivityIdx] = useState(initialActivityIdx);
   const [timeLeft, setTimeLeft] = useState(profile.restDuration || 180);
+  const [restEndsAt, setRestEndsAt] = useState<number | null>(null);
+  const [restReady, setRestReady] = useState(!isNative);
   const [isPaused, setIsPaused] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
   const [stepIdx, setStepIdx] = useState(0);
   const [showReward, setShowReward] = useState(false);
   const [slideDirection, setSlideDirection] = useState<1 | -1>(1);
   const [stepProgress, setStepProgress] = useState(0);
-  const [rewardNumber, setRewardNumber] = useState(0);
+  const [rewardBadgeTitle, setRewardBadgeTitle] = useState<string | null>(null);
   const [rewardContentVisible, setRewardContentVisible] = useState(false);
+  const [completing, setCompleting] = useState(false);
+  const [operationError, setOperationError] = useState('');
   const stepIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const completedRestRef = useRef(false);
+  const cancelledRestRef = useRef(false);
+
+  useEffect(() => {
+    if (!isNative) return;
+    let active = true;
+    const restoreOrStartRest = async () => {
+      try {
+        await NativeFlow.beginRest();
+        const state = await NativeFlow.getBlockState();
+        if (!active) return;
+        const requiredSeconds = state.restRequiredSeconds || profile.restDuration || 180;
+        const startedAt = state.restStartedAt || Date.now();
+        const endsAt = startedAt + requiredSeconds * 1000;
+        setRestEndsAt(endsAt);
+        setTimeLeft(Math.max(0, Math.ceil((endsAt - Date.now()) / 1000)));
+        setRestReady(true);
+      } catch {
+        if (active) setOperationError('休息模式启动失败，请返回后重试。');
+      }
+    };
+    void restoreOrStartRest();
+    return () => {
+      active = false;
+      if (!completedRestRef.current && !cancelledRestRef.current) {
+        void NativeFlow.cancelRest().catch(() => {});
+      }
+    };
+  }, []);
+
+  const ambientPadRef = useRef<AmbientPad | null>(null);
+  useEffect(() => {
+    // AmbientPad 必须在 useEffect 中创建，不能在渲染阶段 new
+    // React 18 并发渲染可能丢弃渲染树，导致 AudioContext 和 oscillator 节点泄漏
+    ambientPadRef.current = new AmbientPad();
+    return () => {
+      if (ambientPadRef.current) {
+        ambientPadRef.current.stop();
+        ambientPadRef.current = null;
+      }
+    };
+  }, []);
 
   const activity = activities[activityIdx];
   const Icon = activity.icon;
+  const ambientParticles = useMemo(
+    () => (themedParticles[profile.selectedBackground] || themedParticles[0]).map((emoji) => ({
+      emoji,
+      x: (Math.random() - 0.5) * 60,
+      rotate: Math.random() * 360,
+      duration: 8 + Math.random() * 7,
+      delay: Math.random() * 5,
+      left: 8 + Math.random() * 84,
+    })),
+    [profile.selectedBackground],
+  );
+  const confetti = useMemo(
+    () => Array.from({ length: 25 }, (_, i) => ({
+      rotate: 720 + Math.random() * 360,
+      duration: 2.5 + Math.random() * 2,
+      delay: Math.random() * 0.6,
+      left: 8 + Math.random() * 84,
+      color: [
+        '#4CAF50', '#2196F3', '#FF9800', '#F44336', '#9C27B0', '#FFEB3B',
+        '#00BCD4', '#E91E63', '#8BC34A', '#FF5722', '#3F51B5', '#FFC107',
+      ][i % 12],
+    })),
+    [],
+  );
 
-  // Resume context on mount
+  // 音频生命周期管理
   useEffect(() => {
-    getAudioCtx().resume().catch(() => {});
+    const pad = ambientPadRef.current;
+    if (pad) {
+      pad.start();
+      pad.setMute(isMuted);
+      pad.setPause(isPaused);
+    }
+    return () => {
+      if (pad) {
+        pad.stop();
+      }
+    };
   }, []);
 
-  // Countdown timer
+  // 监听暂停状态变化
   useEffect(() => {
-    if (timeLeft <= 0 || showReward || isPaused) return;
+    if (ambientPadRef.current) {
+      ambientPadRef.current.setPause(isPaused);
+    }
+  }, [isPaused]);
+
+  // 监听静音状态变化
+  useEffect(() => {
+    if (ambientPadRef.current) {
+      ambientPadRef.current.setMute(isMuted);
+    }
+  }, [isMuted]);
+
+  // 当进入奖励页面时，确保背景音乐完全淡出终止
+  useEffect(() => {
+    if (showReward && ambientPadRef.current) {
+      ambientPadRef.current.stop();
+    }
+  }, [showReward]);
+
+  // On Android the native service owns the start timestamp. Rendering derives
+  // from wall-clock time so backgrounding the WebView cannot shorten a rest.
+  useEffect(() => {
+    if (showReward || !restReady || (isPaused && !isNative)) return;
+    if (isNative && restEndsAt !== null) {
+      const update = () => setTimeLeft(Math.max(0, Math.ceil((restEndsAt - Date.now()) / 1000)));
+      update();
+      const timer = setInterval(update, 1000);
+      return () => clearInterval(timer);
+    }
+    if (timeLeft <= 0) return;
     const timer = setTimeout(() => setTimeLeft(t => t - 1), 1000);
     return () => clearTimeout(timer);
-  }, [timeLeft, showReward, isPaused]);
+  }, [timeLeft, showReward, isPaused, isNative, restEndsAt, restReady]);
 
   // Cycle through steps every 6 seconds
   useEffect(() => {
@@ -132,7 +440,7 @@ export default function RestMode() {
     return () => {
       if (stepIntervalRef.current) clearInterval(stepIntervalRef.current);
     };
-  }, [activity.steps.length, showReward, isPaused]);
+  }, [activity.steps.length, showReward, isPaused, activityIdx]);
 
   // Step progress bar (fills over 6 seconds, resets when step changes)
   useEffect(() => {
@@ -149,10 +457,25 @@ export default function RestMode() {
 
   // Chime on step change
   useEffect(() => {
-    if (!showReward) {
+    if (!showReward && !isMuted) {
       playChime(500 + stepIdx * 40, 0.25);
     }
-  }, [stepIdx]);
+    // 步骤切换时轻震动，帮助用户感知节奏变化
+    if (!showReward && !isPaused && typeof navigator !== 'undefined' && navigator.vibrate) {
+      try { navigator.vibrate(30); } catch { /* ignore */ }
+    }
+  }, [stepIdx, showReward, isMuted, isPaused]);
+
+  // 呼吸节奏震动：4 秒周期，吸气开始时轻震一下，与呼吸圆圈动画同步
+  useEffect(() => {
+    if (showReward || isPaused) return;
+    const interval = setInterval(() => {
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        try { navigator.vibrate(50); } catch { /* ignore */ }
+      }
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [showReward, isPaused]);
 
   // Reward delay + counting animation
   useEffect(() => {
@@ -161,12 +484,6 @@ export default function RestMode() {
     return () => clearTimeout(delay);
   }, [showReward]);
 
-  useEffect(() => {
-    if (!rewardContentVisible || rewardNumber >= 10) return;
-    const timer = setTimeout(() => setRewardNumber(r => Math.min(r + 1, 10)), 60);
-    return () => clearTimeout(timer);
-  }, [rewardContentVisible, rewardNumber]);
-
   const formatTime = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
   const totalDuration = profile.restDuration || 180;
   const progress = 1 - timeLeft / totalDuration;
@@ -174,25 +491,90 @@ export default function RestMode() {
   // Lerped breath color from activity color to calm green
   const breathColor = useMemo(() => lerpColor(activity.color, calmColor, progress), [activity.color, progress]);
 
-  const handleComplete = () => {
+  const handleComplete = async () => {
+    if (completing) return;
+    setCompleting(true);
+    setOperationError('');
     // Play completion fanfare
-    playChime(523, 0.2);
-    setTimeout(() => playChime(659, 0.2), 150);
-    setTimeout(() => playChime(784, 0.3), 300);
-    completeRest(activity.id as 'eye' | 'stretch' | 'breathe', totalDuration);
+    if (!isMuted) {
+      playChime(523, 0.2);
+      setTimeout(() => playChime(659, 0.2), 150);
+      setTimeout(() => playChime(784, 0.3), 300);
+    }
+
+    // 完成时完全终止背景音乐
+    if (ambientPadRef.current) {
+      ambientPadRef.current.stop();
+    }
+
+    if (isNative) {
+      try {
+        const result = await NativeFlow.completeRestAndUnlock({
+          activity: activity.id as 'eye' | 'stretch' | 'breathe',
+          duration: totalDuration,
+        });
+        setBlockState('GRACE', result.graceUntil, '');
+        useStore.setState({ points: result.points, streak: result.streak });
+        setRewardBadgeTitle(result.achievement === 'health_guardian' ? '健康守护者' : null);
+        completedRestRef.current = true;
+      } catch {
+        setOperationError('解锁失败，休息记录尚未提交，请点击重试。');
+        setCompleting(false);
+        return;
+      }
+    } else {
+      setBlockState('GRACE', Date.now() + 10 * 60 * 1000, '');
+      const beforeAchievements = useStore.getState().achievements;
+      completeRest(activity.id as 'eye' | 'stretch' | 'breathe', totalDuration);
+      const afterState = useStore.getState();
+      const newlyUnlocked = afterState.achievements.find(
+        achievement => achievement.unlocked &&
+          !beforeAchievements.find(before => before.id === achievement.id)?.unlocked,
+      );
+      setRewardBadgeTitle(newlyUnlocked?.title ?? null);
+    }
     setShowReward(true);
+    setCompleting(false);
   };
 
   const handleFinish = () => {
     navigate('/dashboard');
   };
 
-  const handleClose = () => {
-    const elapsed = totalDuration - timeLeft;
-    if (elapsed >= 30) {
-      completeRest(activity.id as 'eye' | 'stretch' | 'breathe', elapsed);
+  const [closing, setClosing] = useState(false);
+  const [confirmingEarlyExit, setConfirmingEarlyExit] = useState(false);
+
+  const handleClose = async () => {
+    if (closing) return;
+    // 第一次点击：弹出二次确认
+    if (!confirmingEarlyExit) {
+      setConfirmingEarlyExit(true);
+      return;
     }
-    navigate(-1);
+    setConfirmingEarlyExit(false);
+    setClosing(true);
+    try {
+      if (isNative) {
+        await NativeFlow.cancelRest();
+        cancelledRestRef.current = true;
+      } else {
+        // Web 端：已休息 30 秒以上时记录部分休息
+        const elapsed = totalDuration - timeLeft;
+        if (elapsed >= 30) {
+          completeRest(activity.id as 'eye' | 'stretch' | 'breathe', elapsed);
+        }
+      }
+      navigate('/dashboard');
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : '退出休息模式失败，请重试。');
+    } finally {
+      setClosing(false);
+    }
+  };
+
+  const handleCancelEarlyExit = () => {
+    if (closing) return;
+    setConfirmingEarlyExit(false);
   };
 
   const switchActivity = (dir: 1 | -1) => {
@@ -206,19 +588,16 @@ export default function RestMode() {
     return (
       <div className="fixed inset-0 z-[100] bg-white flex flex-col items-center justify-center px-8 text-center overflow-hidden">
         {/* Confetti particles — larger and more colorful */}
-        {Array.from({ length: 25 }).map((_, i) => (
+        {confetti.map((item, i) => (
           <motion.div
             key={i}
             initial={{ y: -120, x: 0, opacity: 1, rotate: 0, scale: 1 }}
-            animate={{ y: '100vh', rotate: 720 + Math.random() * 360, opacity: 0, scale: 0.5 }}
-            transition={{ duration: 2.5 + Math.random() * 2, delay: Math.random() * 0.6 }}
+            animate={{ y: '100vh', rotate: item.rotate, opacity: 0, scale: 0.5 }}
+            transition={{ duration: item.duration, delay: item.delay }}
             className="absolute w-4 h-4 rounded-sm"
             style={{
-              backgroundColor: [
-                '#4CAF50', '#2196F3', '#FF9800', '#F44336', '#9C27B0', '#FFEB3B',
-                '#00BCD4', '#E91E63', '#8BC34A', '#FF5722', '#3F51B5', '#FFC107',
-              ][i % 12],
-              left: `${8 + Math.random() * 84}%`,
+              backgroundColor: item.color,
+              left: `${item.left}%`,
             }}
           />
         ))}
@@ -236,14 +615,18 @@ export default function RestMode() {
 
             <div className="flex gap-4 justify-center mb-8">
               <div className="card p-4 flex flex-col items-center">
-                <span className="text-2xl mb-1">⭐</span>
-                <span className="text-[20px] font-bold text-accent">+{rewardNumber}</span>
-                <span className="text-[11px] text-gray-500">积分</span>
+                <span className="text-2xl mb-1">⏳</span>
+                <span className="text-[16px] font-bold text-accent">10 分钟</span>
+                <span className="text-[11px] text-gray-500">访问窗口</span>
               </div>
               <div className="card p-4 flex flex-col items-center">
                 <span className="text-2xl mb-1">🛡️</span>
-                <span className="text-[14px] font-bold text-primary">健康守护者</span>
-                <span className="text-[11px] text-gray-500">徽章</span>
+                <span className="text-[14px] font-bold text-primary">
+                  {rewardBadgeTitle || '休息已记录'}
+                </span>
+                <span className="text-[11px] text-gray-500">
+                  {rewardBadgeTitle ? '新徽章' : '健康进度'}
+                </span>
               </div>
             </div>
 
@@ -257,34 +640,98 @@ export default function RestMode() {
   }
 
   // ===== Main Rest Mode =====
+  const selectedTheme = themeGlows[profile.selectedBackground] || themeGlows[0];
+
   return (
     <div
       className="fixed inset-0 z-[100] flex flex-col text-white overflow-hidden"
-      style={{ background: bgGradients[profile.selectedBackground] || bgGradients[0] }}
+      style={{ background: selectedTheme.baseBg }}
     >
+      {/* Ambient Blurry Glowing Blobs */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+        <motion.div
+          animate={{
+            x: [-40, 80, -40],
+            y: [-60, 40, -60],
+            scale: [1, 1.2, 1],
+          }}
+          transition={{
+            duration: 25,
+            repeat: Infinity,
+            ease: "easeInOut",
+          }}
+          className="absolute w-[350px] h-[350px] rounded-full"
+          style={{
+            background: selectedTheme.colors[0],
+            left: '-10%',
+            top: '15%',
+            filter: 'blur(90px)',
+          }}
+        />
+        <motion.div
+          animate={{
+            x: [40, -80, 40],
+            y: [60, -40, 60],
+            scale: [1.1, 0.9, 1.1],
+          }}
+          transition={{
+            duration: 30,
+            repeat: Infinity,
+            ease: "easeInOut",
+          }}
+          className="absolute w-[400px] h-[400px] rounded-full"
+          style={{
+            background: selectedTheme.colors[1],
+            right: '-15%',
+            bottom: '10%',
+            filter: 'blur(110px)',
+          }}
+        />
+        <motion.div
+          animate={{
+            x: [-60, 60, -60],
+            y: [40, -80, 40],
+            scale: [0.9, 1.15, 0.9],
+            opacity: [0.3, 0.6, 0.3],
+          }}
+          transition={{
+            duration: 22,
+            repeat: Infinity,
+            ease: "easeInOut",
+          }}
+          className="absolute w-[300px] h-[300px] rounded-full"
+          style={{
+            background: selectedTheme.colors[2],
+            left: '30%',
+            top: '40%',
+            filter: 'blur(100px)',
+          }}
+        />
+      </div>
+
       {/* Ambient overlay */}
-      <div className="absolute inset-0 bg-black/20" />
+      <div className="absolute inset-0 bg-black/25 z-[1]" />
 
       {/* Floating ambient particles */}
-      {(themedParticles[profile.selectedBackground] || themedParticles[0]).map((emoji, i) => (
+      {ambientParticles.map((particle, i) => (
         <motion.div
           key={i}
           animate={{
             y: ['110vh', '-10vh'],
-            x: [0, (Math.random() - 0.5) * 60],
-            rotate: [0, Math.random() * 360],
+            x: [0, particle.x],
+            rotate: [0, particle.rotate],
             opacity: [0.6, 0]
           }}
           transition={{
-            duration: 8 + Math.random() * 7,
+            duration: particle.duration,
             repeat: Infinity,
-            delay: Math.random() * 5,
+            delay: particle.delay,
             ease: 'linear'
           }}
-          className="absolute text-2xl"
-          style={{ left: `${8 + Math.random() * 84}%` }}
+          className="absolute text-2xl z-[2]"
+          style={{ left: `${particle.left}%` }}
         >
-          {emoji}
+          {particle.emoji}
         </motion.div>
       ))}
 
@@ -294,7 +741,13 @@ export default function RestMode() {
           <X size={20} />
         </button>
         <span className="text-[12px] text-white/70 font-medium">休息模式</span>
-        <div className="w-10" />
+        <button
+          onClick={() => setIsMuted(!isMuted)}
+          className="w-10 h-10 rounded-full bg-white/15 flex items-center justify-center backdrop-blur-sm active:scale-95 transition-transform"
+          aria-label={isMuted ? "取消静音" : "静音"}
+        >
+          {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+        </button>
       </div>
 
       {/* Content */}
@@ -408,12 +861,14 @@ export default function RestMode() {
       <div className="relative z-10 px-8 pb-12">
         <div className="flex items-center gap-4 mb-4">
           {/* Pause/Play Button */}
-          <button
-            onClick={() => setIsPaused(!isPaused)}
-            className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-sm shrink-0 active:scale-90 transition-transform"
-          >
-            {isPaused ? <Play size={18} fill="currentColor" /> : <Pause size={18} fill="currentColor" />}
-          </button>
+          {!isNative && (
+            <button
+              onClick={() => setIsPaused(!isPaused)}
+              className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-sm shrink-0 active:scale-90 transition-transform"
+            >
+              {isPaused ? <Play size={18} fill="currentColor" /> : <Pause size={18} fill="currentColor" />}
+            </button>
+          )}
 
           {/* Progress bar */}
           <div className="flex-1 h-1.5 bg-white/15 rounded-full overflow-hidden">
@@ -425,19 +880,50 @@ export default function RestMode() {
           </div>
         </div>
 
+        {operationError && (
+          <p className="mb-3 rounded-xl bg-white/10 px-3 py-2 text-center text-[12px] text-white">
+            {operationError}
+          </p>
+        )}
         {timeLeft <= 0 ? (
-          <motion.button
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            onClick={handleComplete}
-            className="w-full py-4 rounded-2xl bg-white text-primary font-bold text-[16px] flex items-center justify-center gap-2"
-          >
-            <Check size={20} />
-            完成休息
-          </motion.button>
+          <>
+            <motion.button
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              onClick={handleComplete}
+              disabled={completing}
+              className="w-full py-4 rounded-2xl bg-white text-primary font-bold text-[16px] flex items-center justify-center gap-2 disabled:opacity-60"
+            >
+              <Check size={20} />
+              {completing ? '正在解锁...' : operationError ? '重试解锁' : '完成休息'}
+            </motion.button>
+          </>
+        ) : confirmingEarlyExit ? (
+          <div className="w-full space-y-2">
+            <div className="rounded-2xl bg-white/10 backdrop-blur-sm px-4 py-3 text-center">
+              <p className="text-[14px] font-medium text-white">提前结束不会解锁</p>
+              <p className="text-[12px] text-white/70 mt-1">剩余 {formatTime(timeLeft)}，目标应用仍将被阻断。坚持完成才能获得 10 分钟访问窗口。</p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={handleCancelEarlyExit}
+                disabled={closing}
+                className="flex-1 py-3 rounded-xl bg-white/10 text-white text-[14px] font-medium active:bg-white/20 transition-colors disabled:opacity-50"
+              >
+                继续休息
+              </button>
+              <button
+                onClick={handleClose}
+                disabled={closing}
+                className="flex-1 py-3 rounded-xl bg-white/20 text-white text-[14px] font-medium active:bg-white/30 transition-colors disabled:opacity-50"
+              >
+                {closing ? '正在退出...' : '确认提前结束'}
+              </button>
+            </div>
+          </div>
         ) : (
-          <button onClick={handleClose} className="w-full py-3 text-white/50 text-[14px] text-center">
-            还有 {formatTime(timeLeft)}，确定提前结束吗？
+          <button onClick={handleClose} disabled={closing} className="w-full py-3 rounded-xl bg-white/10 text-white/60 text-[14px] text-center active:bg-white/20 transition-colors disabled:opacity-50">
+            {closing ? '正在退出...' : `还有 ${formatTime(timeLeft)}，提前结束（不会解锁）`}
           </button>
         )}
       </div>

@@ -1,8 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="colorPrimary">#6200EE</color>
-    <color name="colorPrimaryDark">#3700B3</color>
-    <color name="colorAccent">#03DAC5</color>
+    <color name="colorPrimary">#4CAF50</color>
+    <color name="colorPrimaryDark">#388E3C</color>
+    <color name="colorAccent">#FF9800</color>
+    <color name="colorSecondary">#2196F3</color>
+    <color name="colorError">#F44336</color>
     <color name="white">#FFFFFF</color>
     <color name="black">#000000</color>
+    <!-- 启动屏柔和背景：浅绿白，与应用主色协调 -->
+    <color name="splash_background">#F5F8F5</color>
 </resources>

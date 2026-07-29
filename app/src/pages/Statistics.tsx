@@ -3,30 +3,45 @@ import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContai
 import { Capacitor } from '@capacitor/core';
 import { getAppDistribution, getMonthStats, getTodayStats, getWeekStats } from '../backend/storage';
 import { NativeFlow } from '../backend/nativeFlow';
-import { DEFAULT_TARGET_APPS, getAppName } from '../backend/appNames';
-import { useStore } from '../hooks/useStore';
+import { getAppName } from '../backend/appNames';
 
 const PERIOD_TABS = ['今日', '本周', '本月'];
 const barColors = ['#4CAF50', '#2196F3', '#FF9800', '#9C27B0', '#F44336', '#607D8B', '#795548', '#009688'];
+type StatisticsDay = {
+  date: string;
+  totalScreenTime: number;
+  restCount: number;
+  interventionCount: number;
+};
 
 export default function Statistics() {
   const [period, setPeriod] = useState(1);
-  const markStatsViewed = useStore(s => s.markStatsViewed);
   const [nativeApps, setNativeApps] = useState<Array<{ name: string; value: number }>>([]);
+  const [nativeHistory, setNativeHistory] = useState<StatisticsDay[] | null>(null);
 
   useEffect(() => {
-    const today = new Date().toISOString().split('T')[0];
-    const lastView = localStorage.getItem('last_stats_view_date');
-    if (lastView !== today) {
-      markStatsViewed();
-      localStorage.setItem('last_stats_view_date', today);
+    if (!Capacitor.isNativePlatform()) return;
+    const days = period === 0 ? 1 : period === 1 ? 7 : 30;
+    let active = true;
+    setNativeHistory(null);
+    NativeFlow.getStatisticsHistory({ days }).then(result => {
+      if (!active) return;
+      setNativeHistory(result.days.map(day => ({
+        date: day.date,
+        totalScreenTime: Math.max(0, day.screenTimeSeconds),
+        restCount: Math.max(0, day.restCount),
+        interventionCount: Math.max(0, day.interventionCount),
+      })));
+    }).catch(() => {
+      if (active) setNativeHistory(null);
+    });
+    if (period !== 0) {
+      setNativeApps([]);
+      return () => { active = false; };
     }
-  }, [markStatsViewed]);
-
-  useEffect(() => {
-    if (!Capacitor.isNativePlatform() || period !== 0) return;
     NativeFlow.getAppUsageList().then(result => {
-      const targetAppsList = result.apps.filter(a => DEFAULT_TARGET_APPS.includes(a.packageName));
+      if (!active) return;
+      const targetAppsList = result.apps;
       const total = targetAppsList.reduce((sum, a) => sum + a.totalTimeSeconds, 0);
       if (total === 0) {
         setNativeApps([]);
@@ -46,35 +61,36 @@ export default function Statistics() {
       }
       setNativeApps(mapped);
     }).catch(() => {});
+    return () => { active = false; };
   }, [period]);
 
-  const sourceData = useMemo(() => {
+  const sourceData = useMemo<StatisticsDay[]>(() => {
+    if (Capacitor.isNativePlatform() && nativeHistory) return nativeHistory;
     if (period === 0) return [getTodayStats()];
     if (period === 2) return getMonthStats();
     return getWeekStats();
-  }, [period]);
+  }, [period, nativeHistory]);
 
   const chartData = sourceData.map(d => ({
     day: d.date.slice(5),
-    screenTime: Math.round(d.totalScreenTime / 60),
+    screenTime: Math.floor(d.totalScreenTime / 60),
     rest: d.restCount,
   }));
 
   const useNative = Capacitor.isNativePlatform() && nativeApps.length > 0;
 
-  const appDistribution = useMemo(() => {
-    if (useNative) return nativeApps;
-    const dist = getAppDistribution();
-    if (dist.length === 0) return [{ name: '暂无数据', value: 100 }];
-    return dist.slice(0, 8);
-  }, [period, useNative, nativeApps]);
-
-  const maxAppValue = Math.max(...appDistribution.map(d => d.value), 1);
-
   const totalScreenSeconds = sourceData.reduce((a, b) => a + b.totalScreenTime, 0);
   const totalRest = sourceData.reduce((a, b) => a + b.restCount, 0);
   const totalIntervention = sourceData.reduce((a, b) => a + b.interventionCount, 0);
-  const avgMinutes = sourceData.length > 0 ? Math.round(totalScreenSeconds / sourceData.length / 60) : 0;
+  const avgMinutes = sourceData.length > 0 ? Math.floor(totalScreenSeconds / sourceData.length / 60) : 0;
+
+  const appDistribution = useMemo(() => {
+    if (useNative) return nativeApps;
+    const dist = getAppDistribution();
+    return dist.slice(0, 8);
+  }, [period, useNative, nativeApps, totalScreenSeconds]);
+
+  const maxAppValue = Math.max(...appDistribution.map(d => d.value), 1);
 
   return (
     <div className="flex flex-col pb-24 px-5 pt-6 no-scrollbar overflow-y-auto min-h-dvh">
@@ -122,20 +138,26 @@ export default function Statistics() {
           </div>
         ) : (
           <div className="h-44">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData}>
-                <defs>
-                  <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#4CAF50" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#4CAF50" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#9E9E9E' }} axisLine={false} tickLine={false} />
-                <YAxis hide />
-                <Tooltip contentStyle={{ backgroundColor: '#fff', border: '1px solid #E0E0E0', borderRadius: 12, fontSize: 12 }} />
-                <Area type="monotone" dataKey="screenTime" stroke="#4CAF50" strokeWidth={2.5} fill="url(#grad)" />
-              </AreaChart>
-            </ResponsiveContainer>
+            {totalScreenSeconds === 0 ? (
+              <div className="flex items-center justify-center h-full">
+                <p className="text-[14px] text-gray-400">暂无使用数据</p>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartData}>
+                  <defs>
+                    <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#4CAF50" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#4CAF50" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#9E9E9E' }} axisLine={false} tickLine={false} />
+                  <YAxis hide />
+                  <Tooltip contentStyle={{ backgroundColor: '#fff', border: '1px solid #E0E0E0', borderRadius: 12, fontSize: 12 }} />
+                  <Area type="monotone" dataKey="screenTime" stroke="#4CAF50" strokeWidth={2.5} fill="url(#grad)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
           </div>
         )}
       </div>
@@ -202,7 +224,7 @@ export default function Statistics() {
       <div className="card p-4">
         <h3 className="text-[16px] font-bold text-gray-900 mb-3">详细数据</h3>
         {[
-          { label: '总目标应用时间', value: totalScreenSeconds >= 3600 ? `${(totalScreenSeconds / 3600).toFixed(1)}h` : `${Math.round(totalScreenSeconds / 60)}分`, color: '#4CAF50' },
+          { label: '总目标应用时间', value: totalScreenSeconds >= 3600 ? `${(totalScreenSeconds / 3600).toFixed(1)}小时` : `${Math.floor(totalScreenSeconds / 60)}分钟`, color: '#4CAF50' },
           { label: '总休息次数', value: `${totalRest}次`, color: '#2196F3' },
           { label: '总干预次数', value: `${totalIntervention}次`, color: '#F44336' },
           { label: '日均目标应用时间', value: `${avgMinutes}分钟`, color: '#FF9800' },

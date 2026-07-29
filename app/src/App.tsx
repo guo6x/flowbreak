@@ -1,12 +1,13 @@
 // src/App.tsx
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { MotionConfig } from 'framer-motion';
 import { Capacitor } from '@capacitor/core';
 import { useStore } from './hooks/useStore';
-import { calculateFatigueScore, getInterventionLevel, InterventionLevel } from './backend/fatigueEngine';
-import { startReminderLoop } from './backend/reminderScheduler';
+import { getLevelByPercent, InterventionLevel } from './backend/fatigueEngine';
 import { NativeFlow } from './backend/nativeFlow';
-import { DEFAULT_TARGET_APPS, getAppName } from './backend/appNames';
+import { getAppName } from './backend/appNames';
+import { exportLegacyPayload } from './backend/storage';
 import InterventionOverlay from './components/InterventionOverlay';
 import BottomNav from './components/BottomNav';
 import './App.css';
@@ -17,10 +18,12 @@ const Permissions = lazy(() => import('./pages/Permissions'));
 const Personalize = lazy(() => import('./pages/Personalize'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Statistics = lazy(() => import('./pages/Statistics'));
-const Achievements = lazy(() => import('./pages/Achievements'));
 const Profile = lazy(() => import('./pages/Profile'));
 const RestMode = lazy(() => import('./pages/RestMode'));
-const ReminderSettings = lazy(() => import('./pages/ReminderSettings'));
+const TargetApps = lazy(() => import('./pages/TargetApps'));
+const BlockingSettings = lazy(() => import('./pages/BlockingSettings'));
+const PrivacyAndData = lazy(() => import('./pages/PrivacyAndData'));
+const ValidationAndDiagnostics = lazy(() => import('./pages/ValidationAndDiagnostics'));
 
 function LoadingPage() {
   return (
@@ -29,6 +32,9 @@ function LoadingPage() {
     </div>
   );
 }
+
+// 设置/引导页面路径——在这些页面上不累加连续使用时长
+const SETTINGS_PATHS = ['/profile', '/target-apps', '/blocking-settings', '/privacy', '/validation', '/permissions', '/personalize', '/login', '/onboarding'];
 
 // ============================================================
 // GlobalMonitor — runs screen time tracking, fatigue detection,
@@ -47,6 +53,9 @@ function GlobalMonitor() {
   const incrementContinuousSession = useStore(s => s.incrementContinuousSession);
   const resetContinuousSession = useStore(s => s.resetContinuousSession);
   const snoozeContinuousSession = useStore(s => s.snoozeContinuousSession);
+  const setBlockState = useStore(s => s.setBlockState);
+  const setServiceError = useStore(s => s.setServiceError);
+  const targetApps = profile.targetApps || [];
 
   const lastActiveTimeRef = useRef(Date.now());
   const [isDocumentVisible, setIsDocumentVisible] = useState(true);
@@ -80,7 +89,8 @@ function GlobalMonitor() {
   useEffect(() => {
     if (Capacitor.isNativePlatform()) return;
 
-    const isInTargetScenario = isMonitoring && location.pathname !== '/rest';
+    const isOnSettingsPage = SETTINGS_PATHS.includes(location.pathname);
+    const isInTargetScenario = isMonitoring && location.pathname !== '/rest' && !isOnSettingsPage;
 
     if (location.pathname === '/rest') {
       resetContinuousSession();
@@ -123,72 +133,95 @@ function GlobalMonitor() {
     return () => clearInterval(timer);
   }, []);
 
-  // Auto-start native service & session on mount
-  useEffect(() => {
-    if (!profile.onboardingDone) return;
-    
-    useStore.getState().startSession();
-    if (Capacitor.isNativePlatform()) {
-      NativeFlow.startService({
-        limitMinutes: profile.sessionLimit,
-        apps: DEFAULT_TARGET_APPS,
-      }).catch(() => {});
-    }
-  }, [profile.onboardingDone, profile.sessionLimit]);
-
   // Sync native service when monitoring toggles
   useEffect(() => {
-    if (!Capacitor.isNativePlatform() || !profile.onboardingDone) return;
-    if (isMonitoring) {
-      NativeFlow.saveSettings({ limitMinutes: profile.sessionLimit, targetApps: DEFAULT_TARGET_APPS }).catch(() => {});
-      NativeFlow.startService({
-        limitMinutes: profile.sessionLimit,
-        apps: DEFAULT_TARGET_APPS,
-      }).catch(() => {});
-    } else {
-      NativeFlow.stopService().catch(() => {});
+    if (!profile.onboardingDone) return;
+    if (!Capacitor.isNativePlatform()) {
+      if (isMonitoring) useStore.getState().startSession();
+      return;
     }
-  }, [isMonitoring, profile.onboardingDone, profile.sessionLimit]);
 
-  // Feed screen time to store every 5s
+    let cancelled = false;
+    const syncService = async () => {
+      try {
+        if (isMonitoring) {
+          if (targetApps.length === 0) {
+            throw new Error('请先选择至少一个受限应用。');
+          }
+          await NativeFlow.saveSettings({ limitMinutes: profile.sessionLimit, targetApps });
+          await NativeFlow.startService({
+            limitMinutes: profile.sessionLimit,
+            apps: targetApps,
+            monitoringEnabled: true,
+          });
+          useStore.getState().startSession();
+        } else {
+          await NativeFlow.stopService();
+        }
+        if (!cancelled && isMonitoring) setServiceError('');
+      } catch (error) {
+        if (cancelled) return;
+        const message = error instanceof Error && error.message
+          ? error.message
+          : isMonitoring ? '保护服务启动失败，请检查权限后重试。' : '保护服务停止失败，请重试。';
+        setServiceError(message);
+        if (isMonitoring) useStore.getState().setMonitoring(false);
+      }
+    };
+    void syncService();
+    return () => {
+      cancelled = true;
+    };
+  }, [isMonitoring, profile.onboardingDone, profile.sessionLimit, targetApps, setServiceError]);
+
+  // Native owns UsageEvents scanning. The WebView only reads its persisted
+  // state so the UI never starts a second competing usage tracker.
   useEffect(() => {
     if (Capacitor.isNativePlatform()) {
       if (!isMonitoring) return;
-      const timer = setInterval(async () => {
+      let active = true;
+      const syncNativeState = async () => {
         try {
-          // 1. Update current app name for display
-          let currentPackage = '';
-          try {
-            const app = await NativeFlow.getCurrentApp();
-            currentPackage = app.packageName;
-            setCurrentAppName(getAppName(currentPackage));
-          } catch { /* ignore */ }
-
-          // 2. Directly set total screen time from system for statistics
-          const result = await NativeFlow.getUsageStats();
-          const safeTotal = Math.min(result.screenTimeSeconds, 86400);
-          useStore.getState().setScreenTime(safeTotal);
-
-          // 4. Poll fatigue level from native service (truth source)
-          const fatigue = await NativeFlow.getCurrentFatigueLevel();
-          const levelMap: Record<number, InterventionLevel> = {
-            0: 'NONE',
-            1: 'PERCEPTION',
-            2: 'COGNITION',
-            3: 'ACTION'
+          const [app, result, block] = await Promise.all([
+            NativeFlow.getCurrentApp(),
+            NativeFlow.getUsageStats(),
+            NativeFlow.getBlockState(),
+          ]);
+          if (!active) return;
+          setCurrentAppName(getAppName(app.packageName));
+          const safeTotal = Math.max(0, result.screenTimeSeconds);
+          const currentStats = useStore.getState().todayStats;
+          if (safeTotal !== currentStats.totalScreenTime) {
+            useStore.getState().setScreenTime(safeTotal);
+          }
+          const levelMap: Partial<Record<typeof block.state, InterventionLevel>> = {
+            PERCEPTION: 'PERCEPTION',
+            COGNITION: 'COGNITION',
+            BLOCKED: 'ACTION',
           };
           // Sync native level and continuous seconds to store
-          setFatigue(fatigue.level * 0.33, levelMap[fatigue.level] || 'NONE');
-          useStore.getState().setContinuousSessionSeconds(fatigue.minutes * 60);
+          const normalizedScore = Math.min(
+            1,
+            Math.max(0, block.sessionSeconds / 60 / Math.max(1, profile.sessionLimit)),
+          );
+          setFatigue(normalizedScore, levelMap[block.state] || 'NONE');
+          useStore.getState().setContinuousSessionSeconds(block.sessionSeconds);
+          setBlockState(block.state, block.graceUntil, block.blockedPackage);
         } catch {
-          // Silent — system stats may not be available yet
+          // Permission and service startup can briefly lag the WebView.
         }
-      }, 5000);
-      return () => clearInterval(timer);
+      };
+      void syncNativeState();
+      const timer = setInterval(() => { void syncNativeState(); }, 10_000);
+      return () => {
+        active = false;
+        clearInterval(timer);
+      };
     }
 
     // Web fallback
-    const isInTargetScenario = isMonitoring && location.pathname !== '/rest';
+    const isOnSettingsPage = SETTINGS_PATHS.includes(location.pathname);
+    const isInTargetScenario = isMonitoring && location.pathname !== '/rest' && !isOnSettingsPage;
 
     if (!isInTargetScenario) {
       return;
@@ -205,19 +238,16 @@ function GlobalMonitor() {
       incrementContinuousSession(5);
     }, 5000);
     return () => clearInterval(timer);
-  }, [isMonitoring, location.pathname, incrementContinuousSession, isDocumentVisible]);
-
-  // Service health check — restart native service if it died
-  useEffect(() => {
-    if (!Capacitor.isNativePlatform() || !isMonitoring) return;
-    const healthTimer = setInterval(() => {
-      NativeFlow.startService({
-        limitMinutes: profile.sessionLimit,
-        apps: DEFAULT_TARGET_APPS,
-      }).catch(() => {});
-    }, 30_000);
-    return () => clearInterval(healthTimer);
-  }, [isMonitoring, profile.sessionLimit]);
+  }, [
+    isMonitoring,
+    location.pathname,
+    incrementContinuousSession,
+    isDocumentVisible,
+    profile.sessionLimit,
+    setCurrentAppName,
+    setFatigue,
+    setBlockState,
+  ]);
 
   // Compute fatigue from continuous session time (NOT total screen time)
   // Web-only logic: Native uses polling from getCurrentFatigueLevel above
@@ -230,17 +260,21 @@ function GlobalMonitor() {
       return;
     }
     const mins = continuousSeconds / 60;
-    const metrics = { usageDuration: mins, timeFactor: new Date().getHours() };
-    const s = calculateFatigueScore(metrics);
-    const l = getInterventionLevel(s);
+    const limit = profile.sessionLimit || 60;
+    const percent = (mins / limit) * 100;
+    const l = getLevelByPercent(percent);
+    const s = Math.min(1, Math.max(0, mins / limit));
     setFatigue(s, l);
-  }, [isMonitoring, continuousSeconds, setFatigue]);
+  }, [isMonitoring, continuousSeconds, profile.sessionLimit, setFatigue]);
 
   const level = useStore(s => s.fatigueLevel);
-  const score = useStore(s => s.fatigueScore);
 
   // Intervention notifications
   useEffect(() => {
+    if (Capacitor.isNativePlatform()) {
+      prevLevelRef.current = level;
+      return;
+    }
     if (level === 'NONE') {
       prevLevelRef.current = level;
       return;
@@ -259,24 +293,23 @@ function GlobalMonitor() {
     }
   }, [level, snoozeUntil, now, logIntervention]);
 
-  const showOverlay = isMonitoring && level !== 'NONE' && now >= snoozeUntil;
+  const showOverlay = !Capacitor.isNativePlatform()
+    && isMonitoring
+    && level !== 'NONE'
+    && now >= snoozeUntil
+    && location.pathname !== '/rest';
 
   if (!showOverlay) return null;
 
   return (
     <InterventionOverlay
       level={level}
-      score={score}
       elapsed={continuousSeconds}
       onDismiss={() => setSnoozeUntil(Date.now() + 10 * 60 * 1000)}
       onSnooze={() => {
         const snoozeLimit = 10 * 60 * 1000;
         setSnoozeUntil(Date.now() + snoozeLimit);
-        if (Capacitor.isNativePlatform()) {
-          NativeFlow.snoozeService().catch(() => {});
-        } else {
-          snoozeContinuousSession(600); // 扣除 10 分钟连续时间
-        }
+        snoozeContinuousSession(600);
       }}
     />
   );
@@ -293,24 +326,43 @@ function MainLayout() {
 
 function AppRouter() {
   const done = useStore(s => s.profile.onboardingDone);
+  const updateProfile = useStore(s => s.updateProfile);
   const navigate = useNavigate();
 
   useEffect(() => {
-    const handler = (e: Event) => {
-      const path = (e as CustomEvent).detail;
-      if (typeof path === 'string') navigate(path);
-    };
-    window.addEventListener('flow-navigate', handler);
-    return () => window.removeEventListener('flow-navigate', handler);
-  }, [navigate]);
+    if (!Capacitor.isNativePlatform()) return;
+    NativeFlow.migrateLegacyData({ payload: exportLegacyPayload() }).catch(() => {});
+    Promise.all([NativeFlow.loadSettings(), NativeFlow.getDashboardSummary()]).then(([settings, summary]) => {
+      updateProfile({
+        sessionLimit: settings.limitMinutes,
+        restDuration: settings.restDuration,
+        targetApps: settings.targetApps,
+        allowEmergencyUnlock: settings.allowEmergencyUnlock,
+        strongBlockingEnabled: settings.strongBlockingEnabled,
+      });
+      useStore.setState({ points: summary.points, streak: summary.streak });
+    }).catch(() => {});
+  }, [updateProfile]);
 
   useEffect(() => {
-    startReminderLoop(() => {
-      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-        new Notification('FlowBreak 提醒', { body: '该休息一下了', icon: '/favicon.png' });
+    if (!Capacitor.isNativePlatform()) return;
+    let active = true;
+    const consumePendingNavigation = async () => {
+      try {
+        const { path } = await NativeFlow.consumePendingNavigation();
+        if (active && (path === '/rest' || path === '/dashboard')) navigate(path, { replace: true });
+      } catch {
+        // Navigation is a convenience path; the native blocker remains active
+        // if a bridge call cannot be made during startup.
       }
-      navigate('/rest');
-    });
+    };
+    const handler = () => { void consumePendingNavigation(); };
+    window.addEventListener('flow-navigate', handler);
+    void consumePendingNavigation();
+    return () => {
+      active = false;
+      window.removeEventListener('flow-navigate', handler);
+    };
   }, [navigate]);
 
   return (
@@ -325,9 +377,11 @@ function AppRouter() {
         <Route element={<MainLayout />}>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/stats" element={<Statistics />} />
-          <Route path="/achievements" element={<Achievements />} />
           <Route path="/profile" element={<Profile />} />
-          <Route path="/reminder-settings" element={<ReminderSettings />} />
+          <Route path="/target-apps" element={<TargetApps />} />
+          <Route path="/blocking-settings" element={<BlockingSettings />} />
+          <Route path="/privacy" element={<PrivacyAndData />} />
+          <Route path="/validation" element={<ValidationAndDiagnostics />} />
         </Route>
 
         <Route path="/rest" element={<RestMode />} />
@@ -339,8 +393,10 @@ function AppRouter() {
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <AppRouter />
-    </BrowserRouter>
+    <MotionConfig reducedMotion="user">
+      <BrowserRouter>
+        <AppRouter />
+      </BrowserRouter>
+    </MotionConfig>
   );
 }

@@ -1,19 +1,23 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Moon, Focus, Clock, Shield, Zap, Play, ChevronRight } from 'lucide-react';
+import { Moon, Focus, Clock, Shield, Zap, Play, ChevronRight, AlertTriangle } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
-import { getTodayActivities } from '../backend/storage';
+import { DailyReflection, getTodayActivities, getTodayReflection, saveTodayReflection } from '../backend/storage';
+import { Capacitor } from '@capacitor/core';
+import { NativeFlow } from '../backend/nativeFlow';
+import { getAppName } from '../backend/appNames';
+import { useNativePermissions } from '../hooks/useNativePermissions';
 
 function formatMinutes(seconds: number) {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
+  if (h > 0) return `${h}小时${m}分`;
+  return `${m}分钟`;
 }
 
 function formatDuration(seconds: number) {
-  if (seconds >= 60) return `${Math.round(seconds / 60)}分钟`;
+  if (seconds >= 60) return `${Math.floor(seconds / 60)}分钟`;
   return `${seconds}秒`;
 }
 
@@ -33,10 +37,107 @@ export default function Dashboard() {
   const score = useStore(s => s.fatigueScore);
   const level = useStore(s => s.fatigueLevel);
   const currentAppName = useStore(s => s.currentAppName);
-  const screenSeconds = stats.totalScreenTime;
+  const continuousSessionSeconds = useStore(s => s.continuousSessionSeconds);
+  const blockState = useStore(s => s.blockState);
+  const graceUntil = useStore(s => s.graceUntil);
+  const blockedPackage = useStore(s => s.blockedPackage);
+  const serviceError = useStore(s => s.serviceError);
+  const [now, setNow] = useState(Date.now());
+  const [summary, setSummary] = useState({
+    blockCount: stats.interventionCount,
+    restCount: stats.restCount,
+    unlockSeconds: stats.restCount * 10 * 60,
+    pullbackOutcomeCount: 0,
+    successfulPullbackCount: 0,
+    postRestReturnCount: 0,
+    postRestTargetSeconds: 0,
+    reflectionValue: 0,
+  });
+  const [reflection, setReflection] = useState<DailyReflection | ''>(getTodayReflection());
+  const [reflectionError, setReflectionError] = useState('');
+  const [summaryError, setSummaryError] = useState(false);
+  const [toggling, setToggling] = useState(false);
+  const { isNative, permissions } = useNativePermissions();
+  const missingCritical = isNative && isMonitoring && (!permissions.hasUsageStats || !permissions.hasOverlay);
+  const missingCriticalLabel = !permissions.hasUsageStats
+    ? '使用情况访问'
+    : '悬浮窗';
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    let active = true;
+    const refreshSummary = () => {
+      if (Capacitor.isNativePlatform()) {
+        NativeFlow.getDashboardSummary().then(result => {
+          if (!active) return;
+          setSummary(result);
+          setSummaryError(false);
+        }).catch(() => {
+          if (active) setSummaryError(true);
+        });
+      } else {
+        setSummary({
+          blockCount: stats.interventionCount,
+          restCount: stats.restCount,
+          unlockSeconds: stats.restCount * 10 * 60,
+          pullbackOutcomeCount: 0,
+          successfulPullbackCount: 0,
+          postRestReturnCount: 0,
+          postRestTargetSeconds: 0,
+          reflectionValue: reflection === 'helped' ? 3 : reflection === 'neutral' ? 2 : reflection === 'not_helped' ? 1 : 0,
+        });
+      }
+    };
+    refreshSummary();
+    const summaryTimer = Capacitor.isNativePlatform()
+      ? setInterval(refreshSummary, 15_000)
+      : undefined;
+    return () => {
+      active = false;
+      clearInterval(timer);
+      if (summaryTimer) clearInterval(summaryTimer);
+    };
+  }, [stats.interventionCount, stats.restCount, profile.restDuration]);
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform() || summary.reflectionValue === 0) return;
+    setReflection(summary.reflectionValue === 3 ? 'helped' : summary.reflectionValue === 2 ? 'neutral' : 'not_helped');
+  }, [summary.reflectionValue]);
+
+  const submitReflection = async (value: DailyReflection) => {
+    setReflection(value);
+    setSummary(current => ({
+      ...current,
+      reflectionValue: value === 'helped' ? 3 : value === 'neutral' ? 2 : 1,
+    }));
+    setReflectionError('');
+    saveTodayReflection(value);
+    if (!Capacitor.isNativePlatform()) return;
+    try {
+      await NativeFlow.saveDailyReflection({ value });
+    } catch {
+      setReflectionError('反馈暂时未写入本机，请再点一次。');
+    }
+  };
+
+  const handleToggleMonitoring = async () => {
+    if (toggling) return;
+    setToggling(true);
+    try {
+      // setMonitoring 内部会触发 native 服务启停，await 一下让 effect 跑完
+      setMonitoring(!isMonitoring);
+      // 给 native 服务一点时间，避免快速连点导致反复启停
+      await new Promise(r => setTimeout(r, 300));
+    } finally {
+      setToggling(false);
+    }
+  };
 
   const goalSeconds = profile.dailyGoal * 60;
   const progress = Math.min(1, stats.totalScreenTime / goalSeconds);
+  const graceSeconds = Math.max(0, Math.ceil((graceUntil - now) / 1000));
+  const displayedRestCount = Capacitor.isNativePlatform() ? summary.restCount : stats.restCount;
+  const displayedInterventionCount = Capacitor.isNativePlatform() ? summary.blockCount : stats.interventionCount;
 
   const timeline = useMemo(() => {
     const activities = getTodayActivities();
@@ -110,11 +211,11 @@ export default function Dashboard() {
           <div className="flex justify-between">
             <div className="flex items-center gap-1.5">
               <Moon size={14} className="text-white/70" />
-              <span className="text-[12px] text-white/80">休息 {stats.restCount} 次</span>
+              <span className="text-[12px] text-white/80">休息 {displayedRestCount} 次</span>
             </div>
             <div className="flex items-center gap-1.5">
               <Shield size={14} className="text-white/70" />
-              <span className="text-[12px] text-white/80">干预 {stats.interventionCount} 次</span>
+              <span className="text-[12px] text-white/80">阻断 {displayedInterventionCount} 次</span>
             </div>
             <div className="flex items-center gap-1.5">
               <Zap size={14} className="text-white/70" />
@@ -124,32 +225,81 @@ export default function Dashboard() {
         </div>
       </motion.div>
 
-      {/* Action buttons - rest only shows when fatigue detected */}
+      <div className="grid grid-cols-3 gap-2 mb-5">
+        <div className="card p-3">
+          <p className="text-[10px] text-gray-500">今日阻断</p>
+          <p className="text-[20px] font-bold mt-1">{summaryError ? '--' : summary.blockCount}</p>
+        </div>
+        <div className="card p-3">
+          <p className="text-[10px] text-gray-500">休息解锁</p>
+          <p className="text-[20px] font-bold mt-1">{summaryError ? '--' : `${Math.round(summary.unlockSeconds / 60)}分`}</p>
+        </div>
+        <div className="card p-3">
+          <p className="text-[10px] text-gray-500">访问窗口</p>
+          <p className="text-[20px] font-bold mt-1">
+            {graceSeconds > 0 ? `${Math.floor(graceSeconds / 60)}:${String(graceSeconds % 60).padStart(2, '0')}` : '--'}
+          </p>
+        </div>
+      </div>
+
+      <div className="card p-4 mb-5" data-testid="daily-reflection">
+        <p className="text-[14px] font-bold text-gray-900">今天 FlowBreak 有帮你从刷视频里醒过来吗？</p>
+        <p className="text-[11px] text-gray-500 mt-1">每天只记一次感受，可随时修改，只保存在本机。</p>
+        <div className="grid grid-cols-3 gap-2 mt-3">
+          {([
+            ['helped', '有帮助'],
+            ['neutral', '一般'],
+            ['not_helped', '没帮助'],
+          ] as const).map(([value, label]) => (
+            <button
+              key={value}
+              data-testid={`reflection-${value}`}
+              onClick={() => void submitReflection(value)}
+              className={`rounded-xl py-2.5 text-[12px] font-medium border transition-colors ${
+                reflection === value
+                  ? 'bg-primary text-white border-primary'
+                  : 'bg-white text-gray-600 border-gray-200'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {reflectionError && <p className="text-[11px] text-error mt-2">{reflectionError}</p>}
+      </div>
+
+      {blockState === 'BLOCKED' && (
+        <button onClick={() => navigate('/rest')} className="w-full mb-5 p-4 rounded-2xl bg-error/5 border border-error/20 text-left">
+          <p className="text-[14px] font-bold text-error">{getAppName(blockedPackage) || '目标应用'} 已阻断</p>
+          <p className="text-[12px] text-gray-600 mt-1">本次连续使用 {Math.floor(continuousSessionSeconds / 60)} 分钟，完成 {Math.round(profile.restDuration / 60)} 分钟休息后解锁。</p>
+        </button>
+      )}
+
+      {/* Action buttons */}
       <div className="flex gap-3 mb-6">
-        {level !== 'NONE' && (
-          <motion.button
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => navigate('/rest')}
-            className="flex-1 card flex items-center gap-3 p-4 bg-secondary/5 border border-secondary/20"
-          >
-            <div className="w-10 h-10 rounded-xl bg-secondary/10 flex items-center justify-center">
-              <Moon size={20} className="text-secondary" />
-            </div>
-            <div className="text-left">
-              <p className="text-[14px] font-medium text-gray-900">开始休息</p>
-              <p className="text-[11px] text-gray-500">
-                {level === 'ACTION' ? '强烈建议休息' : level === 'COGNITION' ? '认知疲劳' : '轻度疲劳'}
-              </p>
-            </div>
-          </motion.button>
-        )}
+        <motion.button
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => navigate('/rest')}
+          className="flex-1 card flex items-center gap-3 p-4 bg-secondary/5 border border-secondary/20"
+        >
+          <div className="w-10 h-10 rounded-xl bg-secondary/10 flex items-center justify-center">
+            <Moon size={20} className="text-secondary" />
+          </div>
+          <div className="text-left">
+            <p className="text-[14px] font-medium text-gray-900">开始休息</p>
+            <p className="text-[11px] text-gray-500">
+              {level === 'NONE' ? '主动休息' : level === 'ACTION' ? '强烈建议休息' : level === 'COGNITION' ? '认知疲劳' : '轻度疲劳'}
+            </p>
+          </div>
+        </motion.button>
 
         <motion.button
           whileTap={{ scale: 0.95 }}
-          onClick={() => setMonitoring(!isMonitoring)}
-          className={`flex-1 card flex items-center gap-3 p-4 ${level === 'NONE' ? '' : 'flex-[0.6]'}`}
+          onClick={handleToggleMonitoring}
+          disabled={toggling}
+          className="flex-1 card flex items-center gap-3 p-4 disabled:opacity-60"
         >
           <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
             isMonitoring ? 'bg-error/10' : 'bg-accent/10'
@@ -159,11 +309,30 @@ export default function Dashboard() {
           <div className="text-left">
             <p className="text-[14px] font-medium text-gray-900">{isMonitoring ? '停止监控' : '开始监控'}</p>
             <p className="text-[11px] text-gray-500">
-              {isMonitoring ? `运行 ${Math.floor(screenSeconds / 60)}分` : '已暂停 - 点击恢复'}
+              {toggling ? '正在切换...' : isMonitoring ? `连续 ${Math.floor(continuousSessionSeconds / 60)}分钟` : '已暂停 - 点击恢复'}
             </p>
           </div>
         </motion.button>
       </div>
+      {serviceError && (
+        <div className="mb-5 rounded-xl border border-error/20 bg-error/5 px-4 py-3 text-[12px] text-error">
+          {serviceError}
+        </div>
+      )}
+
+      {missingCritical && (
+        <button
+          onClick={() => navigate('/permissions')}
+          className="mb-5 w-full rounded-xl border border-error/30 bg-error/5 px-4 py-3 text-left flex items-center gap-3"
+        >
+          <AlertTriangle size={18} className="text-error shrink-0" />
+          <div className="flex-1">
+            <p className="text-[13px] font-medium text-error">{missingCriticalLabel}权限已失效</p>
+            <p className="text-[11px] text-gray-600 mt-0.5">点击重新授权，监控才能继续生效</p>
+          </div>
+          <ChevronRight size={16} className="text-error shrink-0" />
+        </button>
+      )}
 
       {/* Fatigue level indicator */}
       {level === 'NONE' && (

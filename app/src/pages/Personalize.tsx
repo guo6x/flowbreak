@@ -3,10 +3,9 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Capacitor } from '@capacitor/core';
-import { GraduationCap, Briefcase, Users, Sparkles, Eye } from 'lucide-react';
+import { ArrowLeft, GraduationCap, Briefcase, Users, Sparkles, AppWindow, ChevronRight } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import { NativeFlow } from '../backend/nativeFlow';
-import { DEFAULT_TARGET_APPS, getAppName } from '../backend/appNames';
 
 const userTypes = [
   { id: 'student' as const, icon: GraduationCap, label: '学生' },
@@ -16,7 +15,7 @@ const userTypes = [
 
 const goalOptions = [120, 180, 240, 300, 360]; // 分钟
 const sessionOptions = [15, 20, 25, 30, 45]; // 分钟
-const restOptions = [60, 120, 180, 300]; // 秒
+const restOptions = [120, 180, 300]; // 秒，最低 2 分钟
 
 const backgrounds = ['🌲 森林', '🌊 海洋', '🏔️ 山脉', '🌸 花园', '🌅 日落'];
 
@@ -24,6 +23,7 @@ export default function Personalize() {
   const navigate = useNavigate();
   const profile = useStore(s => s.profile);
   const updateProfile = useStore(s => s.updateProfile);
+  const setMonitoring = useStore(s => s.setMonitoring);
   const [name, setName] = useState(profile.name);
   const [isEditingName, setIsEditingName] = useState(!profile.name);
   const [type, setType] = useState<'student' | 'worker' | 'other'>(profile.type);
@@ -31,26 +31,54 @@ export default function Personalize() {
   const [session, setSession] = useState(profile.sessionLimit);
   const [restDur, setRestDur] = useState(profile.restDuration);
   const [bg, setBg] = useState(profile.selectedBackground);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const targetApps = profile.targetApps || [];
 
-  const finish = () => {
-    updateProfile({
-      name: name.trim(),
-      type,
-      dailyGoal: goal,
-      sessionLimit: session,
-      restDuration: restDur,
-      selectedBackground: bg,
-      onboardingDone: true,
-    });
-    if (Capacitor.isNativePlatform()) {
-      NativeFlow.saveSettings({ limitMinutes: session, targetApps: DEFAULT_TARGET_APPS }).catch(() => {});
-      NativeFlow.startService({ limitMinutes: session, apps: DEFAULT_TARGET_APPS }).catch(() => {});
+  const finish = async () => {
+    if (targetApps.length === 0) {
+      setError('请先选择至少一个受限应用后再完成设置。');
+      return;
     }
-    navigate('/dashboard');
+    setSaving(true);
+    setError('');
+    try {
+      if (Capacitor.isNativePlatform()) {
+        await NativeFlow.saveSettings({
+          limitMinutes: session,
+          restDuration: restDur,
+          targetApps,
+          allowEmergencyUnlock: profile.allowEmergencyUnlock,
+        });
+        await NativeFlow.startService({
+          limitMinutes: session,
+          apps: targetApps,
+          monitoringEnabled: true,
+        });
+      }
+      setMonitoring(true);
+      updateProfile({
+        name: name.trim(),
+        type,
+        dailyGoal: goal,
+        sessionLimit: session,
+        restDuration: restDur,
+        selectedBackground: bg,
+        onboardingDone: true,
+      });
+      navigate('/dashboard');
+    } catch {
+      setError('初始化保护服务失败，请检查权限后重试。');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <div className="flex flex-col min-h-dvh px-8 pt-12 pb-12 no-scrollbar overflow-y-auto">
+      <button onClick={() => navigate('/permissions')} aria-label="返回权限设置" className="w-10 h-10 rounded-full bg-white card flex items-center justify-center mb-4">
+        <ArrowLeft size={20} />
+      </button>
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -71,9 +99,13 @@ export default function Personalize() {
             <input
               value={name}
               onChange={e => setName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') setIsEditingName(false); }}
+              maxLength={24}
+              autoFocus
               placeholder="输入昵称（可选）"
-              className="mb-8 bg-gray-100 rounded-2xl px-4 py-3.5 text-[14px] text-gray-900 placeholder:text-gray-400 outline-none"
+              className="mb-2 bg-gray-100 rounded-2xl px-4 py-3.5 text-[14px] text-gray-900 placeholder:text-gray-400 outline-none"
             />
+            <p className="text-[11px] text-gray-400 text-right mb-8">{name.length}/24</p>
           </>
         ) : (
           <div className="flex items-center justify-between mb-8 p-4 bg-gray-100 rounded-2xl">
@@ -179,19 +211,27 @@ export default function Personalize() {
 
         {/* Target Apps */}
         <h3 className="text-[16px] font-bold text-gray-900 mb-3">监控应用</h3>
-        <p className="text-[12px] text-gray-500 mb-3">以下应用会被疲劳检测监控（仅限 Android）</p>
-        <div className="flex flex-wrap gap-2 mb-10">
-          {DEFAULT_TARGET_APPS.map(pkg => (
-            <span key={pkg} className="px-3 py-2 bg-gray-100 rounded-xl text-[13px] text-gray-700 flex items-center gap-1.5">
-              <Eye size={14} className="text-primary/60" />
-              {getAppName(pkg)}
-            </span>
-          ))}
-        </div>
+        <p className="text-[12px] text-gray-500 mb-3">选择容易沉迷的应用，它们共享同一连续使用限额。</p>
+        <button
+          onClick={() => navigate('/target-apps', { state: { returnTo: '/personalize' } })}
+          className="card w-full p-4 mb-10 flex items-center gap-3 text-left"
+        >
+          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+            <AppWindow size={20} className="text-primary" />
+          </div>
+          <div className="flex-1">
+            <p className="text-[14px] font-medium">受限应用</p>
+            <p className="text-[12px] text-gray-500">
+              {targetApps.length > 0 ? `已选择 ${targetApps.length} 个应用` : '至少选择一个应用'}
+            </p>
+          </div>
+          <ChevronRight size={18} className="text-gray-400" />
+        </button>
 
         {/* Submit */}
-        <button onClick={finish} className="btn-primary w-full">
-          完成设置，开始使用
+        {error && <p className="text-[12px] text-error text-center mb-3">{error}</p>}
+        <button onClick={finish} disabled={saving} className="btn-primary w-full disabled:opacity-50">
+          {saving ? '正在启动保护...' : '完成设置，开始使用'}
         </button>
       </motion.div>
     </div>

@@ -8,7 +8,6 @@ import { useEffect, useState } from 'react';
 
 interface Props {
   level: InterventionLevel;
-  score: number;
   elapsed: number;
   onDismiss: () => void;
   onSnooze?: () => void;
@@ -108,7 +107,7 @@ export default function InterventionOverlay({ level, elapsed, onDismiss, onSnooz
           className="fixed bottom-28 left-4 right-4 z-[62] bg-white rounded-2xl p-5 shadow-lg border border-gray-100"
           style={{ boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}
         >
-          <button onClick={() => setDismissed(true)} className="absolute top-3 right-3 text-gray-400 hover:text-gray-600 active:text-gray-800">
+          <button onClick={() => setDismissed(true)} aria-label="关闭提示" className="absolute top-3 right-3 text-gray-400 hover:text-gray-600 active:text-gray-800">
             <X size={18} />
           </button>
           <div className="flex items-start gap-3">
@@ -127,7 +126,7 @@ export default function InterventionOverlay({ level, elapsed, onDismiss, onSnooz
           <div className="flex gap-2 mt-4">
             <button
               onClick={() => {
-                onSnooze?.();
+                onDismiss();
                 setDismissed(true);
               }}
               className="flex-1 py-2.5 rounded-xl bg-gray-100 text-[14px] text-gray-700 font-medium hover:bg-gray-200 active:bg-gray-300 transition-colors"
@@ -136,12 +135,12 @@ export default function InterventionOverlay({ level, elapsed, onDismiss, onSnooz
             </button>
             <button
               onClick={() => {
-                onDismiss();
                 setDismissed(true);
+                navigate('/rest');
               }}
               className="flex-1 py-2.5 rounded-xl bg-primary text-[14px] text-white font-medium hover:bg-primary-dark active:bg-primary transition-colors"
             >
-              知道了
+              去休息
             </button>
           </div>
         </motion.div>
@@ -183,7 +182,7 @@ export default function InterventionOverlay({ level, elapsed, onDismiss, onSnooz
                     key={i}
                     onClick={() => {
                       onDismiss();
-                      navigate('/rest');
+                      navigate('/rest', { state: { activityIdx: i } });
                     }}
                     className="flex items-center gap-3 p-3 rounded-xl border border-gray-200 hover:border-gray-300 active:bg-gray-50 transition-colors text-left"
                   >
@@ -205,15 +204,6 @@ export default function InterventionOverlay({ level, elapsed, onDismiss, onSnooz
               className="btn-primary w-full mb-2"
             >
               开始休息
-            </button>
-            <button
-              onClick={() => {
-                onSnooze?.();
-                setDismissed(true);
-              }}
-              className="w-full py-2.5 text-[14px] text-gray-500 font-medium hover:text-gray-700 active:text-gray-800 transition-colors"
-            >
-              再看 10 分钟
             </button>
           </motion.div>
         </motion.div>

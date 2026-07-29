@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FlowBreak 国内版</string>
+    <string name="accessibility_service_name">FlowBreak 强阻断</string>
+    <string name="accessibility_service_description">FlowBreak 强阻断服务：仅监听「窗口切换」事件，用于判断前台应用是否为你设置的受限应用。当连续使用达到限额并进入阻断状态时，将目标应用切回桌面并显示休息引导页，避免通过通知栏、分屏、悬浮通知等方式绕过休息提醒。\n\n本服务不读取屏幕内容、不记录输入、不收集任何个人信息，所有判断仅基于本机已记录的使用时长。可随时在系统设置中关闭，关闭后仅回退到悬浮窗阻断。</string>
+</resources>

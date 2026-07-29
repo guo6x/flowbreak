@@ -1,5 +1,11 @@
 apply plugin: 'com.android.application'
 
+def envOrDefault = { String key, String fallback ->
+    def value = System.getenv(key)
+    return value == null || value.trim().isEmpty() ? fallback : value
+}
+def releaseStoreFile = envOrDefault('FLOWBREAK_KEYSTORE_FILE', '')
+
 android {
     namespace = "com.flowbreak.app"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,20 +13,56 @@ android {
         applicationId "com.flowbreak.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode envOrDefault('VERSION_CODE', '2').toInteger()
+        versionName envOrDefault('VERSION_NAME', '1.1.0').replaceFirst('^v', '')
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField "String", "CHANNEL", "\"base\""
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    flavorDimensions += "channel"
+    productFlavors {
+        play {
+            dimension "channel"
+            applicationId "com.flowbreak.app"
+            buildConfigField "String", "CHANNEL", "\"play\""
+            resValue "string", "channel_name", "Google Play"
+        }
+        domestic {
+            dimension "channel"
+            applicationId "com.flowbreak.app.cn"
+            buildConfigField "String", "CHANNEL", "\"domestic\""
+            resValue "string", "channel_name", "国内版"
+        }
+    }
+    signingConfigs {
+        release {
+            if (!releaseStoreFile.isEmpty()) {
+                storeFile file(releaseStoreFile)
+                storePassword envOrDefault('FLOWBREAK_KEYSTORE_PASSWORD', '')
+                keyAlias envOrDefault('FLOWBREAK_KEY_ALIAS', '')
+                keyPassword envOrDefault('FLOWBREAK_KEY_PASSWORD', '')
+            }
+        }
+    }
     buildTypes {
         release {
-            minifyEnabled false
+            minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (!releaseStoreFile.isEmpty()) {
+                signingConfig signingConfigs.release
+            }
         }
+    }
+    buildFeatures {
+        buildConfig = true
+    }
+    testOptions {
+        unitTests.returnDefaultValues = true
     }
 }
 
@@ -36,6 +78,8 @@ dependencies {
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
+    implementation "androidx.room:room-runtime:2.7.2"
+    annotationProcessor "androidx.room:room-compiler:2.7.2"
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"

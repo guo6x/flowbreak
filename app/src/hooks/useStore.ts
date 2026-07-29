@@ -1,15 +1,13 @@
 // src/hooks/useStore.ts
 // Reactive store wrapping storage layer — all UI reads go through here.
 import { create } from 'zustand';
-import { useEffect, useRef } from 'react';
 import * as storage from '../backend/storage';
-import { FatigueMetrics, InterventionLevel } from '../backend/fatigueEngine';
+import { InterventionLevel } from '../backend/fatigueEngine';
+import type { BlockState } from '../backend/nativeFlow';
 
 // Re-export types
-export type { FatigueMetrics, InterventionLevel };
+export type { InterventionLevel };
 export type { UserProfile, DailyStats, Achievement, ActivityEvent } from '../backend/storage';
-
-const DEMO_APP_POOL = ['抖音', 'B站', '快手', '微信', '小红书'];
 
 // ============================================================
 // Reactive store — wraps storage, keeps UI in sync
@@ -28,6 +26,10 @@ interface AppState {
   fatigueLevel: InterventionLevel;
   currentAppName: string;
   continuousSessionSeconds: number;
+  blockState: BlockState;
+  graceUntil: number;
+  blockedPackage: string;
+  serviceError: string;
 
   updateProfile: (patch: Partial<storage.UserProfile>) => void;
   addScreenTime: (seconds: number, app?: string) => void;
@@ -46,21 +48,31 @@ interface AppState {
   setFatigue: (score: number, level: InterventionLevel) => void;
   setCurrentAppName: (name: string) => void;
   setScreenTime: (seconds: number) => void;
+  setBlockState: (state: BlockState, graceUntil: number, blockedPackage: string) => void;
+  setServiceError: (message: string) => void;
 }
 
+const initialProfile = storage.getProfile();
+
 export const useStore = create<AppState>((_set, _get) => ({
-  profile: storage.getProfile(),
+  profile: initialProfile,
   todayStats: storage.getTodayStats(),
   achievements: storage.getAchievements(),
   points: storage.getPoints(),
   streak: storage.getStreak(),
 
-  isMonitoring: true,
+  isMonitoring: initialProfile.onboardingDone
+    && initialProfile.targetApps.length > 0
+    && storage.getMonitoringEnabled(),
   snoozeUntil: 0,
   fatigueScore: 0,
   fatigueLevel: 'NONE' as InterventionLevel,
   currentAppName: '',
   continuousSessionSeconds: 0,
+  blockState: 'IDLE',
+  graceUntil: 0,
+  blockedPackage: '',
+  serviceError: '',
 
   updateProfile: (patch) => {
     storage.saveProfile(patch);
@@ -69,7 +81,12 @@ export const useStore = create<AppState>((_set, _get) => ({
 
   addScreenTime: (seconds, app) => {
     storage.addScreenTime(seconds, app);
-    _set({ todayStats: storage.getTodayStats() });
+    _set({
+      todayStats: storage.getTodayStats(),
+      achievements: storage.getAchievements(),
+      points: storage.getPoints(),
+      streak: storage.getStreak(),
+    });
   },
 
   incrementContinuousSession: (seconds) => {
@@ -100,12 +117,19 @@ export const useStore = create<AppState>((_set, _get) => ({
 
   logIntervention: (level) => {
     storage.logIntervention(level);
-    _set({ todayStats: storage.getTodayStats() });
+    _set({
+      todayStats: storage.getTodayStats(),
+      achievements: storage.getAchievements(),
+      points: storage.getPoints(),
+    });
   },
 
   markStatsViewed: () => {
     storage.markStatsViewed();
-    _set({ achievements: storage.getAchievements() });
+    _set({
+      achievements: storage.getAchievements(),
+      points: storage.getPoints(),
+    });
   },
 
   startSession: () => storage.startSession(),
@@ -113,56 +137,31 @@ export const useStore = create<AppState>((_set, _get) => ({
   getSessionDuration: () => storage.getSessionDuration(),
 
   unlockAchievement: (id) => {
-    const achievements = _get().achievements;
-    const alreadyUnlocked = achievements.find(a => a.id === id)?.unlocked;
     const result = storage.unlockAchievement(id);
-    if (result || !alreadyUnlocked) {
-      // Award points if newly unlocked, or if called explicitly for an achievement
-      // that was unlocked via evaluateAchievements (race condition fix)
-      storage.addPoints(10);
-      _set({ achievements: storage.getAchievements(), points: storage.getPoints() });
-    }
+    _set({ achievements: storage.getAchievements(), points: storage.getPoints() });
     return result;
   },
 
-  setMonitoring: (v) => _set({ isMonitoring: v, currentAppName: v ? _get().currentAppName : '' }),
+  setMonitoring: (v) => {
+    storage.saveMonitoringEnabled(v);
+    _set({ isMonitoring: v, currentAppName: v ? _get().currentAppName : '' });
+  },
   setSnoozeUntil: (ts) => _set({ snoozeUntil: ts }),
   setFatigue: (score, level) => _set({ fatigueScore: score, fatigueLevel: level }),
   setCurrentAppName: (name) => _set({ currentAppName: name }),
 
   setScreenTime: (seconds) => {
     storage.setTodayScreenTime(seconds);
-    _set({ todayStats: storage.getTodayStats() });
+    _set({
+      todayStats: storage.getTodayStats(),
+      achievements: storage.getAchievements(),
+      points: storage.getPoints(),
+    });
   },
+  setBlockState: (blockState, graceUntil, blockedPackage) => _set({
+    blockState,
+    graceUntil,
+    blockedPackage,
+  }),
+  setServiceError: (serviceError) => _set({ serviceError }),
 }));
-
-// ============================================================
-// Demo simulation hook — drives fake screen time on web
-// ============================================================
-export function useDemoSimulation(isActive: boolean, refreshInterval: number) {
-  const cursorRef = useRef(0);
-
-  useEffect(() => {
-    if (!isActive) return;
-
-    useStore.getState().startSession();
-    const timer = setInterval(() => {
-      const appName = DEMO_APP_POOL[cursorRef.current % DEMO_APP_POOL.length];
-      useStore.getState().addScreenTime(5, appName);
-      cursorRef.current += 1;
-    }, refreshInterval);
-
-    return () => clearInterval(timer);
-  }, [isActive, refreshInterval]);
-}
-
-// ============================================================
-// Fatigue engine hook — driven by real screen time from store
-// ============================================================
-export function useFatigueEngine() {
-  const score = useStore(s => s.fatigueScore);
-  const level = useStore(s => s.fatigueLevel);
-  const continuousSeconds = useStore(s => s.continuousSessionSeconds);
-
-  return { score, level, elapsed: continuousSeconds };
-}

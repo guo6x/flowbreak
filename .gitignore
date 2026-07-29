@@ -1,0 +1,20 @@
+﻿# IDE 本地配置（含本地路径，不应入库）
+.claude/
+.tmp/
+
+# APK 反编译分析产物
+apk-analysis/
+
+# 构建产物与二进制 APK
+*.apk
+app/android/app/build/
+app/dist/
+app/android/.gradle-home-omni/
+
+# 依赖
+node_modules/
+app/node_modules/
+
+# 系统杂项
+.DS_Store
+Thumbs.db

@@ -4,13 +4,12 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import {
-  User, Bell, Shield, CreditCard, Info, ChevronRight,
-  Leaf, LogOut, Palette, AlarmClock, Target
+  User, Bell, Shield, Info, ChevronRight,
+  Leaf, LogOut, Palette, Target, AppWindow, SlidersHorizontal, Database, Activity
 } from 'lucide-react';
-import { Capacitor } from '@capacitor/core';
 import { NativeFlow } from '../backend/nativeFlow';
 import { useStore } from '../hooks/useStore';
-import { getSchedule } from '../backend/reminderScheduler';
+import { useNativePermissions } from '../hooks/useNativePermissions';
 
 interface MenuItem {
   icon: typeof Bell;
@@ -33,6 +32,11 @@ export default function Profile() {
   const points = useStore(s => s.points);
   const streak = useStore(s => s.streak);
   const updateProfile = useStore(s => s.updateProfile);
+  const { isNative, permissions, refresh: refreshPermissions } = useNativePermissions();
+  const [actionError, setActionError] = useState('');
+  const [notifGranted, setNotifGranted] = useState(
+    typeof Notification !== 'undefined' && Notification.permission === 'granted',
+  );
   const bgName = ['森林', '海洋', '山脉', '花园', '日落'][profile.selectedBackground] || '森林';
   const bgPreviews = [
     'bg-gradient-to-br from-green-900 via-green-700 to-green-400',
@@ -41,17 +45,27 @@ export default function Profile() {
     'bg-gradient-to-br from-pink-900 via-pink-600 to-pink-300',
     'bg-gradient-to-br from-orange-800 via-orange-600 to-orange-300',
   ];
-  const [toast, setToast] = useState('');
 
-  const showToast = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(''), 2000);
+  const requestNotifications = async () => {
+    setActionError('');
+    try {
+      if (isNative) {
+        await NativeFlow.requestNotificationPermission();
+        window.setTimeout(refreshPermissions, 300);
+      } else if (typeof Notification !== 'undefined') {
+        const result = await Notification.requestPermission();
+        setNotifGranted(result === 'granted');
+      }
+    } catch {
+      setActionError('无法打开通知权限设置，请稍后重试。');
+    }
   };
-
   const sections: { title: string; items: MenuItem[] }[] = [
     {
       title: '健康目标',
       items: [
+        { icon: AppWindow, label: '受限应用', desc: `${profile.targetApps.length} 个`, color: '#4CAF50', action: () => navigate('/target-apps') },
+        { icon: SlidersHorizontal, label: '阻断设置', desc: `${profile.sessionLimit} 分钟`, color: '#2196F3', action: () => navigate('/blocking-settings') },
         { 
           icon: Target, 
           label: '健康目标与提醒', 
@@ -65,16 +79,16 @@ export default function Profile() {
       title: '个性化',
       items: [
         { icon: Palette, label: '休息背景', desc: bgName, color: '#9C27B0', action: () => navigate('/personalize') },
-        { icon: Bell, label: '通知权限', desc: '已开启', color: '#F44336', action: async () => { if (Capacitor.isNativePlatform()) { await NativeFlow.requestNotificationPermission(); } else if (typeof Notification !== 'undefined') { Notification.requestPermission(); } } },
-        { icon: AlarmClock, label: '定时提醒', desc: getSchedule().enabled ? `每${getSchedule().intervalMinutes}分钟` : '已关闭', color: '#607D8B', action: () => navigate('/reminder-settings') },
+        { icon: Bell, label: '通知权限', desc: isNative ? (permissions.hasNotification ? '已开启' : '未开启') : (notifGranted ? '已开启' : '未开启'), color: '#F44336', action: requestNotifications },
       ],
     },
     {
       title: '其他',
       items: [
-        { icon: CreditCard, label: '升级高级版', desc: '¥12/月', color: '#FF9800', action: () => showToast('即将上线，敬请期待') },
-        { icon: Shield, label: '隐私设置', color: '#4CAF50', action: () => showToast('即将上线，敬请期待') },
-        { icon: Info, label: '关于 FlowBreak', desc: 'v1.0.0', color: '#2196F3', action: () => showToast('FlowBreak v1.0.0 — 守护你的数字健康') },
+        { icon: Activity, label: '效果验证与运行诊断', desc: '近 7 天', color: '#7C3AED', action: () => navigate('/validation') },
+        { icon: Shield, label: '隐私说明', color: '#4CAF50', action: () => navigate('/privacy') },
+        { icon: Database, label: '数据导出与清除', color: '#607D8B', action: () => navigate('/privacy') },
+        { icon: Info, label: '关于与开源许可', color: '#2196F3', action: () => navigate('/privacy') },
       ],
     },
   ];
@@ -148,6 +162,7 @@ export default function Profile() {
         </div>
       ))}
 
+      {actionError && <p className="text-[12px] text-error text-center mb-3">{actionError}</p>}
 
       {/* Logout */}
       <button
@@ -164,18 +179,9 @@ export default function Profile() {
       {/* Footer */}
       <div className="flex items-center justify-center gap-1.5 mt-4 mb-4">
         <Leaf size={14} className="text-primary" />
-        <span className="text-[11px] text-gray-400">FlowBreak v1.0.0 · 守护你的数字健康</span>
+        <span className="text-[11px] text-gray-400">FlowBreak v1.1.0 · 帮你从刷视频里醒过来</span>
       </div>
 
-      {toast && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="fixed bottom-20 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-[13px] px-5 py-2.5 rounded-full shadow-lg z-50"
-        >
-          {toast}
-        </motion.div>
-      )}
     </div>
   );
 }

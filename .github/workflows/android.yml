@@ -1,0 +1,95 @@
+name: Android
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+      - run: npm ci
+      - run: npm run build
+      - run: npx cap sync android
+      - run: ./gradlew testPlayDebugUnitTest testDomesticDebugUnitTest lintPlayDebug lintDomesticDebug assemblePlayDebug assembleDomesticDebug --stacktrace
+        working-directory: app/android
+      - name: Verify channel manifests
+        working-directory: app/android
+        shell: bash
+        run: |
+          play_manifest="app/build/intermediates/merged_manifests/playDebug/processPlayDebugManifest/AndroidManifest.xml"
+          domestic_manifest="app/build/intermediates/merged_manifests/domesticDebug/processDomesticDebugManifest/AndroidManifest.xml"
+          test -f "$play_manifest"
+          test -f "$domestic_manifest"
+          ! grep -q "FlowAccessibilityService" "$play_manifest"
+          grep -q "FlowAccessibilityService" "$domestic_manifest"
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: verify
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+      - run: npm ci
+      - run: npm run build
+      - run: npx cap sync android
+      - name: Decode signing key
+        shell: bash
+        run: |
+          test -n "$KEYSTORE_BASE64"
+          test -n "$FLOWBREAK_KEYSTORE_PASSWORD"
+          test -n "$FLOWBREAK_KEY_ALIAS"
+          test -n "$FLOWBREAK_KEY_PASSWORD"
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/flowbreak.jks"
+        env:
+          KEYSTORE_BASE64: ${{ secrets.FLOWBREAK_KEYSTORE_BASE64 }}
+          FLOWBREAK_KEYSTORE_PASSWORD: ${{ secrets.FLOWBREAK_KEYSTORE_PASSWORD }}
+          FLOWBREAK_KEY_ALIAS: ${{ secrets.FLOWBREAK_KEY_ALIAS }}
+          FLOWBREAK_KEY_PASSWORD: ${{ secrets.FLOWBREAK_KEY_PASSWORD }}
+      - name: Build signed releases
+        working-directory: app/android
+        run: ./gradlew bundlePlayRelease assembleDomesticRelease --stacktrace
+        env:
+          VERSION_CODE: ${{ github.run_number }}
+          VERSION_NAME: ${{ github.ref_name }}
+          FLOWBREAK_KEYSTORE_FILE: ${{ runner.temp }}/flowbreak.jks
+          FLOWBREAK_KEYSTORE_PASSWORD: ${{ secrets.FLOWBREAK_KEYSTORE_PASSWORD }}
+          FLOWBREAK_KEY_ALIAS: ${{ secrets.FLOWBREAK_KEY_ALIAS }}
+          FLOWBREAK_KEY_PASSWORD: ${{ secrets.FLOWBREAK_KEY_PASSWORD }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flowbreak-release
+          path: |
+            app/android/app/build/outputs/bundle/playRelease/*.aab
+            app/android/app/build/outputs/apk/domestic/release/*.apk
