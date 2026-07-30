@@ -216,14 +216,20 @@ public class NativeFlowPlugin extends Plugin {
     }
 
     @PluginMethod public void requestEmergencyUnlock(PluginCall call) {
-        JSObject result = restCoordinator.requestEmergencyUnlock(
-                prefs(), FlowRepository.get(getContext())
-        );
+        JSObject result = restCoordinator.requestEmergencyUnlock(prefs());
+
         if (result.optBoolean("allowed")) {
-            try {
-                serviceController.sendAction(FlowForegroundService.ACTION_EMERGENCY);
-            } catch (Exception ignored) { }
+            serviceController.sendAction(FlowForegroundService.ACTION_EMERGENCY);
+
+            FlowRepository.get(getContext()).log(
+                    "emergency_unlock",
+                    FlowForegroundService.getBlockedPackage(),
+                    "",
+                    300,
+                    ""
+            );
         }
+
         call.resolve(result);
     }
 
@@ -337,12 +343,15 @@ public class NativeFlowPlugin extends Plugin {
 
     @PluginMethod public void saveDailyReflection(PluginCall call) {
         String value = call.getString("value", "");
-        JSObject result = statisticsService.saveDailyReflection(value);
-        if (result == null) {
+        if (NativeFlowStatisticsService.reflectionValue(value) == 0) {
             call.reject("无效的反馈值");
             return;
         }
-        execute(call, "保存今日反馈失败", () -> result);
+        execute(
+                call,
+                "保存今日反馈失败",
+                () -> statisticsService.saveDailyReflection(value)
+        );
     }
 
     // ==================== Data / Diagnostics ====================

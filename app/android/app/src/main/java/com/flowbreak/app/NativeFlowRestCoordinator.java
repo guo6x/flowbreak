@@ -155,9 +155,13 @@ public final class NativeFlowRestCoordinator {
 
     /**
      * 紧急解锁。返回 allowed/graceUntil/remainingToday 字段。
-     * allowed=true 时 graceUntil = now + 5min，需要调用方发送 ACTION_EMERGENCY。
+     * allowed=true 时 graceUntil = now + 5min，需要调用方发送 ACTION_EMERGENCY
+     * 并随后写入 emergency_unlock 日志。
+     *
+     * 本方法只负责判断、解锁和计算 graceUntil，不写 FlowRepository 日志，
+     * 以保持重构前"先发 Service action、再写日志"的顺序。
      */
-    public JSObject requestEmergencyUnlock(SharedPreferences prefs, FlowRepository repository) {
+    public JSObject requestEmergencyUnlock(SharedPreferences prefs) {
         boolean isBlocked = BlockStateMachine.State.BLOCKED.name().equals(
                 prefs.getString("blockState", BlockStateMachine.State.IDLE.name())
         );
@@ -165,9 +169,6 @@ public final class NativeFlowRestCoordinator {
         long graceUntil = 0;
         if (allowed) {
             graceUntil = System.currentTimeMillis() + 5 * 60_000L;
-            repository.log(
-                    "emergency_unlock", FlowForegroundService.getBlockedPackage(), "", 300, ""
-            );
         }
         JSObject result = new JSObject();
         result.put("allowed", allowed);
