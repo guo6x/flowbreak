@@ -150,7 +150,7 @@ public class FlowForegroundService extends Service {
                     }
 
                     @Override public void onEmergencyExhausted() {
-                        notificationController.alert(
+                        alert(
                                 "今日紧急使用已用完",
                                 "完成休息后仍可正常获得访问窗口。"
                         );
@@ -401,7 +401,7 @@ public class FlowForegroundService extends Service {
             if (restCheatAccumulatedMs >= 5_000L) {
                 machine.cancelRest(limitMinutes * 60_000L);
                 repository.log("rest_cheat", foreground, "", restCheatAccumulatedMs / 1000L, "");
-                notificationController.alert("休息已取消", "检测到在休息期间使用目标应用，未完成本次休息。");
+                alert("休息已取消", "检测到在休息期间使用目标应用，未完成本次休息。");
                 persistState();
                 flushPendingUsage(false);
                 restCheatDetectedAt = 0;
@@ -522,18 +522,27 @@ public class FlowForegroundService extends Service {
     private void onStateChanged(BlockStateMachine.State state, String pkg) {
         if (state == BlockStateMachine.State.PERCEPTION) {
             repository.recordIntervention();
-            notificationController.alert("注意连续使用", "已达到共享限额的 80%，建议准备休息。");
+            alert("注意连续使用", "已达到共享限额的 80%，建议准备休息。");
             vibrate(new long[]{0, 80});
         } else if (state == BlockStateMachine.State.COGNITION) {
             repository.recordIntervention();
-            notificationController.alert("需要休息", "已达到共享限额，请尽快完成一次休息。");
+            alert("需要休息", "已达到共享限额，请尽快完成一次休息。");
             vibrate(new long[]{0, 120, 80, 120});
         } else if (state == BlockStateMachine.State.BLOCKED) {
             repository.log("block_attempt", pkg, "", machine.getSessionMs() / 1000L, "");
             repository.recordBlock();
-            notificationController.alert("应用已暂停访问", "完成配置的休息活动后可获得 10 分钟访问窗口。");
+            alert("应用已暂停访问", "完成配置的休息活动后可获得 10 分钟访问窗口。");
             vibrate(new long[]{0, 200, 100, 200});
         }
+    }
+
+    /**
+     * 发送高优先级提醒通知，导航目标根据当前 machine 状态决定。
+     * 保持原 Service 私有方法的语义：BLOCKED 时跳转 rest，否则 dashboard。
+     */
+    private void alert(String title, String body) {
+        boolean blocked = machine != null && machine.getState() == BlockStateMachine.State.BLOCKED;
+        notificationController.alert(title, body, blocked);
     }
 
     private void persistState() {
