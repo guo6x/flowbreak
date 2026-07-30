@@ -36,9 +36,9 @@ public class UsageAccumulatorTest {
         UsageAccumulator acc = new UsageAccumulator();
         acc.observe(true, PKG_A, 1_000L);
         // 第二次观察，delta = 2000 - 1000 = 1000ms
-        assertEquals(1_000L, acc.observe(true, PKG_A, 3_000L));
-        // 第三次，delta = 2000ms
-        assertEquals(2_000L, acc.observe(true, PKG_A, 5_000L));
+        assertEquals(1_000L, acc.observe(true, PKG_A, 2_000L));
+        // 第三次，delta = 4000 - 2000 = 2000ms
+        assertEquals(2_000L, acc.observe(true, PKG_A, 4_000L));
     }
 
     @Test public void switchingFromTargetAToTargetBStillAccumulatesDelta() {
