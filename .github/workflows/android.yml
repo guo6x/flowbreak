@@ -73,12 +73,27 @@ jobs:
       - name: Run Room migration instrumentation tests
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
-          api-level: 35
-          target: google_apis
+          api-level: 30
+          target: default
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: cd app/android && ./gradlew connectedPlayDebugAndroidTest --stacktrace
+          script: |
+            cd app/android
+            echo "Connected devices:"; adb devices
+            ./gradlew connectedPlayDebugAndroidTest --stacktrace || {
+              code=$?
+              echo "::error::connectedPlayDebugAndroidTest exit code $code"
+              report=$(find app/build/outputs/androidTest-results -name '*.xml' -print -quit 2>/dev/null)
+              if [ -f "$report" ]; then
+                grep -o 'message="[^"]*"' "$report" | head -10 | while IFS= read -r line; do
+                  echo "::error::$line"
+                done
+              else
+                echo "::error::No XML test report found - likely emulator boot failure"
+              fi
+              exit $code
+            }
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
