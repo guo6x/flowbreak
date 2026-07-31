@@ -32,7 +32,12 @@ android {
         }
     }
     sourceSets {
-        androidTest.assets.srcDirs += files("$buildDir/generated/assets/androidTest")
+        androidTest {
+            assets {
+                srcDir "$projectDir"
+                include 'schemas/**'
+            }
+        }
     }
     flavorDimensions += "channel"
     productFlavors {
@@ -76,12 +81,6 @@ android {
         unitTests.returnDefaultValues = true
     }
 }
-
-task copySchemasForAndroidTest(type: Copy) {
-    from "$projectDir/schemas"
-    into "$buildDir/generated/assets/androidTest/schemas"
-}
-preBuild.dependsOn copySchemasForAndroidTest
 
 repositories {
     flatDir{
