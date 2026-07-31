@@ -70,13 +70,10 @@ android {
     testOptions {
         unitTests.returnDefaultValues = true
     }
+    sourceSets {
+        androidTest.assets.srcDirs += files("$projectDir/schemas".toString())
+    }
 }
-
-task copySchemasForAndroidTest(type: Copy) {
-    from "$projectDir/schemas"
-    into "$projectDir/src/androidTest/assets/schemas"
-}
-preBuild.dependsOn copySchemasForAndroidTest
 
 repositories {
     flatDir{
