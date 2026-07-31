@@ -29,8 +29,12 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npx cap sync android
-      - run: ./gradlew testPlayDebugUnitTest testDomesticDebugUnitTest lintPlayDebug lintDomesticDebug assemblePlayDebug assembleDomesticDebug --stacktrace
+      - run: ./gradlew testPlayDebugUnitTest testDomesticDebugUnitTest lintPlayDebug lintDomesticDebug assemblePlayDebug assembleDomesticDebug assemblePlayDebugAndroidTest --stacktrace
         working-directory: app/android
+      - name: Check Room schema drift
+        working-directory: app/android
+        shell: bash
+        run: git diff --exit-code -- app/schemas
       - name: Verify channel manifests
         working-directory: app/android
         shell: bash
@@ -62,6 +66,19 @@ jobs:
           grep -q 'com.flowbreak.app.FlowAccessibilityService' "$domestic_manifest"
 
           echo "All manifest checks passed."
+
+      - name: Enable KVM
+        run: sudo chmod 666 /dev/kvm
+
+      - name: Run Room migration instrumentation tests
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: cd app/android && ./gradlew connectedPlayDebugAndroidTest --stacktrace
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
