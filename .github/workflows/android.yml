@@ -38,7 +38,15 @@ jobs:
           code=${PIPESTATUS[0]}
           if [ $code -ne 0 ]; then
             echo "::error::Gradle build/test failed (exit $code)"
-            grep -iE '(error:|FAILURE:|Caused by:|> Task.*FAILED|e: file:|\.java:[0-9]+:)' gradle.log | head -30 | while IFS= read -r line; do
+            find app/build/test-results -name '*.xml' 2>/dev/null | while read f; do
+              if grep -q '<failure' "$f" 2>/dev/null; then
+                testname=$(basename "$f" .xml)
+                grep -oP 'message="[^"]{0,400}' "$f" | head -3 | while IFS= read -r msg; do
+                  echo "::error::[$testname] ${msg#message=}"
+                done
+              fi
+            done
+            grep -iE '(Caused by:|FAILURE:|> Task.*FAILED)' gradle.log | head -10 | while IFS= read -r line; do
               echo "::error::$line"
             done
             echo "=== Last 80 lines of gradle output ==="
