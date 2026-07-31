@@ -29,9 +29,6 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
-    sourceSets {
-        androidTest.assets.srcDirs += files("$buildDir/generated/assets/androidTest")
-    }
     flavorDimensions += "channel"
     productFlavors {
         play {
@@ -77,7 +74,7 @@ android {
 
 task copySchemasForAndroidTest(type: Copy) {
     from "$projectDir/schemas"
-    into "$buildDir/generated/assets/androidTest/schemas"
+    into "$projectDir/src/androidTest/assets/schemas"
 }
 preBuild.dependsOn copySchemasForAndroidTest
 
