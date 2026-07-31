@@ -302,7 +302,9 @@ public class FlowDatabaseMigrationTest {
 
         // Open the migrated database through the production Room builder and exercise the DAO.
         Context context = ApplicationProvider.getApplicationContext();
-        FlowDatabase database = FlowDatabase.builder(context, TEST_DB).build();
+        FlowDatabase database = FlowDatabase.builder(context, TEST_DB)
+                .allowMainThreadQueries()
+                .build();
         try {
             FlowDao dao = database.flowDao();
             List<DailyUsageEntity> usage = dao.allUsage();
@@ -342,7 +344,9 @@ public class FlowDatabaseMigrationTest {
     public void freshInstallV3_hasCorrectSchemaAndDaoWorks() throws Exception {
         Context context = ApplicationProvider.getApplicationContext();
         context.deleteDatabase(TEST_DB);
-        FlowDatabase database = FlowDatabase.builder(context, TEST_DB).build();
+        FlowDatabase database = FlowDatabase.builder(context, TEST_DB)
+                .allowMainThreadQueries()
+                .build();
         try {
             FlowDao dao = database.flowDao();
             SupportSQLiteDatabase db = database.getOpenHelper().getWritableDatabase();
