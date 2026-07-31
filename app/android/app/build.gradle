@@ -79,11 +79,7 @@ task copySchemasForAndroidTest(type: Copy) {
     from "$projectDir/schemas"
     into "$buildDir/generated/assets/androidTest/schemas"
 }
-afterEvaluate {
-    tasks.matching { it.name.startsWith('merge') && it.name.endsWith('AndroidTestAssets') }.configureEach {
-        dependsOn copySchemasForAndroidTest
-    }
-}
+preBuild.dependsOn copySchemasForAndroidTest
 
 repositories {
     flatDir{
