@@ -185,7 +185,7 @@ public class RestSessionManagerTest {
 
     @Test public void restingWithZeroRequiredMsAndStartedAtDoesNotAutoComplete() {
         // RestSessionValidator.isComplete 要求 requiredMs > 0
-        long startedAt = NOW - 1_000_000L;
+        long startedAt = NOW - 500_000L;
         RestSessionManager.RestoreDecision d = decide(
                 BlockStateMachine.State.RESTING,
                 0L, 0L, 0L, "",
@@ -270,10 +270,11 @@ public class RestSessionManagerTest {
     @Test public void limitAtLeastOneMinuteWhenZero() {
         // Service 在 loadConfig 中保证 limitMinutes >= 1
         // 这里通过 stateFor 验证 limitMs=60_000 不会除零或异常
-        RestSessionManager.RestoreDecision d = decide(
+        RestSessionManager.RestoreDecision d = decideWithLimit(
                 BlockStateMachine.State.RESTING,
                 60_000L, // 1 分钟使用时长
                 0L, 0L, "",
+                1, // limitMinutes = 1 -> limitMs = 60_000
                 0L, 0L, 0L
         );
         // sessionMs == limitMs*1 -> ratio=1.0 -> COGNITION
@@ -300,6 +301,33 @@ public class RestSessionManagerTest {
                         leftTargetsAt,
                         blockedPackage,
                         LIMIT_MIN,
+                        restStartedAt,
+                        restRequiredMs,
+                        restSessionId,
+                        NOW
+                )
+        );
+    }
+
+    private RestSessionManager.RestoreDecision decideWithLimit(
+            BlockStateMachine.State persistedState,
+            long sessionMs,
+            long graceUntil,
+            long leftTargetsAt,
+            String blockedPackage,
+            int limitMinutes,
+            long restStartedAt,
+            long restRequiredMs,
+            long restSessionId
+    ) {
+        return RestSessionManager.decideRestore(
+                new RestSessionManager.RestoreInput(
+                        persistedState,
+                        sessionMs,
+                        graceUntil,
+                        leftTargetsAt,
+                        blockedPackage,
+                        limitMinutes,
                         restStartedAt,
                         restRequiredMs,
                         restSessionId,

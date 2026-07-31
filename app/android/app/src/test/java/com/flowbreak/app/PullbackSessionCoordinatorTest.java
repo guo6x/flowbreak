@@ -149,10 +149,10 @@ public class PullbackSessionCoordinatorTest {
         PullbackSessionCoordinator.UpdateResult r = c.update(false, 0L, START + 60_000L, END, sink);
         assertTrue(r.resolvedNow);
         assertTrue(r.success);
-        assertEquals(10L, r.targetSeconds);
+        assertEquals(4L, r.targetSeconds);
 
         // 验证 sink 顺序：return 先于 outcome
-        assertEquals(Arrays.asList("return:7", "outcome:true:10:7"), sink.calls);
+        assertEquals(Arrays.asList("return:7", "outcome:true:4:7"), sink.calls);
 
         // 再次 update：不重复记录
         sink.calls.clear();

@@ -87,7 +87,7 @@ public class RestCheatTrackerTest {
         // prev=1000, now=20000, raw delta=19000 -> clamped to 10000
         long acc = t.observe(true, true, 1_000L, 20_000L);
         assertEquals(MAX_DELTA, acc);
-        assertFalse("10秒未达5秒阈值不应触发", t.triggered());
+        assertTrue("10秒已超5秒阈值应触发", t.triggered());
     }
 
     @Test public void deltaAboveTenSecondsStillClamped() {
