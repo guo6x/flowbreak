@@ -69,9 +69,11 @@ android {
     }
     testOptions {
         unitTests.returnDefaultValues = true
+        unitTests.includeAndroidResources = true
     }
     sourceSets {
         androidTest.assets.srcDirs += files("$projectDir/schemas".toString())
+        test.assets.srcDirs += files("$projectDir/schemas".toString())
     }
 }
 
@@ -90,6 +92,9 @@ dependencies {
     implementation "androidx.room:room-runtime:2.7.2"
     annotationProcessor "androidx.room:room-compiler:2.7.2"
     testImplementation "junit:junit:$junitVersion"
+    testImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    testImplementation "org.robolectric:robolectric:4.14.1"
+    testImplementation "androidx.room:room-testing:2.7.2"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     androidTestImplementation "androidx.room:room-testing:2.7.2"

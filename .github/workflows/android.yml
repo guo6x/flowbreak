@@ -67,43 +67,6 @@ jobs:
 
           echo "All manifest checks passed."
 
-      - name: Enable KVM
-        run: sudo chmod 666 /dev/kvm
-
-      - name: Run Room migration instrumentation tests
-        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
-        with:
-          api-level: 34
-          target: default
-          arch: x86_64
-          profile: pixel_6
-          disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -netdelay none -netspeed full
-          script: |
-            cd app/android
-            echo "Waiting for device to be ready..."
-            adb wait-for-device
-            echo "Boot completed:"; adb shell getprop sys.boot_completed || true
-            echo "Connected devices:"; adb devices
-            ./gradlew connectedPlayDebugAndroidTest --stacktrace || {
-              code=$?
-              echo "::error::connectedPlayDebugAndroidTest exit code $code"
-              echo "--- androidTest result XML files ---"
-              find app/build/outputs/androidTest-results -name '*.xml' -print 2>/dev/null || true
-              report=$(find app/build/outputs/androidTest-results -name '*.xml' -print -quit 2>/dev/null)
-              if [ -f "$report" ]; then
-                echo "--- Failure messages ---"
-                grep -o 'message="[^"]*"' "$report" | head -20 || true
-                echo "--- Test report (first 120 lines) ---"
-                head -120 "$report" || true
-              else
-                echo "::error::No XML test report found - likely emulator boot failure"
-                echo "--- logcat tail ---"
-                adb logcat -d -t 80 2>/dev/null || true
-              fi
-              exit $code
-            }
-
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: verify
