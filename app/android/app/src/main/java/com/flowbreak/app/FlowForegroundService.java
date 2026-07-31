@@ -45,10 +45,7 @@ public class FlowForegroundService extends Service {
     public static final String PREF_PULLBACK_RESOLVED = "pullbackResolved";
     public static final String PREF_PULLBACK_SUCCESS = "pullbackSuccess";
 
-    private static final String PREFS = "FlowBreakPrefs";
-    private static final String PREF_DATA_ERASING = "dataErasing";
-    private static final long GRACE_MS = 10 * 60_000L;
-    private static final long EMERGENCY_GRACE_MS = 5 * 60_000L;
+    private static final long EMERGENCY_GRACE_MS = FlowServiceStateStore.EMERGENCY_GRACE_MS;
 
     private static volatile BlockStateMachine.State staticState = BlockStateMachine.State.IDLE;
     private static volatile long staticSessionMs;
@@ -59,7 +56,6 @@ public class FlowForegroundService extends Service {
     private static volatile long staticLastUsageEventAt;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private SharedPreferences prefs;
     private FlowRepository repository;
     private BlockStateMachine machine;
     private Set<String> targetApps;
@@ -69,16 +65,18 @@ public class FlowForegroundService extends Service {
     private boolean interactionAvailable;
     private KeyguardManager keyguardManager;
     private BlockStateMachine.State lastAnnouncedState = BlockStateMachine.State.IDLE;
-    private long restCheatDetectedAt;
-    private long restCheatAccumulatedMs; // 累计在目标应用上的停留时长，避免快速切换绕过
-    private PullbackOutcomeTracker pullbackTracker;
-    private long lastHeartbeatWrittenAt;
 
+    // 第一阶段协作类
     private ForegroundUsageDetector foregroundDetector;
     private TargetAppClassifier targetClassifier;
     private UsageAccumulator usageAccumulator;
     private FlowNotificationController notificationController;
     private FlowOverlayController overlayController;
+
+    // 第二阶段协作类
+    private FlowServiceStateStore stateStore;
+    private PullbackSessionCoordinator pullbackCoordinator;
+    private RestCheatTracker restCheatTracker;
 
     private final Runnable monitor = new Runnable() {
         @Override public void run() {
@@ -115,7 +113,7 @@ public class FlowForegroundService extends Service {
 
     @Override public void onCreate() {
         super.onCreate();
-        prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        stateStore = new FlowServiceStateStore(this);
         repository = FlowRepository.get(this);
         PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
         keyguardManager = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
@@ -126,6 +124,8 @@ public class FlowForegroundService extends Service {
         foregroundDetector = new ForegroundUsageDetector(this);
         targetClassifier = new TargetAppClassifier("domestic".equals(BuildConfig.CHANNEL));
         usageAccumulator = new UsageAccumulator();
+        pullbackCoordinator = new PullbackSessionCoordinator();
+        restCheatTracker = new RestCheatTracker();
         overlayController = new FlowOverlayController(
                 this,
                 (android.view.WindowManager) getSystemService(WINDOW_SERVICE),
@@ -165,7 +165,7 @@ public class FlowForegroundService extends Service {
                     }
 
                     @Override public boolean allowEmergencyUnlock() {
-                        return prefs.getBoolean("allowEmergencyUnlock", true);
+                        return stateStore.allowEmergencyUnlock();
                     }
                 }
         );
@@ -181,9 +181,7 @@ public class FlowForegroundService extends Service {
         if (ACTION_STOP.equals(action)) {
             monitoringEnabled = false;
             flushPendingUsage(true);
-            prefs.edit()
-                    .putBoolean("monitoringEnabled", false)
-                    .apply();
+            stateStore.setMonitoringEnabled(false);
             overlayController.dismissBlocker();
             stopForeground(STOP_FOREGROUND_REMOVE);
             stopSelf();
@@ -200,11 +198,11 @@ public class FlowForegroundService extends Service {
             overlayController.dismissBlocker();
         } else if (ACTION_CANCEL_REST.equals(action)) {
             machine.cancelRest(limitMinutes * 60_000L);
-            clearActiveRestSession();
+            stateStore.clearActiveRestSession();
             persistState();
         } else if (ACTION_EMERGENCY.equals(action)) {
             machine.emergencyUnlock(System.currentTimeMillis(), EMERGENCY_GRACE_MS);
-            clearActiveRestSession();
+            stateStore.clearActiveRestSession();
             clearPullbackTracker();
             persistState();
             overlayController.dismissBlocker();
@@ -258,54 +256,49 @@ public class FlowForegroundService extends Service {
     }
 
     private void load() {
-        targetApps = PreferenceUtils.getMigratedTargetApps(prefs);
-        limitMinutes = Math.max(1, prefs.getInt("limitMinutes", 25));
-        monitoringEnabled = prefs.getBoolean("monitoringEnabled", true);
-        BlockStateMachine.State restored;
-        try {
-            restored = BlockStateMachine.State.valueOf(
-                    prefs.getString("blockState", BlockStateMachine.State.IDLE.name())
-            );
-        } catch (Exception ignored) {
-            restored = BlockStateMachine.State.IDLE;
+        FlowServiceStateStore.Config config = stateStore.loadConfig();
+        targetApps = config.targetApps;
+        limitMinutes = config.limitMinutes;
+        monitoringEnabled = config.monitoringEnabled;
+
+        FlowServiceStateStore.MachineSnapshot snapshot = stateStore.loadMachineSnapshot();
+        long now = System.currentTimeMillis();
+
+        RestSessionManager.RestoreDecision decision = RestSessionManager.decideRestore(
+                new RestSessionManager.RestoreInput(
+                        snapshot.persistedState,
+                        snapshot.sessionMs,
+                        snapshot.graceUntil,
+                        snapshot.leftTargetsAt,
+                        snapshot.blockedPackage,
+                        limitMinutes,
+                        snapshot.restStartedAt,
+                        snapshot.restRequiredMs,
+                        snapshot.restSessionId,
+                        now
+                )
+        );
+
+        BlockStateMachine.State restored = decision.restoredState;
+        if (decision.autoCompletedRest) {
+            // 用 commit() 同步写入：此分支在服务被杀恢复时执行，
+            // 如果用 apply() 异步写入后再次被杀，关键状态会丢失。
+            stateStore.persistAutoCompletedRest(decision.generatedGraceUntil, decision.completedRestSessionId);
         }
-        if (restored == BlockStateMachine.State.RESTING) {
-            long startedAt = prefs.getLong(PREF_REST_STARTED_AT, 0L);
-            long requiredMs = prefs.getLong(PREF_REST_REQUIRED_MS, 0L);
-            long now = System.currentTimeMillis();
-            if (startedAt <= 0L) {
-                // 休息从未开始过：回退到基于使用时长的状态
-                restored = BlockStateMachine.stateFor(
-                        prefs.getLong("sessionMs", 0),
-                        limitMinutes * 60_000L
-                );
-            } else if (RestSessionValidator.isComplete(startedAt, requiredMs, now)) {
-                // 服务被杀后实际已超过所需休息时长：自动完成休息进入 GRACE
-                long graceUntil = now + GRACE_MS;
-                // 用 commit() 同步写入：此分支在服务被杀恢复时执行，
-                // 如果用 apply() 异步写入后再次被杀，关键状态会丢失。
-                prefs.edit()
-                        .putString("blockState", BlockStateMachine.State.GRACE.name())
-                        .putLong("sessionMs", 0)
-                        .putLong("graceUntil", graceUntil)
-                        .putString("blockedPackage", "")
-                        .remove(PREF_REST_STARTED_AT)
-                        .remove(PREF_REST_REQUIRED_MS)
-                        .putLong(PREF_COMPLETED_REST_SESSION_ID, prefs.getLong(PREF_REST_SESSION_ID, 0L))
-                        .putLong(PREF_COMPLETED_REST_GRACE_UNTIL, graceUntil)
-                        .commit();
-                restored = BlockStateMachine.State.GRACE;
-            }
-            // 其余情况（startedAt > 0 但尚未到 requiredMs）：保持 RESTING，让用户继续完成
-        }
+
+        long machineSessionMs = decision.autoCompletedRest ? 0L : snapshot.sessionMs;
+        long machineGraceUntil = decision.autoCompletedRest ? decision.generatedGraceUntil : snapshot.graceUntil;
+        String machineBlockedPackage = decision.autoCompletedRest ? "" : snapshot.blockedPackage;
+
         machine = new BlockStateMachine(
                 restored,
-                prefs.getLong("sessionMs", 0),
-                prefs.getLong("graceUntil", 0),
-                prefs.getLong("leftTargetsAt", 0),
-                prefs.getString("blockedPackage", "")
+                machineSessionMs,
+                machineGraceUntil,
+                snapshot.leftTargetsAt,
+                machineBlockedPackage
         );
-        loadPullbackTracker();
+
+        restorePullbackTracker();
         // Restoring a persisted state must not create a second warning or a
         // duplicate block event before the state actually changes.
         lastAnnouncedState = machine.getState();
@@ -313,36 +306,29 @@ public class FlowForegroundService extends Service {
     }
 
     private void beginRestSession() {
-        long startedAt = prefs.getLong(PREF_REST_STARTED_AT, 0L);
-        if (machine.getState() == BlockStateMachine.State.RESTING && startedAt > 0L) {
+        long existingStartedAt = stateStore.preferences().getLong(PREF_REST_STARTED_AT, 0L);
+        boolean alreadyResting = machine.getState() == BlockStateMachine.State.RESTING;
+        RestSessionManager.BeginRestDecision decision = RestSessionManager.prepareBeginRest(
+                alreadyResting,
+                existingStartedAt,
+                stateStore.restDurationSeconds(),
+                System.currentTimeMillis()
+        );
+        if (decision == null) {
             // React can remount after an orientation or WebView recreation.
             // Keep the same session rather than granting a fresh timer.
             persistState();
             return;
         }
-        long now = System.currentTimeMillis();
-        long requiredMs = Math.max(30, prefs.getInt("restDuration", 180)) * 1000L;
-        prefs.edit()
-                .putLong(PREF_REST_STARTED_AT, now)
-                .putLong(PREF_REST_REQUIRED_MS, requiredMs)
-                .putLong(PREF_REST_SESSION_ID, now)
-                .apply();
+        stateStore.persistBeginRest(decision.startedAt, decision.requiredMs, decision.sessionId);
         machine.beginRest();
         persistState();
-    }
-
-    private void clearActiveRestSession() {
-        prefs.edit()
-                .remove(PREF_REST_STARTED_AT)
-                .remove(PREF_REST_REQUIRED_MS)
-                .remove(PREF_REST_SESSION_ID)
-                .apply();
     }
 
     private void tick() {
         long now = System.currentTimeMillis();
         staticLastTickAt = now;
-        writeHeartbeat(now);
+        stateStore.writeHeartbeatIfDue(now);
         if (!monitoringEnabled || targetApps.isEmpty()) {
             usageAccumulator.resetObservation(now);
             overlayController.dismissBlocker();
@@ -378,8 +364,8 @@ public class FlowForegroundService extends Service {
         boolean isTarget = targetClassifier.isTarget(
                 foreground,
                 targetApps,
-                prefs.getBoolean("wechatInVideoChannel", false),
-                prefs.getLong("wechatInVideoChannelAt", 0L),
+                stateStore.isWechatInVideoChannel(),
+                stateStore.wechatInVideoChannelAt(),
                 now
         );
 
@@ -393,24 +379,20 @@ public class FlowForegroundService extends Service {
         // 注意：observedTargetMs 在首次切回目标应用时为 0（continuedTarget=false），
         // 所以用 prevObservedAt 独立计算 delta，确保首次切回也能被计入
         BlockStateMachine.State currentState = machine.getState();
-        if (currentState == BlockStateMachine.State.RESTING && isTarget) {
-            long cheatDelta = prevObservedAt > 0
-                    ? Math.max(0L, Math.min(10_000L, now - prevObservedAt)) : 0L;
-            if (restCheatDetectedAt == 0) restCheatDetectedAt = now;
-            restCheatAccumulatedMs += cheatDelta;
-            if (restCheatAccumulatedMs >= 5_000L) {
-                machine.cancelRest(limitMinutes * 60_000L);
-                repository.log("rest_cheat", foreground, "", restCheatAccumulatedMs / 1000L, "");
-                alert("休息已取消", "检测到在休息期间使用目标应用，未完成本次休息。");
-                persistState();
-                flushPendingUsage(false);
-                restCheatDetectedAt = 0;
-                restCheatAccumulatedMs = 0;
-                return;
-            }
-        } else if (restCheatAccumulatedMs != 0 && currentState != BlockStateMachine.State.RESTING) {
-            restCheatDetectedAt = 0;
-            restCheatAccumulatedMs = 0;
+        long cheatAccumulated = restCheatTracker.observe(
+                currentState == BlockStateMachine.State.RESTING,
+                isTarget,
+                prevObservedAt,
+                now
+        );
+        if (restCheatTracker.triggered()) {
+            machine.cancelRest(limitMinutes * 60_000L);
+            repository.log("rest_cheat", foreground, "", cheatAccumulated / 1000L, "");
+            alert("休息已取消", "检测到在休息期间使用目标应用，未完成本次休息。");
+            persistState();
+            flushPendingUsage(false);
+            restCheatTracker.reset();
+            return;
         }
 
         BlockStateMachine.State state = machine.update(
@@ -429,7 +411,7 @@ public class FlowForegroundService extends Service {
             overlayController.showBlocker(
                     foreground,
                     machine.getSessionMs(),
-                    prefs.getBoolean("allowEmergencyUnlock", true)
+                    stateStore.allowEmergencyUnlock()
             );
             overlayController.dismissWarningBar();
         } else {
@@ -455,9 +437,36 @@ public class FlowForegroundService extends Service {
         persistState();
     }
 
-    private void loadPullbackTracker() {
+    private void trackPullbackOutcome(boolean isTarget, long targetDeltaMs, long now) {
+        pullbackCoordinator.update(
+                isTarget,
+                targetDeltaMs,
+                now,
+                machine == null ? 0L : machine.getGraceUntil(),
+                repositorySink()
+        );
+    }
+
+    private PullbackSessionCoordinator.OutcomeSink repositorySink() {
+        return new PullbackSessionCoordinator.OutcomeSink() {
+            @Override public void recordPostRestReturn(long sessionId) {
+                repository.recordPostRestReturn(sessionId);
+            }
+            @Override public void recordPullbackOutcome(boolean success, long targetSeconds, long sessionId) {
+                repository.recordPullbackOutcome(success, targetSeconds, sessionId);
+            }
+        };
+    }
+
+    private void restorePullbackTracker() {
+        SharedPreferences prefs = stateStore.preferences();
         long sessionId = prefs.getLong(PREF_PULLBACK_SESSION_ID, 0L);
-        pullbackTracker = sessionId <= 0L ? null : new PullbackOutcomeTracker(
+        if (sessionId <= 0L) {
+            pullbackCoordinator.clear();
+            return;
+        }
+        pullbackCoordinator.restore(new PullbackSessionCoordinator.Snapshot(
+                true,
                 sessionId,
                 prefs.getLong(PREF_PULLBACK_STARTED_AT, 0L),
                 prefs.getLong(PREF_PULLBACK_TARGET_MS, 0L),
@@ -466,44 +475,12 @@ public class FlowForegroundService extends Service {
                 prefs.getBoolean(PREF_PULLBACK_RETURN_REPORTED, false),
                 prefs.getBoolean(PREF_PULLBACK_RESOLVED, false),
                 prefs.getBoolean(PREF_PULLBACK_SUCCESS, false)
-        );
-    }
-
-    private void trackPullbackOutcome(boolean isTarget, long targetDeltaMs, long now) {
-        if (pullbackTracker == null || machine == null) return;
-        PullbackOutcomeTracker.Update update = pullbackTracker.update(
-                isTarget, targetDeltaMs, now, machine.getGraceUntil()
-        );
-        if (update.returnObservedNow) {
-            repository.recordPostRestReturn(pullbackTracker.getSessionId());
-        }
-        if (update.resolvedNow) {
-            repository.recordPullbackOutcome(
-                    update.success, update.targetSeconds, pullbackTracker.getSessionId()
-            );
-        }
-        // 不再单独调用 persistPullbackTracker()：persistState() 已包含所有 pullback 字段，
-        // 所有 trackPullbackOutcome 调用路径后续都会调用 persistState()
+        ));
     }
 
     private void clearPullbackTracker() {
-        pullbackTracker = null;
-        prefs.edit()
-                .remove(PREF_PULLBACK_SESSION_ID)
-                .remove(PREF_PULLBACK_STARTED_AT)
-                .remove(PREF_PULLBACK_TARGET_MS)
-                .remove(PREF_PULLBACK_LEFT_AT)
-                .remove(PREF_PULLBACK_SAW_TARGET)
-                .remove(PREF_PULLBACK_RETURN_REPORTED)
-                .remove(PREF_PULLBACK_RESOLVED)
-                .remove(PREF_PULLBACK_SUCCESS)
-                .apply();
-    }
-
-    private void writeHeartbeat(long now) {
-        if (now - lastHeartbeatWrittenAt < 30_000L) return;
-        lastHeartbeatWrittenAt = now;
-        prefs.edit().putLong("serviceHeartbeatAt", now).apply();
+        pullbackCoordinator.clear();
+        stateStore.clearPullbackSession();
     }
 
     private boolean isInteractionAvailable() {
@@ -514,7 +491,7 @@ public class FlowForegroundService extends Service {
         usageAccumulator.flush(
                 force,
                 System.currentTimeMillis(),
-                prefs != null && prefs.getBoolean(PREF_DATA_ERASING, false),
+                stateStore.isDataErasing(),
                 repository::addUsage
         );
     }
@@ -546,23 +523,7 @@ public class FlowForegroundService extends Service {
     }
 
     private void persistState() {
-        SharedPreferences.Editor editor = prefs.edit()
-                .putString("blockState", machine.getState().name())
-                .putLong("sessionMs", machine.getSessionMs())
-                .putLong("graceUntil", machine.getGraceUntil())
-                .putLong("leftTargetsAt", machine.getLeftTargetsAt())
-                .putString("blockedPackage", machine.getBlockedPackage());
-        if (pullbackTracker != null) {
-            editor.putLong(PREF_PULLBACK_SESSION_ID, pullbackTracker.getSessionId())
-                    .putLong(PREF_PULLBACK_STARTED_AT, pullbackTracker.getStartedAt())
-                    .putLong(PREF_PULLBACK_TARGET_MS, pullbackTracker.getTargetMs())
-                    .putLong(PREF_PULLBACK_LEFT_AT, pullbackTracker.getLeftTargetsAt())
-                    .putBoolean(PREF_PULLBACK_SAW_TARGET, pullbackTracker.hasSeenTarget())
-                    .putBoolean(PREF_PULLBACK_RETURN_REPORTED, pullbackTracker.isReturnReported())
-                    .putBoolean(PREF_PULLBACK_RESOLVED, pullbackTracker.isResolved())
-                    .putBoolean(PREF_PULLBACK_SUCCESS, pullbackTracker.isSuccess());
-        }
-        editor.apply();
+        stateStore.persist(machine, pullbackCoordinator.snapshot());
         publishState();
     }
 
