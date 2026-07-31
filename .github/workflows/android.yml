@@ -29,8 +29,21 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npx cap sync android
-      - run: ./gradlew testPlayDebugUnitTest testDomesticDebugUnitTest lintPlayDebug lintDomesticDebug assemblePlayDebug assembleDomesticDebug assemblePlayDebugAndroidTest --stacktrace
+      - name: Build and test
         working-directory: app/android
+        shell: bash
+        run: |
+          ./gradlew testPlayDebugUnitTest testDomesticDebugUnitTest lintPlayDebug lintDomesticDebug assemblePlayDebug assembleDomesticDebug assemblePlayDebugAndroidTest --stacktrace 2>&1 | tee gradle.log
+          code=${PIPESTATUS[0]}
+          if [ $code -ne 0 ]; then
+            echo "::error::Gradle build/test failed (exit $code)"
+            grep -iE '(error:|FAILURE:|Caused by:|> Task.*FAILED|e: file:|\.java:[0-9]+:)' gradle.log | head -30 | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+            echo "=== Last 80 lines of gradle output ==="
+            tail -80 gradle.log
+            exit $code
+          fi
       - name: Check Room schema drift
         working-directory: app/android
         shell: bash
