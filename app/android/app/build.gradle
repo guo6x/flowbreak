@@ -30,7 +30,7 @@ android {
         }
     }
     sourceSets {
-        androidTest.assets.srcDirs += files("$projectDir")
+        androidTest.assets.srcDirs += files("$buildDir/generated/assets/androidTest")
     }
     flavorDimensions += "channel"
     productFlavors {
@@ -72,6 +72,16 @@ android {
     }
     testOptions {
         unitTests.returnDefaultValues = true
+    }
+}
+
+task copySchemasForAndroidTest(type: Copy) {
+    from "$projectDir/schemas"
+    into "$buildDir/generated/assets/androidTest/schemas"
+}
+afterEvaluate {
+    tasks.matching { it.name.startsWith('merge') && it.name.endsWith('AndroidTestAssets') }.configureEach {
+        dependsOn copySchemasForAndroidTest
     }
 }
 
