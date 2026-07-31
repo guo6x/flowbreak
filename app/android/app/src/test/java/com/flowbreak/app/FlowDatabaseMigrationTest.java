@@ -44,7 +44,11 @@ public class FlowDatabaseMigrationTest {
     @After
     public void tearDown() {
         if (db != null) {
-            db.close();
+            try {
+                db.close();
+            } catch (Exception ignored) {
+                // Best-effort cleanup; the test outcome is already determined.
+            }
             db = null;
         }
         Context context = ApplicationProvider.getApplicationContext();
