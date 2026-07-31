@@ -1,4 +1,4 @@
-﻿package com.flowbreak.app;
+package com.flowbreak.app;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -27,11 +27,9 @@ public class FlowDatabaseMigrationTest {
     public MigrationTestHelper helper;
 
     public FlowDatabaseMigrationTest() {
-        Context context = ApplicationProvider.getApplicationContext();
         helper = new MigrationTestHelper(
                 InstrumentationRegistry.getInstrumentation(),
-                FlowDatabase.class.getClassLoader(),
-                context
+                FlowDatabase.class
         );
     }
 
