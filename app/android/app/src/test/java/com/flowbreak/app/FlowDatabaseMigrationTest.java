@@ -79,16 +79,24 @@ public class FlowDatabaseMigrationTest {
     // ---------------------------------------------------------------------
 
     /**
-     * Loads the committed Room schema JSON for the given database version from the test assets.
+     * Loads the committed Room schema JSON for the given database version.
      * The path is {@code com.flowbreak.app.FlowDatabase/<version>.json}.
+     *
+     * <p>Under Robolectric the primary access path is the classloader (the schemas directory
+     * is added to {@code test.resources.srcDirs} in {@code build.gradle}). If that fails,
+     * fall back to {@code context.getAssets()} for environments where asset merging works.
      */
     private JSONObject loadSchemaJson(int version) throws Exception {
         String path = "com.flowbreak.app.FlowDatabase/" + version + ".json";
-        Context context = ApplicationProvider.getApplicationContext();
-        InputStream is = null;
+
+        InputStream is = getClass().getClassLoader().getResourceAsStream(path);
+        if (is == null) {
+            Context context = ApplicationProvider.getApplicationContext();
+            is = context.getAssets().open(path);
+        }
+
         BufferedReader reader = null;
         try {
-            is = context.getAssets().open(path);
             reader = new BufferedReader(new InputStreamReader(is, "UTF-8"));
             StringBuilder sb = new StringBuilder();
             String line;
