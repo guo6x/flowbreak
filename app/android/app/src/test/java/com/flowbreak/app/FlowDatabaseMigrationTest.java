@@ -136,7 +136,7 @@ public class FlowDatabaseMigrationTest {
                         JSONObject entity = entities.getJSONObject(i);
                         String tableName = entity.getString("tableName");
                         String createSql = entity.getString("createSql");
-                        String sql = createSql.replace("${TABLE_NAME}", "`" + tableName + "`");
+                        String sql = createSql.replace("${TABLE_NAME}", tableName);
                         db.execSQL(sql);
                     }
                     JSONArray setupQueries = database.getJSONArray("setupQueries");
