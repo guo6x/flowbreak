@@ -1,4 +1,4 @@
-﻿// src/App.tsx
+// src/App.tsx
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useNavigate, useLocation } from 'react-router';
 import { MotionConfig } from 'framer-motion';

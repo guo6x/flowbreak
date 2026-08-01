@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { ArrowLeft, CheckCircle2, Download, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react';
 import { useNavigate } from 'react-router';

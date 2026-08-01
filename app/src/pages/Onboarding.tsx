@@ -1,4 +1,4 @@
-﻿// src/pages/Onboarding.tsx
+// src/pages/Onboarding.tsx
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'framer-motion';

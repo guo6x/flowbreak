@@ -1,4 +1,4 @@
-﻿// src/pages/Personalize.tsx
+// src/pages/Personalize.tsx
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { motion } from 'framer-motion';

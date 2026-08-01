@@ -1,4 +1,4 @@
-﻿// src/components/BottomNav.tsx
+// src/components/BottomNav.tsx
 import { Home, BarChart3, User } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router';
 import { motion } from 'framer-motion';

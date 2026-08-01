@@ -1,4 +1,4 @@
-﻿// src/components/InterventionOverlay.tsx
+// src/components/InterventionOverlay.tsx
 // PRD 第二章 三层渐进式唤醒机制
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router';

@@ -1,4 +1,4 @@
-﻿// src/pages/RestMode.tsx
+// src/pages/RestMode.tsx
 // PRD 2.3.2 + 6.2.3 休息引导全屏页面
 //
 // Refactored into a thin orchestration layer. Visuals live in

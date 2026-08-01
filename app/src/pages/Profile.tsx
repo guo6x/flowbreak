@@ -1,4 +1,4 @@
-﻿// src/pages/Profile.tsx
+// src/pages/Profile.tsx
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';

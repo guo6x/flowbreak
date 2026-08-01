@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowLeft, ShieldCheck } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { NativeFlow } from '../backend/nativeFlow';
