@@ -206,6 +206,29 @@ public final class FlowServiceStateStore {
                 .apply();
     }
 
+    /**
+     * 读取 pullback session 持久化字段，与 restorePullbackTracker() 规则一致：
+     * - pullbackSessionId <= 0 返回 Snapshot.empty()
+     * - 有 session 时完整读取所有字段
+     */
+    public PullbackSessionCoordinator.Snapshot loadPullbackSnapshot() {
+        long sessionId = prefs.getLong(FlowForegroundService.PREF_PULLBACK_SESSION_ID, 0L);
+        if (sessionId <= 0L) {
+            return PullbackSessionCoordinator.Snapshot.empty();
+        }
+        return new PullbackSessionCoordinator.Snapshot(
+                true,
+                sessionId,
+                prefs.getLong(FlowForegroundService.PREF_PULLBACK_STARTED_AT, 0L),
+                prefs.getLong(FlowForegroundService.PREF_PULLBACK_TARGET_MS, 0L),
+                prefs.getLong(FlowForegroundService.PREF_PULLBACK_LEFT_AT, 0L),
+                prefs.getBoolean(FlowForegroundService.PREF_PULLBACK_SAW_TARGET, false),
+                prefs.getBoolean(FlowForegroundService.PREF_PULLBACK_RETURN_REPORTED, false),
+                prefs.getBoolean(FlowForegroundService.PREF_PULLBACK_RESOLVED, false),
+                prefs.getBoolean(FlowForegroundService.PREF_PULLBACK_SUCCESS, false)
+        );
+    }
+
     /** 写入 monitoringEnabled，使用 apply()。 */
     public void setMonitoringEnabled(boolean enabled) {
         prefs.edit().putBoolean("monitoringEnabled", enabled).apply();

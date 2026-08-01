@@ -256,51 +256,13 @@ public class FlowForegroundService extends Service {
     }
 
     private void load() {
-        FlowServiceStateStore.Config config = stateStore.loadConfig();
-        targetApps = config.targetApps;
-        limitMinutes = config.limitMinutes;
-        monitoringEnabled = config.monitoringEnabled;
-
-        FlowServiceStateStore.MachineSnapshot snapshot = stateStore.loadMachineSnapshot();
-        long now = System.currentTimeMillis();
-
-        RestSessionManager.RestoreDecision decision = RestSessionManager.decideRestore(
-                new RestSessionManager.RestoreInput(
-                        snapshot.persistedState,
-                        snapshot.sessionMs,
-                        snapshot.graceUntil,
-                        snapshot.leftTargetsAt,
-                        snapshot.blockedPackage,
-                        limitMinutes,
-                        snapshot.restStartedAt,
-                        snapshot.restRequiredMs,
-                        snapshot.restSessionId,
-                        now
-                )
-        );
-
-        BlockStateMachine.State restored = decision.restoredState;
-        if (decision.autoCompletedRest) {
-            // 用 commit() 同步写入：此分支在服务被杀恢复时执行，
-            // 如果用 apply() 异步写入后再次被杀，关键状态会丢失。
-            stateStore.persistAutoCompletedRest(decision.generatedGraceUntil, decision.completedRestSessionId);
-        }
-
-        long machineSessionMs = decision.autoCompletedRest ? 0L : snapshot.sessionMs;
-        long machineGraceUntil = decision.autoCompletedRest ? decision.generatedGraceUntil : snapshot.graceUntil;
-        String machineBlockedPackage = decision.autoCompletedRest ? "" : snapshot.blockedPackage;
-
-        machine = new BlockStateMachine(
-                restored,
-                machineSessionMs,
-                machineGraceUntil,
-                snapshot.leftTargetsAt,
-                machineBlockedPackage
-        );
-
-        restorePullbackTracker();
-        // Restoring a persisted state must not create a second warning or a
-        // duplicate block event before the state actually changes.
+        FlowServiceRecoveryCoordinator.Result result =
+                FlowServiceRecoveryCoordinator.restore(stateStore, System.currentTimeMillis());
+        targetApps = result.config.targetApps;
+        limitMinutes = result.config.limitMinutes;
+        monitoringEnabled = result.config.monitoringEnabled;
+        machine = result.machine;
+        restorePullbackTrackerFromSnapshot(result.pullbackSnapshot);
         lastAnnouncedState = machine.getState();
         publishState();
     }
@@ -458,24 +420,12 @@ public class FlowForegroundService extends Service {
         };
     }
 
-    private void restorePullbackTracker() {
-        SharedPreferences prefs = stateStore.preferences();
-        long sessionId = prefs.getLong(PREF_PULLBACK_SESSION_ID, 0L);
-        if (sessionId <= 0L) {
+    private void restorePullbackTrackerFromSnapshot(PullbackSessionCoordinator.Snapshot snapshot) {
+        if (!snapshot.present || snapshot.sessionId <= 0L) {
             pullbackCoordinator.clear();
             return;
         }
-        pullbackCoordinator.restore(new PullbackSessionCoordinator.Snapshot(
-                true,
-                sessionId,
-                prefs.getLong(PREF_PULLBACK_STARTED_AT, 0L),
-                prefs.getLong(PREF_PULLBACK_TARGET_MS, 0L),
-                prefs.getLong(PREF_PULLBACK_LEFT_AT, 0L),
-                prefs.getBoolean(PREF_PULLBACK_SAW_TARGET, false),
-                prefs.getBoolean(PREF_PULLBACK_RETURN_REPORTED, false),
-                prefs.getBoolean(PREF_PULLBACK_RESOLVED, false),
-                prefs.getBoolean(PREF_PULLBACK_SUCCESS, false)
-        ));
+        pullbackCoordinator.restore(snapshot);
     }
 
     private void clearPullbackTracker() {
