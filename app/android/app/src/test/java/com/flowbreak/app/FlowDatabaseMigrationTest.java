@@ -12,7 +12,12 @@ import androidx.sqlite.db.SupportSQLiteDatabase;
 import androidx.sqlite.db.SupportSQLiteOpenHelper;
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory;
 import androidx.test.core.app.ApplicationProvider;
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.util.List;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import org.junit.After;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -22,16 +27,17 @@ import org.robolectric.annotation.Config;
 /**
  * Room migration tests that run on the JVM via Robolectric.
  *
- * <p>Instead of relying on {@link androidx.room.testing.MigrationTestHelper} (which requires the
- * exported schema JSON files to be present in the merged test assets), these tests create old-version
- * databases directly with {@link FrameworkSQLiteOpenHelperFactory} and execute the {@code migrate}
- * callback manually. The post-migration schema is then verified through {@code PRAGMA table_info}
- * queries and the production DAO, covering the same data-safety guarantees:
+ * <p>Old-version databases are built by reading the committed Room schema JSON files
+ * ({@code schemas/com.flowbreak.app.FlowDatabase/1.json}, {@code 2.json}) from the test
+ * assets. The JSON is parsed with {@code org.json} — no third-party dependency.
+ *
+ * <p>Two categories of tests:
  * <ul>
- *     <li>1 → 2 preserves core rows and creates {@code daily_summary}</li>
- *     <li>2 → 3 preserves summary rows and adds NOT NULL DEFAULT 0 columns</li>
- *     <li>1 → 3 preserves all rows and enables full DAO read/write</li>
- *     <li>fresh v3 install has the correct schema and working DAO</li>
+ *     <li><b>Manual migration tests</b> — create an old-version database, call
+ *         {@code Migration.migrate()} directly, and verify the SQL-level outcome.</li>
+ *     <li><b>Production builder tests</b> — create an old-version database, close it,
+ *         then open it through {@code FlowDatabase.builder()} so Room itself selects and
+ *         executes the full upgrade path (including identity-hash validation).</li>
  * </ul>
  */
 @RunWith(RobolectricTestRunner.class)
@@ -40,43 +46,103 @@ public class FlowDatabaseMigrationTest {
     private static final String TEST_DB = "migration-test.db";
 
     private SupportSQLiteDatabase db;
+    private SupportSQLiteOpenHelper legacyHelper;
 
     @After
     public void tearDown() {
-        if (db != null) {
-            try {
-                db.close();
-            } catch (Exception ignored) {
-                // Best-effort cleanup; the test outcome is already determined.
-            }
-            db = null;
-        }
+        closeLegacyResources();
         Context context = ApplicationProvider.getApplicationContext();
         context.deleteDatabase(TEST_DB);
     }
 
+    private void closeLegacyResources() {
+        if (db != null) {
+            try {
+                db.close();
+            } catch (Exception ignored) {
+                // Best-effort cleanup.
+            }
+            db = null;
+        }
+        if (legacyHelper != null) {
+            try {
+                legacyHelper.close();
+            } catch (Exception ignored) {
+                // Best-effort cleanup.
+            }
+            legacyHelper = null;
+        }
+    }
+
     // ---------------------------------------------------------------------
-    // Helpers
+    // Schema JSON helpers
     // ---------------------------------------------------------------------
 
     /**
-     * Creates a fresh database at the requested version by opening a
-     * {@link SupportSQLiteOpenHelper} whose {@code onCreate} callback builds the schema that
-     * matches the Room-generated JSON for that version.
+     * Loads the committed Room schema JSON for the given database version from the test assets.
+     * The path is {@code com.flowbreak.app.FlowDatabase/<version>.json}.
      */
-    private SupportSQLiteDatabase createDatabaseAtVersion(int version) {
+    private JSONObject loadSchemaJson(int version) throws Exception {
+        String path = "com.flowbreak.app.FlowDatabase/" + version + ".json";
+        Context context = ApplicationProvider.getApplicationContext();
+        InputStream is = null;
+        BufferedReader reader = null;
+        try {
+            is = context.getAssets().open(path);
+            reader = new BufferedReader(new InputStreamReader(is, "UTF-8"));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line);
+            }
+            return new JSONObject(sb.toString());
+        } finally {
+            if (reader != null) {
+                try { reader.close(); } catch (Exception ignored) { }
+            }
+            if (is != null) {
+                try { is.close(); } catch (Exception ignored) { }
+            }
+        }
+    }
+
+    /**
+     * Creates a fresh database at the requested version by reading the committed Room schema
+     * JSON from the test assets. The schema JSON is the sole source of truth for v1 and v2
+     * table definitions — there is no hand-copied SQL fallback.
+     */
+    private SupportSQLiteDatabase createDatabaseAtVersion(int version) throws Exception {
         Context context = ApplicationProvider.getApplicationContext();
         context.deleteDatabase(TEST_DB);
+        closeLegacyResources();
+
+        JSONObject schema = loadSchemaJson(version);
 
         SupportSQLiteOpenHelper.Callback callback = new SupportSQLiteOpenHelper.Callback(version) {
             @Override
             public void onCreate(SupportSQLiteDatabase db) {
-                createTablesForVersion(db, version);
+                try {
+                    JSONObject database = schema.getJSONObject("database");
+                    JSONArray entities = database.getJSONArray("entities");
+                    for (int i = 0; i < entities.length(); i++) {
+                        JSONObject entity = entities.getJSONObject(i);
+                        String tableName = entity.getString("tableName");
+                        String createSql = entity.getString("createSql");
+                        String sql = createSql.replace("${TABLE_NAME}", "`" + tableName + "`");
+                        db.execSQL(sql);
+                    }
+                    JSONArray setupQueries = database.getJSONArray("setupQueries");
+                    for (int i = 0; i < setupQueries.length(); i++) {
+                        db.execSQL(setupQueries.getString(i));
+                    }
+                } catch (Exception e) {
+                    throw new RuntimeException("Failed to create schema from JSON for version " + version, e);
+                }
             }
 
             @Override
             public void onUpgrade(SupportSQLiteDatabase db, int oldVersion, int newVersion) {
-                // Migrations are driven manually by the tests.
+                // Not used — migrations are either manual or driven by the production builder.
             }
 
             @Override
@@ -92,37 +158,14 @@ public class FlowDatabaseMigrationTest {
                 .build();
 
         FrameworkSQLiteOpenHelperFactory factory = new FrameworkSQLiteOpenHelperFactory();
-        SupportSQLiteOpenHelper helper = factory.create(config);
-        return helper.getWritableDatabase();
+        legacyHelper = factory.create(config);
+        db = legacyHelper.getWritableDatabase();
+        return db;
     }
 
-    /**
-     * Builds the table definitions that match the Room-generated schema JSON for the given
-     * version. The SQL mirrors the {@code createSql} entries in
-     * {@code schemas/com.flowbreak.app.FlowDatabase/<version>.json}.
-     */
-    private void createTablesForVersion(SupportSQLiteDatabase db, int version) {
-        db.execSQL("CREATE TABLE IF NOT EXISTS `daily_usage` (`date` TEXT NOT NULL, `packageName` TEXT NOT NULL, `seconds` INTEGER NOT NULL, PRIMARY KEY(`date`, `packageName`))");
-        db.execSQL("CREATE TABLE IF NOT EXISTS `flow_events` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `timestamp` INTEGER NOT NULL, `type` TEXT, `packageName` TEXT, `activity` TEXT, `durationSeconds` INTEGER NOT NULL, `metadata` TEXT)");
-        db.execSQL("CREATE TABLE IF NOT EXISTS `progress` (`id` INTEGER NOT NULL, `points` INTEGER NOT NULL, `streak` INTEGER NOT NULL, `lastRestDay` TEXT, `achievementsJson` TEXT, PRIMARY KEY(`id`))");
-
-        if (version >= 2) {
-            db.execSQL("CREATE TABLE IF NOT EXISTS `daily_summary` (`date` TEXT NOT NULL, `legacyScreenSeconds` INTEGER NOT NULL, `restCount` INTEGER NOT NULL, `interventionCount` INTEGER NOT NULL, `blockCount` INTEGER NOT NULL, `graceSeconds` INTEGER NOT NULL, PRIMARY KEY(`date`))");
-        }
-
-        if (version >= 3) {
-            db.execSQL("ALTER TABLE `daily_summary` ADD COLUMN `successfulPullbackCount` INTEGER NOT NULL DEFAULT 0");
-            db.execSQL("ALTER TABLE `daily_summary` ADD COLUMN `pullbackOutcomeCount` INTEGER NOT NULL DEFAULT 0");
-            db.execSQL("ALTER TABLE `daily_summary` ADD COLUMN `postRestReturnCount` INTEGER NOT NULL DEFAULT 0");
-            db.execSQL("ALTER TABLE `daily_summary` ADD COLUMN `postRestTargetSeconds` INTEGER NOT NULL DEFAULT 0");
-            db.execSQL("ALTER TABLE `daily_summary` ADD COLUMN `reflectionValue` INTEGER NOT NULL DEFAULT 0");
-            db.execSQL("ALTER TABLE `daily_summary` ADD COLUMN `reflectionUpdatedAt` INTEGER NOT NULL DEFAULT 0");
-        }
-    }
-
-    private void setUserVersion(SupportSQLiteDatabase db, int version) {
-        db.execSQL("PRAGMA user_version = " + version);
-    }
+    // ---------------------------------------------------------------------
+    // Common assertions
+    // ---------------------------------------------------------------------
 
     private int getUserVersion(SupportSQLiteDatabase db) {
         try (Cursor c = db.query("PRAGMA user_version")) {
@@ -155,10 +198,13 @@ public class FlowDatabaseMigrationTest {
         }
     }
 
-    // ---------------------------------------------------------------------
-    // 1 → 2
-    // ---------------------------------------------------------------------
+    // =====================================================================
+    // Manual migration tests — verify individual Migration SQL correctness
+    // =====================================================================
 
+    /**
+     * 1 → 2: preserves core rows and creates {@code daily_summary}.
+     */
     @Test
     public void migrate1To2_preservesCoreDataAndCreatesDailySummary() throws Exception {
         db = createDatabaseAtVersion(1);
@@ -167,7 +213,7 @@ public class FlowDatabaseMigrationTest {
         db.execSQL("INSERT INTO progress VALUES (1,42,3,'2026-01-10','[\"first_rest\"]')");
 
         FlowDatabase.MIGRATION_1_2.migrate(db);
-        setUserVersion(db, 2);
+        db.execSQL("PRAGMA user_version = 2");
 
         try (Cursor c = db.query("SELECT date,packageName,seconds FROM daily_usage")) {
             assertTrue(c.moveToFirst());
@@ -193,7 +239,6 @@ public class FlowDatabaseMigrationTest {
             assertEquals("2026-01-10", c.getString(c.getColumnIndexOrThrow("lastRestDay")));
             assertEquals("[\"first_rest\"]", c.getString(c.getColumnIndexOrThrow("achievementsJson")));
         }
-        // daily_summary table must exist with exactly the v2 columns (6 fields, no v3 additions).
         assertEquals(6, countColumns(db, "daily_summary"));
         try (Cursor c = db.query("PRAGMA table_info(daily_summary)")) {
             while (c.moveToNext()) {
@@ -204,14 +249,12 @@ public class FlowDatabaseMigrationTest {
             }
         }
         assertEquals(2, getUserVersion(db));
-        // 4 entity tables; sqlite_sequence (created by AUTOINCREMENT) is filtered out.
         assertEquals(4, countUserTables(db));
     }
 
-    // ---------------------------------------------------------------------
-    // 2 → 3
-    // ---------------------------------------------------------------------
-
+    /**
+     * 2 → 3: preserves summary rows and adds {@code NOT NULL DEFAULT 0} columns.
+     */
     @Test
     public void migrate2To3_preservesSummaryAndAddsDefaults() throws Exception {
         db = createDatabaseAtVersion(2);
@@ -221,7 +264,7 @@ public class FlowDatabaseMigrationTest {
         db.execSQL("INSERT INTO daily_summary VALUES ('2026-01-11',987,4,5,2,600)");
 
         FlowDatabase.MIGRATION_2_3.migrate(db);
-        setUserVersion(db, 3);
+        db.execSQL("PRAGMA user_version = 3");
 
         try (Cursor c = db.query("SELECT seconds FROM daily_usage WHERE date='2026-01-11'")) {
             assertTrue(c.moveToFirst());
@@ -235,7 +278,6 @@ public class FlowDatabaseMigrationTest {
             assertEquals(2, c.getInt(c.getColumnIndexOrThrow("blockCount")));
             assertEquals(600L, c.getLong(c.getColumnIndexOrThrow("graceSeconds")));
         }
-        // v3 new columns must exist, be NOT NULL, and default to 0.
         try (Cursor c = db.query("SELECT successfulPullbackCount,pullbackOutcomeCount,postRestReturnCount,postRestTargetSeconds,reflectionValue,reflectionUpdatedAt FROM daily_summary WHERE date='2026-01-11'")) {
             assertTrue(c.moveToFirst());
             assertEquals(0, c.getInt(c.getColumnIndexOrThrow("successfulPullbackCount")));
@@ -260,10 +302,9 @@ public class FlowDatabaseMigrationTest {
         assertEquals(3, getUserVersion(db));
     }
 
-    // ---------------------------------------------------------------------
-    // 1 → 3
-    // ---------------------------------------------------------------------
-
+    /**
+     * 1 → 3: manual migration preserves all data and enables DAO read/write.
+     */
     @Test
     public void migrate1To3_preservesAllDataAndEnablesDao() throws Exception {
         db = createDatabaseAtVersion(1);
@@ -273,7 +314,7 @@ public class FlowDatabaseMigrationTest {
 
         FlowDatabase.MIGRATION_1_2.migrate(db);
         FlowDatabase.MIGRATION_2_3.migrate(db);
-        setUserVersion(db, 3);
+        db.execSQL("PRAGMA user_version = 3");
 
         try (Cursor c = db.query("SELECT date,packageName,seconds FROM daily_usage")) {
             assertTrue(c.moveToFirst());
@@ -297,10 +338,8 @@ public class FlowDatabaseMigrationTest {
         assertEquals(12, countColumns(db, "daily_summary"));
         assertEquals(4, countUserTables(db));
         assertEquals(3, getUserVersion(db));
-        db.close();
-        db = null;
+        closeLegacyResources();
 
-        // Open the migrated database through the production Room builder and exercise the DAO.
         Context context = ApplicationProvider.getApplicationContext();
         FlowDatabase database = FlowDatabase.builder(context, TEST_DB)
                 .allowMainThreadQueries()
@@ -326,7 +365,8 @@ public class FlowDatabaseMigrationTest {
             assertEquals(120L, summary.graceSeconds);
             assertEquals(0, summary.successfulPullbackCount);
             assertEquals(0, summary.reflectionValue);
-            dao.saveReflection("2026-01-10", 2, 1234567890L, new FlowEventEntity(1234567890L, "reflection", "", "", 0, ""));
+            dao.saveReflection("2026-01-10", 2, 1234567890L,
+                    new FlowEventEntity(1234567890L, "reflection", "", "", 0, ""));
             DailySummaryEntity updated = dao.summaryForDay("2026-01-10");
             assertEquals(2, updated.reflectionValue);
             assertEquals(1234567890L, updated.reflectionUpdatedAt);
@@ -336,10 +376,9 @@ public class FlowDatabaseMigrationTest {
         }
     }
 
-    // ---------------------------------------------------------------------
-    // Fresh v3 install
-    // ---------------------------------------------------------------------
-
+    /**
+     * Fresh v3 install has the correct schema and working DAO.
+     */
     @Test
     public void freshInstallV3_hasCorrectSchemaAndDaoWorks() throws Exception {
         Context context = ApplicationProvider.getApplicationContext();
@@ -368,10 +407,160 @@ public class FlowDatabaseMigrationTest {
             DailySummaryEntity summary = dao.summaryForDay("2026-01-12");
             assertNotNull(summary);
             assertEquals(1, summary.blockCount);
-            dao.saveReflection("2026-01-12", 3, 8888888L, new FlowEventEntity(8888888L, "reflection", "", "", 0, ""));
+            dao.saveReflection("2026-01-12", 3, 8888888L,
+                    new FlowEventEntity(8888888L, "reflection", "", "", 0, ""));
             DailySummaryEntity reflected = dao.summaryForDay("2026-01-12");
             assertEquals(3, reflected.reflectionValue);
             assertEquals(8888888L, reflected.reflectionUpdatedAt);
+        } finally {
+            database.close();
+        }
+    }
+
+    // =====================================================================
+    // Production builder tests — Room drives the full upgrade path
+    // =====================================================================
+
+    /**
+     * Creates a legacy database from the committed schema JSON, inserts test data,
+     * then <b>completely closes</b> the legacy helper so Room can take over.
+     */
+    private void prepareAndCloseLegacyDatabase(int version, String date, String pkg, long seconds,
+                                               long eventTs, String eventType) throws Exception {
+        SupportSQLiteDatabase d = createDatabaseAtVersion(version);
+        d.execSQL("INSERT INTO daily_usage VALUES ('" + date + "','" + pkg + "'," + seconds + ")");
+        d.execSQL("INSERT INTO flow_events (timestamp,type,packageName,activity,durationSeconds,metadata) VALUES ("
+                + eventTs + ",'" + eventType + "','" + pkg + "','test',30,'{}')");
+        d.execSQL("INSERT INTO progress VALUES (1,42,3,'" + date + "','[\"first_rest\"]')");
+        if (version >= 2) {
+            d.execSQL("INSERT INTO daily_summary VALUES ('" + date + "',987,4,5,2,600)");
+        }
+        closeLegacyResources();
+    }
+
+    /**
+     * Room must detect a v1 database and execute both MIGRATION_1_2 and MIGRATION_2_3.
+     * This test does <b>not</b> call {@code Migration.migrate()} or {@code PRAGMA user_version}
+     * manually — the production {@code FlowDatabase.builder()} is the sole driver.
+     */
+    @Test
+    public void productionBuilder_migratesV1ToV3() throws Exception {
+        prepareAndCloseLegacyDatabase(1, "2026-01-20", "com.example.v1app", 999,
+                111111L, "rest_complete");
+
+        Context context = ApplicationProvider.getApplicationContext();
+        FlowDatabase database = FlowDatabase.builder(context, TEST_DB)
+                .allowMainThreadQueries()
+                .build();
+        try {
+            FlowDao dao = database.flowDao();
+            SupportSQLiteDatabase db = database.getOpenHelper().getWritableDatabase();
+
+            // Room should have executed 1→2→3 automatically.
+            assertEquals(3, getUserVersion(db));
+
+            // Original three tables: data intact.
+            List<DailyUsageEntity> usage = dao.allUsage();
+            assertFalse(usage.isEmpty());
+            assertEquals("2026-01-20", usage.get(0).date);
+            assertEquals("com.example.v1app", usage.get(0).packageName);
+            assertEquals(999L, usage.get(0).seconds);
+
+            List<FlowEventEntity> events = dao.allEvents();
+            assertFalse(events.isEmpty());
+            assertEquals("rest_complete", events.get(0).type);
+            assertEquals(111111L, events.get(0).timestamp);
+
+            ProgressEntity progress = dao.getProgress();
+            assertNotNull(progress);
+            assertEquals(42, progress.points);
+            assertEquals(3, progress.streak);
+
+            // daily_summary exists with 12 columns (6 original + 6 new).
+            assertEquals(12, countColumns(db, "daily_summary"));
+            assertEquals(4, countUserTables(db));
+
+            // New v3 fields default to 0.
+            dao.recordRest("2026-01-20", 120L);
+            DailySummaryEntity summary = dao.summaryForDay("2026-01-20");
+            assertNotNull(summary);
+            assertEquals(1, summary.restCount);
+            assertEquals(120L, summary.graceSeconds);
+            assertEquals(0, summary.successfulPullbackCount);
+            assertEquals(0, summary.pullbackOutcomeCount);
+            assertEquals(0, summary.postRestReturnCount);
+            assertEquals(0L, summary.postRestTargetSeconds);
+            assertEquals(0, summary.reflectionValue);
+            assertEquals(0L, summary.reflectionUpdatedAt);
+
+            // DAO write: reflection.
+            dao.saveReflection("2026-01-20", 3, 999999L,
+                    new FlowEventEntity(999999L, "reflection", "", "", 0, ""));
+            DailySummaryEntity updated = dao.summaryForDay("2026-01-20");
+            assertEquals(3, updated.reflectionValue);
+            assertEquals(999999L, updated.reflectionUpdatedAt);
+            assertTrue(dao.allEvents().size() >= 2);
+        } finally {
+            database.close();
+        }
+    }
+
+    /**
+     * Room must detect a v2 database and execute MIGRATION_2_3 automatically.
+     * No manual migration calls, no manual {@code PRAGMA user_version}.
+     */
+    @Test
+    public void productionBuilder_migratesV2ToV3() throws Exception {
+        prepareAndCloseLegacyDatabase(2, "2026-01-21", "com.example.v2app", 500,
+                222222L, "block");
+
+        Context context = ApplicationProvider.getApplicationContext();
+        FlowDatabase database = FlowDatabase.builder(context, TEST_DB)
+                .allowMainThreadQueries()
+                .build();
+        try {
+            FlowDao dao = database.flowDao();
+            SupportSQLiteDatabase db = database.getOpenHelper().getWritableDatabase();
+
+            assertEquals(3, getUserVersion(db));
+
+            // Original data preserved.
+            List<DailyUsageEntity> usage = dao.allUsage();
+            assertFalse(usage.isEmpty());
+            assertEquals("2026-01-21", usage.get(0).date);
+            assertEquals("com.example.v2app", usage.get(0).packageName);
+            assertEquals(500L, usage.get(0).seconds);
+
+            // daily_summary old fields preserved.
+            DailySummaryEntity summary = dao.summaryForDay("2026-01-21");
+            assertNotNull(summary);
+            assertEquals(987L, summary.legacyScreenSeconds);
+            assertEquals(4, summary.restCount);
+            assertEquals(5, summary.interventionCount);
+            assertEquals(2, summary.blockCount);
+            assertEquals(600L, summary.graceSeconds);
+
+            // New fields default to 0.
+            assertEquals(0, summary.successfulPullbackCount);
+            assertEquals(0, summary.pullbackOutcomeCount);
+            assertEquals(0, summary.postRestReturnCount);
+            assertEquals(0L, summary.postRestTargetSeconds);
+            assertEquals(0, summary.reflectionValue);
+            assertEquals(0L, summary.reflectionUpdatedAt);
+
+            assertEquals(12, countColumns(db, "daily_summary"));
+            assertEquals(4, countUserTables(db));
+
+            // DAO writes work.
+            dao.recordBlock("2026-01-21");
+            DailySummaryEntity updated = dao.summaryForDay("2026-01-21");
+            assertEquals(3, updated.blockCount); // was 2, +1
+
+            dao.saveReflection("2026-01-21", 1, 777777L,
+                    new FlowEventEntity(777777L, "reflection", "", "", 0, ""));
+            DailySummaryEntity reflected = dao.summaryForDay("2026-01-21");
+            assertEquals(1, reflected.reflectionValue);
+            assertEquals(777777L, reflected.reflectionUpdatedAt);
         } finally {
             database.close();
         }

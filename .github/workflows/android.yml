@@ -56,7 +56,23 @@ jobs:
       - name: Check Room schema drift
         working-directory: app/android
         shell: bash
-        run: git diff --exit-code -- app/schemas
+        run: |
+          set -e
+
+          schema_dir="app/schemas"
+
+          git diff --exit-code -- "$schema_dir"
+
+          untracked="$(git ls-files --others --exclude-standard -- "$schema_dir")"
+          if [ -n "$untracked" ]; then
+            echo "::error::Uncommitted Room schema files detected:"
+            echo "$untracked"
+            exit 1
+          fi
+
+          test -f "$schema_dir/com.flowbreak.app.FlowDatabase/1.json"
+          test -f "$schema_dir/com.flowbreak.app.FlowDatabase/2.json"
+          test -f "$schema_dir/com.flowbreak.app.FlowDatabase/3.json"
       - name: Verify channel manifests
         working-directory: app/android
         shell: bash
