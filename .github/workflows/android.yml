@@ -12,24 +12,31 @@ jobs:
     defaults:
       run:
         working-directory: app
+    env:
+      VERSION_CODE: 1
+      VERSION_NAME: ci-${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: app/package-lock.json
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4.9.0
         with:
           distribution: temurin
           java-version: 21
           cache: gradle
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
       - run: npm ci
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: Audit all dependencies for critical vulnerabilities
+        run: npm audit --audit-level=critical
       - run: npm test
       - run: npm run build
       - run: npx cap sync android
-      - name: Build and test
+      - name: Build and test (Debug)
         working-directory: app/android
         shell: bash
         run: |
@@ -53,6 +60,46 @@ jobs:
             tail -80 gradle.log
             exit $code
           fi
+      - name: Build release artifacts (unsigned)
+        working-directory: app/android
+        shell: bash
+        run: ./gradlew bundlePlayRelease assembleDomesticRelease --stacktrace
+      - name: Verify Release outputs
+        working-directory: app/android
+        shell: bash
+        run: |
+          set -e
+
+          play_aab=$(find app/build/outputs/bundle/playRelease -maxdepth 1 -name '*.aab')
+          domestic_apk=$(find app/build/outputs/apk/domestic/release -maxdepth 1 -name '*.apk')
+
+          echo "Play AAB:      $play_aab"
+          echo "Domestic APK:  $domestic_apk"
+
+          test "$(printf '%s\n' "$play_aab" | sed '/^$/d' | wc -l)" -eq 1
+          test "$(printf '%s\n' "$domestic_apk" | sed '/^$/d' | wc -l)" -eq 1
+          test -s "$play_aab"
+          test -s "$domestic_apk"
+
+          echo "AAB size: $(stat -c %s "$play_aab") bytes"
+          echo "APK size: $(stat -c %s "$domestic_apk") bytes"
+      - name: Verify R8 and ProGuard mapping files
+        working-directory: app/android
+        shell: bash
+        run: |
+          set -e
+
+          for channel in playRelease domesticRelease; do
+            mapping_dir="app/build/outputs/mapping/${channel}"
+            if [ ! -d "$mapping_dir" ]; then
+              echo "::error::R8 mapping directory missing for $channel"
+              exit 1
+            fi
+            echo "$channel mapping: $(find "$mapping_dir" -name 'mapping.txt' | head -1)"
+            test -s "$mapping_dir/mapping.txt"
+          done
+
+          echo "R8 ran successfully for both channels."
       - name: Check Room schema drift
         working-directory: app/android
         shell: bash
@@ -87,7 +134,6 @@ jobs:
           test -f "$play_manifest"
           test -f "$domestic_manifest"
 
-          # --- Shared foreground-service assertions (both channels) ---
           for manifest in "$play_manifest" "$domestic_manifest"; do
             echo "Checking $manifest"
             grep -q 'com.flowbreak.app.FlowForegroundService' "$manifest"
@@ -97,10 +143,7 @@ jobs:
             grep -q 'android.permission.FOREGROUND_SERVICE_SPECIAL_USE' "$manifest"
           done
 
-          # --- Channel-specific assertions ---
-          # Play channel must NOT include the accessibility service.
           ! grep -q 'FlowAccessibilityService' "$play_manifest"
-          # Domestic channel must include the accessibility service.
           grep -q 'com.flowbreak.app.FlowAccessibilityService' "$domestic_manifest"
 
           echo "All manifest checks passed."
@@ -113,18 +156,18 @@ jobs:
       run:
         working-directory: app
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: app/package-lock.json
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4.9.0
         with:
           distribution: temurin
           java-version: 21
           cache: gradle
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
       - run: npm ci
       - run: npm run build
       - run: npx cap sync android
@@ -151,7 +194,7 @@ jobs:
           FLOWBREAK_KEYSTORE_PASSWORD: ${{ secrets.FLOWBREAK_KEYSTORE_PASSWORD }}
           FLOWBREAK_KEY_ALIAS: ${{ secrets.FLOWBREAK_KEY_ALIAS }}
           FLOWBREAK_KEY_PASSWORD: ${{ secrets.FLOWBREAK_KEY_PASSWORD }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: flowbreak-release
           path: |
