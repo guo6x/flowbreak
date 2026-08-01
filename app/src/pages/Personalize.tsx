@@ -1,6 +1,6 @@
-// src/pages/Personalize.tsx
+﻿// src/pages/Personalize.tsx
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { motion } from 'framer-motion';
 import { Capacitor } from '@capacitor/core';
 import { ArrowLeft, GraduationCap, Briefcase, Users, Sparkles, AppWindow, ChevronRight } from 'lucide-react';

@@ -1,7 +1,7 @@
-// src/components/InterventionOverlay.tsx
+﻿// src/components/InterventionOverlay.tsx
 // PRD 第二章 三层渐进式唤醒机制
 import { motion } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { InterventionLevel } from '../backend/fatigueEngine';
 import { Clock, Eye, Brain, AlertTriangle, X } from 'lucide-react';
 import { useEffect, useState } from 'react';

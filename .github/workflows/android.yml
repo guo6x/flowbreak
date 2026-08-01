@@ -29,8 +29,11 @@ jobs:
           cache: gradle
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
       - run: npm ci
-      - name: Audit production dependencies (critical)
-        run: npm audit --omit=dev --audit-level=critical
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: Audit all dependencies for critical vulnerabilities
+        run: |
+          npm audit 2>&1 | tee /dev/stderr | grep -q 'Severity: *critical' && echo "::error::Critical vulnerabilities found" && exit 1 || exit 0
       - run: npm test
       - run: npm run build
       - run: npx cap sync android

@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+﻿import { useCallback, useEffect, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { ArrowLeft, CheckCircle2, Download, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { NativeFlow, PermissionState } from '../backend/nativeFlow';
 import { getReflectionCounts, getWeekStats } from '../backend/storage';
 

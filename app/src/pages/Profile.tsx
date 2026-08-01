@@ -1,8 +1,8 @@
-// src/pages/Profile.tsx
+﻿// src/pages/Profile.tsx
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import {
   User, Bell, Shield, Info, ChevronRight,
   Leaf, LogOut, Palette, Target, AppWindow, SlidersHorizontal, Database, Activity

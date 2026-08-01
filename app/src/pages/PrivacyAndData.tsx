@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { ArrowLeft, Download, Trash2, FileWarning, ChevronDown, ChevronUp } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { NativeFlow } from '../backend/nativeFlow';
 import * as storage from '../backend/storage';
 

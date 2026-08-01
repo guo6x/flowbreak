@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+﻿import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { motion } from 'framer-motion';
 import { Moon, Focus, Clock, Shield, Zap, Play, ChevronRight, AlertTriangle } from 'lucide-react';
 import { useStore } from '../hooks/useStore';

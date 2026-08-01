@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { ArrowLeft, Check, RefreshCw, Search, Shield } from 'lucide-react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router';
 import { DEFAULT_TARGET_APPS, getAppName } from '../backend/appNames';
 import { LaunchableApp, NativeFlow } from '../backend/nativeFlow';
 import { useStore } from '../hooks/useStore';

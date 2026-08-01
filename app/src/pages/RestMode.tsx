@@ -1,4 +1,4 @@
-// src/pages/RestMode.tsx
+﻿// src/pages/RestMode.tsx
 // PRD 2.3.2 + 6.2.3 休息引导全屏页面
 //
 // Refactored into a thin orchestration layer. Visuals live in
@@ -12,7 +12,7 @@
 // browser fallback) is preserved exactly from the previous monolithic page.
 
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router';
 import { Capacitor } from '@capacitor/core';
 import { useStore } from '../hooks/useStore';
 import { NativeFlow } from '../backend/nativeFlow';

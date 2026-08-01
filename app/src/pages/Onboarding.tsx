@@ -1,6 +1,6 @@
-// src/pages/Onboarding.tsx
+﻿// src/pages/Onboarding.tsx
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Leaf, Layers, Activity, ChevronRight } from 'lucide-react';
 

@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+﻿import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { motion } from 'framer-motion';
 import { Accessibility, ArrowLeft, Battery, Bell, Check, Clock, Eye, Power, RefreshCw, Shield } from 'lucide-react';
 import { NativeFlow } from '../backend/nativeFlow';
