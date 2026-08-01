@@ -31,8 +31,8 @@ jobs:
       - run: npm ci
       - name: Audit production dependencies (critical)
         run: npm audit --omit=dev --audit-level=critical
-      - name: Audit all dependencies for critical vulnerabilities
-        run: npm audit --audit-level=critical
+      - name: Full dependency audit report
+        run: npm audit
       - run: npm test
       - run: npm run build
       - run: npx cap sync android
