@@ -346,6 +346,10 @@ public class FlowDatabaseMigrationTest {
         assertEquals(12, countColumns(db, "daily_summary"));
         assertEquals(4, countUserTables(db));
         assertEquals(3, getUserVersion(db));
+        // Update identity hash so Room's validation passes when we re-open via the builder.
+        JSONObject v3schema = loadSchemaJson(3);
+        String v3hash = v3schema.getJSONObject("database").getString("identityHash");
+        db.execSQL("INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '" + v3hash + "')");
         closeLegacyResources();
 
         Context context = ApplicationProvider.getApplicationContext();
