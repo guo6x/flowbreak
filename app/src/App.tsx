@@ -1,4 +1,4 @@
-// src/App.tsx
+﻿// src/App.tsx
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useNavigate, useLocation } from 'react-router';
 import { MotionConfig } from 'framer-motion';
@@ -13,9 +13,9 @@ import BottomNav from './components/BottomNav';
 import './App.css';
 
 const Onboarding = lazy(() => import('./pages/Onboarding'));
-const Login = lazy(() => import('./pages/Login'));
 const Permissions = lazy(() => import('./pages/Permissions'));
 const Personalize = lazy(() => import('./pages/Personalize'));
+const ProfilePreferences = lazy(() => import('./pages/ProfilePreferences'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Statistics = lazy(() => import('./pages/Statistics'));
 const Profile = lazy(() => import('./pages/Profile'));
@@ -34,7 +34,7 @@ function LoadingPage() {
 }
 
 // 设置/引导页面路径——在这些页面上不累加连续使用时长
-const SETTINGS_PATHS = ['/profile', '/target-apps', '/blocking-settings', '/privacy', '/validation', '/permissions', '/personalize', '/login', '/onboarding', '/settings'];
+const SETTINGS_PATHS = ['/profile', '/target-apps', '/blocking-settings', '/privacy', '/validation', '/permissions', '/personalize', '/login', '/onboarding', '/settings', '/profile-preferences'];
 
 // ============================================================
 // GlobalMonitor — runs screen time tracking, fatigue detection,
@@ -370,7 +370,7 @@ function AppRouter() {
       <GlobalMonitor />
       <Routes>
         <Route path="/onboarding" element={<Onboarding />} />
-        <Route path="/login" element={<Login />} />
+        <Route path="/login" element={<Navigate to="/permissions" replace />} />
         <Route path="/permissions" element={<Permissions />} />
         <Route path="/personalize" element={<Personalize />} />
 
@@ -378,6 +378,7 @@ function AppRouter() {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/stats" element={<Statistics />} />
           <Route path="/profile" element={<Profile />} />
+          <Route path="/profile-preferences" element={<ProfilePreferences />} />
           <Route path="/target-apps" element={<TargetApps />} />
           <Route path="/blocking-settings" element={<BlockingSettings />} />
           <Route path="/privacy" element={<PrivacyAndData />} />

@@ -1,4 +1,4 @@
-// src/pages/Profile.tsx
+﻿// src/pages/Profile.tsx
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
@@ -71,14 +71,14 @@ export default function Profile() {
           label: '健康目标与提醒', 
           desc: `${formatGoal(profile.dailyGoal)}/天 · ${profile.sessionLimit}分钟提醒 · 休息${profile.restDuration >= 60 ? `${Math.round(profile.restDuration / 60)}分钟` : `${profile.restDuration}秒`}`, 
           color: '#4CAF50', 
-          action: () => navigate('/personalize') 
+          action: () => navigate('/profile-preferences') 
         },
       ],
     },
     {
       title: '个性化',
       items: [
-        { icon: Palette, label: '休息背景', desc: bgName, color: '#9C27B0', action: () => navigate('/personalize') },
+        { icon: Palette, label: '休息背景', desc: bgName, color: '#9C27B0', action: () => navigate('/profile-preferences') },
         { icon: Bell, label: '通知权限', desc: isNative ? (permissions.hasNotification ? '已开启' : '未开启') : (notifGranted ? '已开启' : '未开启'), color: '#F44336', action: requestNotifications },
       ],
     },
@@ -131,7 +131,7 @@ export default function Profile() {
         </div>
         <div
           className={`w-full h-10 rounded-xl ${bgPreviews[profile.selectedBackground] || bgPreviews[0]}`}
-          onClick={() => navigate('/personalize')}
+          onClick={() => navigate('/profile-preferences')}
         />
         <p className="text-[11px] text-gray-400 mt-1.5">点击预览或前往个性化设置切换</p>
       </div>

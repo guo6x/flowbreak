@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { motion } from 'framer-motion';
-import { Moon, Clock, Shield, Zap, ChevronRight, AlertTriangle } from 'lucide-react';
+import { Moon, Clock, Shield, Zap, ChevronRight } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import { DailyReflection, getTodayActivities, getTodayReflection, saveTodayReflection } from '../backend/storage';
 import { Capacitor } from '@capacitor/core';
 import { NativeFlow } from '../backend/nativeFlow';
-import { getAppName } from '../backend/appNames';
 import { useNativePermissions } from '../hooks/useNativePermissions';
 import { getProtectionViewModel, formatRemainingTime, formatCountdown } from '../utils/protectionStatus';
 
@@ -30,22 +29,26 @@ function formatGoal(minutes: number) {
 }
 
 
-function ProtectionStatusCard() {
+function ProtectionStatusCard({
+  now,
+  missingPermissions,
+  missingPermissionLabel,
+  currentAppName,
+}: {
+  now: number;
+  missingPermissions: boolean;
+  missingPermissionLabel: string;
+  currentAppName: string;
+}) {
   const navigate = useNavigate();
   const isMonitoring = useStore(s => s.isMonitoring);
   const serviceError = useStore(s => s.serviceError);
-  const blockState = useStore(s => s.blockState);
-  const continuousSessionSeconds = useStore(s => s.continuousSessionSeconds);
   const graceUntil = useStore(s => s.graceUntil);
   const profile = useStore(s => s.profile);
   const setMonitoring = useStore(s => s.setMonitoring);
-  const [now, setNow] = useState(Date.now());
-  
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-  
+  const blockState = useStore(s => s.blockState);
+  const continuousSessionSeconds = useStore(s => s.continuousSessionSeconds);
+
   const handleRetry = () => setMonitoring(true);
   
   const vm = getProtectionViewModel({
@@ -53,8 +56,10 @@ function ProtectionStatusCard() {
     sessionSeconds: continuousSessionSeconds,
     limitMinutes: profile.sessionLimit,
     graceUntil, now,
-    missingPermissions: false,
+    missingPermissions,
     noTargetApps: (profile.targetApps || []).length === 0,
+    missingPermissionLabel,
+    currentAppName,
   });
   
   return (
@@ -80,18 +85,28 @@ function ProtectionStatusCard() {
           </div>
         </div>
       )}
+      {missingPermissions && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-3" role="alert">
+          <p className="text-[13px] text-red-700">{missingPermissionLabel}权限已失效</p>
+          <div className="flex gap-2 mt-2">
+            <button onClick={() => navigate('/permissions')} className="text-[12px] text-red-600 underline">
+              去授权
+            </button>
+          </div>
+        </div>
+      )}
       <div className="space-y-1.5 text-[13px]">
         <div className="flex justify-between">
           <span className="text-gray-500">当前状态</span>
           <span className="font-medium">{vm.stateLabel}</span>
         </div>
-        {blockState !== 'BLOCKED' && blockState !== 'RESTING' && (
+        {blockState !== 'BLOCKED' && blockState !== 'RESTING' && blockState !== 'GRACE' && (
           <div className="flex justify-between">
-            <span className="text-gray-500">已连续使用</span>
+            <span className="text-gray-500">连续使用</span>
             <span className="font-medium">{vm.sessionMinutes} 分钟</span>
           </div>
         )}
-        {isMonitoring && blockState !== 'BLOCKED' && blockState !== 'RESTING' && !vm.nextThreshold.blocked && (
+        {isMonitoring && blockState !== 'BLOCKED' && blockState !== 'RESTING' && blockState !== 'GRACE' && !vm.nextThreshold.blocked && (
           <div className="flex justify-between">
             <span className="text-gray-500">下一阶段</span>
             <span className="font-medium text-primary">{formatRemainingTime(vm.nextThreshold.remainingSeconds)} 后{vm.nextThreshold.label}</span>
@@ -109,6 +124,12 @@ function ProtectionStatusCard() {
           <div className="flex justify-between">
             <span className="text-gray-500">访问窗口剩余</span>
             <span className="font-medium text-primary">{formatCountdown(vm.graceRemainingSeconds)}</span>
+          </div>
+        )}
+        {isMonitoring && currentAppName && (
+          <div className="flex justify-between">
+            <span className="text-gray-500">当前应用</span>
+            <span className="font-medium">{currentAppName}</span>
           </div>
         )}
         {!isMonitoring && vm.noTargetApps && (
@@ -133,10 +154,7 @@ export default function Dashboard() {
   const score = useStore(s => s.fatigueScore);
   const level = useStore(s => s.fatigueLevel);
   const currentAppName = useStore(s => s.currentAppName);
-  const continuousSessionSeconds = useStore(s => s.continuousSessionSeconds);
-  const blockState = useStore(s => s.blockState);
   const graceUntil = useStore(s => s.graceUntil);
-  const blockedPackage = useStore(s => s.blockedPackage);
   const serviceError = useStore(s => s.serviceError);
   const [now, setNow] = useState(Date.now());
   const [summary, setSummary] = useState({
@@ -156,8 +174,8 @@ export default function Dashboard() {
   const { isNative, permissions } = useNativePermissions();
   const missingCritical = isNative && isMonitoring && (!permissions.hasUsageStats || !permissions.hasOverlay);
   const missingCriticalLabel = !permissions.hasUsageStats
-    ? '使用情况访问'
-    : '悬浮窗';
+    ? '使用情况访问权限'
+    : '悬浮窗权限';
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -274,7 +292,7 @@ export default function Dashboard() {
           </motion.div>
         </div>
       </div>
-      <ProtectionStatusCard />
+      <ProtectionStatusCard now={now} missingPermissions={missingCritical} missingPermissionLabel={missingCriticalLabel} currentAppName={currentAppName} />
 
       <button
         onClick={handleToggleMonitoring}
@@ -376,12 +394,6 @@ export default function Dashboard() {
         {reflectionError && <p className="text-[11px] text-error mt-2">{reflectionError}</p>}
       </div>
 
-      {blockState === 'BLOCKED' && (
-        <button onClick={() => navigate('/rest')} className="w-full mb-5 p-4 rounded-2xl bg-error/5 border border-error/20 text-left">
-          <p className="text-[14px] font-bold text-error">{getAppName(blockedPackage) || '目标应用'} 已阻断</p>
-          <p className="text-[12px] text-gray-600 mt-1">本次连续使用 {Math.floor(continuousSessionSeconds / 60)} 分钟，完成 {Math.round(profile.restDuration / 60)} 分钟休息后解锁。</p>
-        </button>
-      )}
 
       {/* Action buttons */}
       <div className="mb-6">
@@ -409,19 +421,6 @@ export default function Dashboard() {
         </div>
       )}
 
-      {missingCritical && (
-        <button
-          onClick={() => navigate('/permissions')}
-          className="mb-5 w-full rounded-xl border border-error/30 bg-error/5 px-4 py-3 text-left flex items-center gap-3"
-        >
-          <AlertTriangle size={18} className="text-error shrink-0" />
-          <div className="flex-1">
-            <p className="text-[13px] font-medium text-error">{missingCriticalLabel}权限已失效</p>
-            <p className="text-[11px] text-gray-600 mt-0.5">点击重新授权，监控才能继续生效</p>
-          </div>
-          <ChevronRight size={16} className="text-error shrink-0" />
-        </button>
-      )}
 
       {/* Fatigue level indicator */}
       {level === 'NONE' && (

@@ -1,4 +1,4 @@
-// src/pages/Onboarding.tsx
+﻿// src/pages/Onboarding.tsx
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -41,11 +41,7 @@ export default function Onboarding() {
   };
 
   const skip = () => {
-    if (current < slides.length - 1) {
-      setCurrent(slides.length - 1);
-    } else {
-      navigate('/permissions');
-    }
+    navigate('/permissions', { replace: true });
   };
 
   const slide = slides[current];

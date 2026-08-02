@@ -141,10 +141,10 @@ function Toggle({ label, description, value, onChange }: {
   onChange: (value: boolean) => void;
 }) {
   return (
-    <button onClick={() => onChange(!value)} className="w-full flex items-center gap-4 text-left">
+    <button onClick={() => onChange(!value)} className="w-full flex items-center gap-4 text-left" role="switch" aria-checked={value} aria-label={label}>
       <div className="flex-1">
         <p className="text-[14px] font-medium">{label}</p>
-        <p className="text-[11px] text-gray-500 mt-1">{description}</p>
+        <p className="text-[12px] text-gray-500 mt-1">{description}</p>
       </div>
       <div className={`w-12 h-7 rounded-full p-1 transition-colors ${value ? 'bg-primary' : 'bg-gray-300'}`}>
         <div className={`w-5 h-5 rounded-full bg-white transition-transform ${value ? 'translate-x-5' : ''}`} />

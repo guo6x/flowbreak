@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { motion } from 'framer-motion';
 import { Accessibility, ArrowLeft, Battery, Bell, ChevronDown, ChevronUp, Clock, Eye, Power, RefreshCw, Shield } from 'lucide-react';
@@ -46,9 +46,6 @@ export default function Permissions() {
   const [autoStartOpened, setAutoStartOpened] = useState(false);
   const [optionalExpanded, setOptionalExpanded] = useState(false);
 
-  useEffect(() => {
-    refreshPermissions();
-  }, [isNative, refreshPermissions]);
 
   const manufacturer = state.manufacturer;
   const needsAutoStart = isNative
@@ -140,7 +137,7 @@ export default function Permissions() {
 
   return (
     <div className="flex flex-col min-h-dvh px-8 pt-14 pb-10">
-      <button onClick={() => navigate('/onboarding')} aria-label="返回引导页" className="w-10 h-10 rounded-full bg-white card flex items-center justify-center mb-4">
+      <button onClick={() => navigate('/onboarding')} aria-label="返回引导页" className="min-w-[44px] min-h-[44px] rounded-full bg-white card flex items-center justify-center mb-4">
         <ArrowLeft size={20} />
       </button>
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col flex-1">
@@ -176,7 +173,7 @@ export default function Permissions() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-[14px] font-medium">{item.title}</p>
-                  <p className="text-[11px] text-gray-500 mt-1">{item.desc}</p>
+                  <p className="text-[12px] text-gray-500 mt-1">{item.desc}</p>
                 </div>
                 <span className={`text-[12px] font-medium shrink-0 ${statusClass}`}>{statusText}</span>
                 <button
@@ -243,7 +240,7 @@ export default function Permissions() {
           <button
             onClick={refreshPermissions}
             disabled={checking}
-            className="flex items-center justify-center gap-2 rounded-2xl bg-gray-100 py-3.5 px-5 text-[13px] font-medium text-gray-600 shrink-0 disabled:opacity-50 transition-colors hover:bg-gray-200"
+            className="flex items-center justify-center gap-2 rounded-2xl bg-gray-100 min-h-[44px] px-5 text-[13px] font-medium text-gray-600 shrink-0 disabled:opacity-50 transition-colors hover:bg-gray-200"
           >
             <RefreshCw size={16} className={checking ? 'animate-spin' : ''} />
             重新检测权限
