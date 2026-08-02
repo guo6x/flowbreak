@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { motion } from 'framer-motion';
 import { ArrowLeft, ArrowRight, LockKeyhole, User } from 'lucide-react';
@@ -9,6 +9,8 @@ export default function Login() {
   const profileName = useStore(s => s.profile.name);
   const updateProfile = useStore(s => s.updateProfile);
   const [name, setName] = useState(profileName);
+
+  useEffect(() => { navigate('/permissions', { replace: true }); }, [navigate]);
 
   const continueLocally = () => {
     const normalizedName = name.trim() || 'FlowBreak 用户';

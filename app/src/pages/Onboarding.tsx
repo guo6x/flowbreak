@@ -36,7 +36,7 @@ export default function Onboarding() {
     if (current < slides.length - 1) {
       setCurrent(current + 1);
     } else {
-      navigate('/login');
+      navigate('/permissions');
     }
   };
 
@@ -44,7 +44,7 @@ export default function Onboarding() {
     if (current < slides.length - 1) {
       setCurrent(slides.length - 1);
     } else {
-      navigate('/login');
+      navigate('/permissions');
     }
   };
 

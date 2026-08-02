@@ -34,7 +34,7 @@ function LoadingPage() {
 }
 
 // 设置/引导页面路径——在这些页面上不累加连续使用时长
-const SETTINGS_PATHS = ['/profile', '/target-apps', '/blocking-settings', '/privacy', '/validation', '/permissions', '/personalize', '/login', '/onboarding'];
+const SETTINGS_PATHS = ['/profile', '/target-apps', '/blocking-settings', '/privacy', '/validation', '/permissions', '/personalize', '/login', '/onboarding', '/settings'];
 
 // ============================================================
 // GlobalMonitor — runs screen time tracking, fatigue detection,
