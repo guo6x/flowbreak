@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router';
 import { NativeFlow } from '../backend/nativeFlow';
 import { useStore } from '../hooks/useStore';
 import { useNativePermissions } from '../hooks/useNativePermissions';
+import { translateLimit } from '../utils/protectionStatus';
 
 export default function BlockingSettings() {
   const navigate = useNavigate();
@@ -17,6 +18,8 @@ export default function BlockingSettings() {
   const [loading, setLoading] = useState(isNative);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  const times = translateLimit(limit);
 
   useEffect(() => {
     if (!isNative) return;
@@ -88,6 +91,9 @@ export default function BlockingSettings() {
           <span className="float-right text-primary font-bold">{limit} 分钟</span>
           <input type="range" min="5" max="90" step="5" value={limit} onChange={e => setLimit(Number(e.target.value))} className="w-full mt-3 accent-green-600" />
           <p className="text-[11px] text-gray-500 mt-1">80% 感知提醒，100% 认知提醒，120% 阻断。</p>
+          <div className="text-[13px] text-gray-400 mt-1">
+            {times.perceptionMinutes}分钟轻提醒 · {times.cognitionMinutes}分钟强提醒 · {times.blockedMinutes}分钟进入休息引导
+          </div>
         </label>
 
         <label className="block">

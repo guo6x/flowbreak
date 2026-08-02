@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { ArrowLeft, Check, RefreshCw, Search, Shield } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router';
@@ -23,6 +23,13 @@ export default function TargetApps() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [onlySelected, setOnlySelected] = useState(false);
+  const initialSelected = useRef<string[]>([...selected]);
+  const isDirty = useMemo(() => {
+    if (initialSelected.current.length !== selected.length) return true;
+    return !initialSelected.current.every((p: string) => selected.includes(p));
+  }, [selected]);
   const [channel, setChannel] = useState<'play' | 'domestic' | 'base'>('base');
   const returnTo = (location.state as { returnTo?: string } | null)?.returnTo === '/personalize'
     ? '/personalize'
@@ -64,12 +71,21 @@ export default function TargetApps() {
 
   const filtered = useMemo(() => {
     const keyword = query.trim().toLowerCase();
-    if (!keyword) return apps;
-    return apps.filter(app =>
-      app.label.toLowerCase().includes(keyword)
-      || app.packageName.toLowerCase().includes(keyword),
-    );
-  }, [apps, query]);
+    let result = keyword
+      ? apps.filter(app =>
+          app.label.toLowerCase().includes(keyword)
+          || app.packageName.toLowerCase().includes(keyword),
+        )
+      : apps;
+    if (onlySelected) result = result.filter(a => selected.includes(a.packageName));
+    // Put selected apps first
+    result.sort((a, b) => {
+      const aSel = selected.includes(a.packageName) ? 0 : 1;
+      const bSel = selected.includes(b.packageName) ? 0 : 1;
+      return aSel - bSel;
+    });
+    return result;
+  }, [apps, query, onlySelected, selected]);
 
   const toggle = (packageName: string) => {
     setError('');
@@ -81,6 +97,34 @@ export default function TargetApps() {
       }
       return [...current, packageName];
     });
+  };
+
+  const handleSaveAndReturn = async () => {
+    if (selected.length === 0) {
+      setError('至少选择一个应用。');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      if (Capacitor.isNativePlatform()) {
+        await NativeFlow.saveTargetApps({ packageNames: selected });
+      }
+      updateProfile({ targetApps: selected });
+      navigate(returnTo, { replace: true });
+    } catch (e) {
+      setSaving(false);
+      setError(e instanceof Error ? e.message : '保存失败');
+    }
+  };
+
+  const handleDiscardAndReturn = () => {
+    navigate(returnTo);
+  };
+
+  const handleBack = () => {
+    if (isDirty) { setShowConfirm(true); return; }
+    navigate(returnTo);
   };
 
   const save = async () => {
@@ -106,7 +150,7 @@ export default function TargetApps() {
   return (
     <div className="min-h-dvh px-5 pt-6 pb-28">
       <div className="flex items-center gap-3 mb-5">
-        <button onClick={() => navigate(returnTo)} aria-label="返回" className="w-10 h-10 rounded-full bg-white card flex items-center justify-center">
+        <button onClick={handleBack} aria-label="返回" className="w-10 h-10 rounded-full bg-white card flex items-center justify-center">
           <ArrowLeft size={20} />
         </button>
         <div className="flex-1">
@@ -114,6 +158,23 @@ export default function TargetApps() {
           <p className="text-[12px] text-gray-500">共享同一连续使用限额 · 已选 {selected.length}/30</p>
         </div>
       </div>
+
+      {showConfirm && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4" role="alert">
+          <p className="text-[14px] font-medium text-amber-800 mb-3">有未保存的修改</p>
+          <div className="flex gap-2">
+            <button onClick={handleSaveAndReturn} disabled={saving} className="flex-1 h-10 bg-primary text-white rounded-xl text-[13px] font-medium">
+              {saving ? '保存中...' : '保存并返回'}
+            </button>
+            <button onClick={handleDiscardAndReturn} className="flex-1 h-10 bg-gray-200 text-gray-700 rounded-xl text-[13px] font-medium">
+              放弃修改
+            </button>
+            <button onClick={() => setShowConfirm(false)} className="flex-1 h-10 border border-gray-200 rounded-xl text-[13px] font-medium text-gray-600">
+              继续编辑
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="relative mb-4">
         <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -123,6 +184,20 @@ export default function TargetApps() {
           placeholder="搜索应用"
           className="w-full rounded-2xl bg-white border border-gray-300/60 pl-11 pr-4 py-3.5 outline-none"
         />
+        <div className="flex gap-2 mt-2">
+          {selected.length > 0 && (
+            <button onClick={() => setOnlySelected(!onlySelected)} className={`text-[12px] px-3 py-1 rounded-full border ${
+              onlySelected ? 'bg-primary/10 border-primary text-primary' : 'border-gray-200 text-gray-500'
+            }`}>
+              只看已选
+            </button>
+          )}
+          {query && (
+            <button onClick={() => setQuery('')} className="text-[12px] px-3 py-1 rounded-full border border-gray-200 text-gray-500">
+              清空搜索
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="mb-4 p-4 bg-primary/5 border border-primary/10 rounded-2xl flex gap-3">
@@ -179,11 +254,14 @@ export default function TargetApps() {
           {filtered.length === 0 && <p className="text-center text-gray-500 py-12">没有匹配的应用</p>}
         </div>
       )}
+      {filtered.length > 0 && (
+        <p className="text-[12px] text-gray-400 mt-2">找到 {filtered.length} 个应用</p>
+      )}
 
       {error && <p className="text-error text-[12px] mt-3">{error}</p>}
       <div className="fixed left-0 right-0 bottom-0 px-5 py-4 bg-white/95 border-t border-gray-300/40">
         <button onClick={save} disabled={selected.length === 0 || loading || saving || apps.length === 0} className="btn-primary w-full disabled:opacity-50">
-          {saving ? '正在保存...' : '保存受限应用'}
+          {saving ? '正在保存...' : '保存更改'}
         </button>
       </div>
     </div>

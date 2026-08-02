@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { motion } from 'framer-motion';
-import { Moon, Focus, Clock, Shield, Zap, Play, ChevronRight, AlertTriangle } from 'lucide-react';
+import { Moon, Clock, Shield, Zap, ChevronRight, AlertTriangle } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import { DailyReflection, getTodayActivities, getTodayReflection, saveTodayReflection } from '../backend/storage';
 import { Capacitor } from '@capacitor/core';
 import { NativeFlow } from '../backend/nativeFlow';
 import { getAppName } from '../backend/appNames';
 import { useNativePermissions } from '../hooks/useNativePermissions';
+import { getProtectionViewModel, formatRemainingTime, formatCountdown } from '../utils/protectionStatus';
 
 function formatMinutes(seconds: number) {
   const h = Math.floor(seconds / 3600);
@@ -26,6 +27,101 @@ function formatGoal(minutes: number) {
   const hours = minutes / 60;
   if (Number.isInteger(hours)) return `${hours}小时`;
   return `${hours.toFixed(1)}小时`;
+}
+
+
+function ProtectionStatusCard() {
+  const navigate = useNavigate();
+  const isMonitoring = useStore(s => s.isMonitoring);
+  const serviceError = useStore(s => s.serviceError);
+  const blockState = useStore(s => s.blockState);
+  const continuousSessionSeconds = useStore(s => s.continuousSessionSeconds);
+  const graceUntil = useStore(s => s.graceUntil);
+  const profile = useStore(s => s.profile);
+  const setMonitoring = useStore(s => s.setMonitoring);
+  const [now, setNow] = useState(Date.now());
+  
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  
+  const handleRetry = () => setMonitoring(true);
+  
+  const vm = getProtectionViewModel({
+    isMonitoring, serviceError, blockState,
+    sessionSeconds: continuousSessionSeconds,
+    limitMinutes: profile.sessionLimit,
+    graceUntil, now,
+    missingPermissions: false,
+    noTargetApps: (profile.targetApps || []).length === 0,
+  });
+  
+  return (
+    <div className="card-lg p-5 mb-4">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-[15px] font-bold">保护状态</h3>
+        <span className={`px-3 py-1 rounded-full text-[12px] font-medium ${
+          isMonitoring ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+        }`}>
+          {isMonitoring ? '已开启' : '已暂停'}
+        </span>
+      </div>
+      {vm.hasError && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-3" role="alert">
+          <p className="text-[13px] text-red-700">{vm.errorMessage}</p>
+          <div className="flex gap-2 mt-2">
+            <button onClick={() => navigate('/permissions')} className="text-[12px] text-red-600 underline">
+              检查权限
+            </button>
+            <button onClick={handleRetry} className="text-[12px] text-red-600 underline">
+              重试开启
+            </button>
+          </div>
+        </div>
+      )}
+      <div className="space-y-1.5 text-[13px]">
+        <div className="flex justify-between">
+          <span className="text-gray-500">当前状态</span>
+          <span className="font-medium">{vm.stateLabel}</span>
+        </div>
+        {blockState !== 'BLOCKED' && blockState !== 'RESTING' && (
+          <div className="flex justify-between">
+            <span className="text-gray-500">已连续使用</span>
+            <span className="font-medium">{vm.sessionMinutes} 分钟</span>
+          </div>
+        )}
+        {isMonitoring && blockState !== 'BLOCKED' && blockState !== 'RESTING' && !vm.nextThreshold.blocked && (
+          <div className="flex justify-between">
+            <span className="text-gray-500">下一阶段</span>
+            <span className="font-medium text-primary">{formatRemainingTime(vm.nextThreshold.remainingSeconds)} 后{vm.nextThreshold.label}</span>
+          </div>
+        )}
+        {blockState === 'BLOCKED' && (
+          <div className="flex justify-between">
+            <span className="text-gray-500">操作</span>
+            <button onClick={() => navigate('/rest')} className="text-[13px] font-medium text-primary underline">
+              开始休息
+            </button>
+          </div>
+        )}
+        {blockState === 'GRACE' && vm.graceRemainingSeconds > 0 && (
+          <div className="flex justify-between">
+            <span className="text-gray-500">访问窗口剩余</span>
+            <span className="font-medium text-primary">{formatCountdown(vm.graceRemainingSeconds)}</span>
+          </div>
+        )}
+        {!isMonitoring && vm.noTargetApps && (
+          <div className="flex justify-between items-center">
+            <span className="text-gray-500">受限应用</span>
+            <button onClick={() => navigate('/target-apps')} className="text-[13px] text-primary underline">
+              选择受限应用
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export default function Dashboard() {
@@ -178,6 +274,18 @@ export default function Dashboard() {
           </motion.div>
         </div>
       </div>
+      <ProtectionStatusCard />
+
+      <button
+        onClick={handleToggleMonitoring}
+        disabled={toggling}
+        className={`w-full h-12 rounded-xl text-[14px] font-medium transition-colors mb-5 ${
+          isMonitoring ? 'bg-gray-200 text-gray-700' : 'bg-primary text-white'
+        }`}
+        aria-label={isMonitoring ? '暂停保护' : '开启保护'}
+      >
+        {toggling ? (isMonitoring ? '正在暂停...' : '正在开启...') : (isMonitoring ? '暂停保护' : '开启保护')}
+      </button>
 
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -276,13 +384,13 @@ export default function Dashboard() {
       )}
 
       {/* Action buttons */}
-      <div className="flex gap-3 mb-6">
+      <div className="mb-6">
         <motion.button
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
           whileTap={{ scale: 0.95 }}
           onClick={() => navigate('/rest')}
-          className="flex-1 card flex items-center gap-3 p-4 bg-secondary/5 border border-secondary/20"
+          className="w-full card flex items-center gap-3 p-4 bg-secondary/5 border border-secondary/20"
         >
           <div className="w-10 h-10 rounded-xl bg-secondary/10 flex items-center justify-center">
             <Moon size={20} className="text-secondary" />
@@ -291,25 +399,6 @@ export default function Dashboard() {
             <p className="text-[14px] font-medium text-gray-900">开始休息</p>
             <p className="text-[11px] text-gray-500">
               {level === 'NONE' ? '主动休息' : level === 'ACTION' ? '强烈建议休息' : level === 'COGNITION' ? '认知疲劳' : '轻度疲劳'}
-            </p>
-          </div>
-        </motion.button>
-
-        <motion.button
-          whileTap={{ scale: 0.95 }}
-          onClick={handleToggleMonitoring}
-          disabled={toggling}
-          className="flex-1 card flex items-center gap-3 p-4 disabled:opacity-60"
-        >
-          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-            isMonitoring ? 'bg-error/10' : 'bg-accent/10'
-          }`}>
-            {isMonitoring ? <Focus size={20} className="text-error" /> : <Play size={20} className="text-accent" />}
-          </div>
-          <div className="text-left">
-            <p className="text-[14px] font-medium text-gray-900">{isMonitoring ? '停止监控' : '开始监控'}</p>
-            <p className="text-[11px] text-gray-500">
-              {toggling ? '正在切换...' : isMonitoring ? `连续 ${Math.floor(continuousSessionSeconds / 60)}分钟` : '已暂停 - 点击恢复'}
             </p>
           </div>
         </motion.button>
