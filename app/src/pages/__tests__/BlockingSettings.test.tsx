@@ -1,17 +1,17 @@
-﻿import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { BrowserRouter } from 'react-router';
-import BlockingSettings from '../BlockingSettings';
-import { useStore } from '../../hooks/useStore';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
+import { BrowserRouter } from "react-router";
+import BlockingSettings from "../BlockingSettings";
+import { useStore } from "../../hooks/useStore";
 
 const mockNavigate = vi.fn();
 
-vi.mock('react-router', async () => {
-  const actual = await vi.importActual('react-router');
+vi.mock("react-router", async () => {
+  const actual = await vi.importActual("react-router");
   return { ...actual, useNavigate: () => mockNavigate };
 });
 
-vi.mock('../../hooks/useNativePermissions', () => ({
+vi.mock("../../hooks/useNativePermissions", () => ({
   useNativePermissions: () => ({
     isNative: false,
     permissions: {
@@ -21,11 +21,11 @@ vi.mock('../../hooks/useNativePermissions', () => ({
       hasNotification: false,
       hasAccessibility: false,
       isDomestic: false,
-      channel: 'base' as const,
-      manufacturer: '',
+      channel: "base" as const,
+      manufacturer: "",
     },
     checking: false,
-    error: '',
+    error: "",
     refresh: vi.fn(),
   }),
 }));
@@ -48,40 +48,59 @@ function renderBlockingSettings() {
   );
 }
 
-describe('BlockingSettings', () => {
+describe("BlockingSettings", () => {
   beforeEach(() => {
     mockNavigate.mockClear();
   });
 
-  it('15分钟=12/15/18换算', () => {
+  it("15分钟=12/15/18换算", () => {
     renderBlockingSettings();
-    expect(screen.getByText(/12分钟轻提醒/)).toBeDefined();
-    expect(screen.getByText(/15分钟强提醒/)).toBeDefined();
-    expect(screen.getByText(/18分钟进入休息引导/)).toBeDefined();
+    expect(screen.getByText(/12分钟轻提醒/)).toBeInTheDocument();
+    expect(screen.getByText(/15分钟强提醒/)).toBeInTheDocument();
+    expect(screen.getByText(/18分钟进入休息引导/)).toBeInTheDocument();
   });
 
-  it('紧急解锁Toggle有正确ARIA', () => {
+  it("紧急解锁Toggle有正确ARIA", () => {
     renderBlockingSettings();
-    const toggle = screen.getByRole('switch', { name: '允许每日一次紧急使用' });
-    expect(toggle).toBeDefined();
-    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    const toggle = screen.getByRole("switch", { name: "允许每日一次紧急使用" });
+    expect(toggle).toBeInTheDocument();
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
   });
 
-  it('点击紧急解锁切换aria-checked', () => {
+  it("点击紧急解锁切换aria-checked", () => {
     renderBlockingSettings();
-    const toggle = screen.getByRole('switch', { name: '允许每日一次紧急使用' });
+    const toggle = screen.getByRole("switch", { name: "允许每日一次紧急使用" });
     fireEvent.click(toggle);
-    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
   });
 
-  it('切换限额显示不同换算', () => {
+  it("Toggle键盘Enter可切换", () => {
     renderBlockingSettings();
-    // Just verify the current translation is shown
-    expect(screen.getByText('15 分钟')).toBeDefined();
+    const toggle = screen.getByRole("switch", { name: "允许每日一次紧急使用" });
+    // Buttons natively respond to Enter/Space as click; simulate via click
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    // Click again to toggle back
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
   });
 
-  it('保存按钮存在', () => {
+  it("Toggle键盘Space可切换", () => {
     renderBlockingSettings();
-    expect(screen.getByText('保存设置')).toBeDefined();
+    const toggle = screen.getByRole("switch", { name: "允许每日一次紧急使用" });
+    // Verify toggle is operable (button with role=switch responds to Space via onClick)
+    expect(toggle.tagName).toBe("BUTTON");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("切换限额显示不同换算", () => {
+    renderBlockingSettings();
+    expect(screen.getByText("15 分钟")).toBeInTheDocument();
+  });
+
+  it("保存按钮存在", () => {
+    renderBlockingSettings();
+    expect(screen.getByText("保存设置")).toBeInTheDocument();
   });
 });

@@ -1,4 +1,4 @@
-﻿// src/pages/Profile.tsx
+// src/pages/Profile.tsx
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
@@ -108,7 +108,7 @@ export default function Profile() {
           <User size={30} className="text-white" />
         </div>
         <div className="flex-1 min-w-0">
-          <h2 className="text-[18px] font-bold text-gray-900 truncate">{profile.name || '未设置名称'}</h2>
+          <h2 className="text-[18px] font-bold text-gray-900 truncate">{(profile.name || '').trim() || 'FlowBreak 用户'}</h2>
           <p className="text-[12px] text-gray-500 mt-0.5">
             {profile.type === 'student' ? '学生' : profile.type === 'worker' ? '上班族' : '用户'} · 目标 {formatGoal(profile.dailyGoal)}/天
           </p>

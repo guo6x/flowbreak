@@ -1,4 +1,4 @@
-﻿import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { BrowserRouter } from "react-router";
 import Permissions from "../Permissions";
@@ -63,18 +63,18 @@ describe("Permissions", () => {
   it("两个必需权限都开启时可继续", () => {
     renderPermissions({ hasUsageStats: true, hasOverlay: true, isNative: true });
     const btn = screen.getByText("继续设置保护");
-    expect(btn).toBeDefined();
+    expect(btn).toBeInTheDocument();
     expect((btn as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("缺usage时按钮提示usage", () => {
     renderPermissions({ hasUsageStats: false, hasOverlay: true, isNative: true });
-    expect(screen.getByText("还需开启：使用情况访问")).toBeDefined();
+    expect(screen.getByText("还需开启：使用情况访问")).toBeInTheDocument();
   });
 
   it("缺overlay时按钮提示overlay", () => {
     renderPermissions({ hasUsageStats: true, hasOverlay: false, isNative: true });
-    expect(screen.getByText("还需开启：悬浮窗权限")).toBeDefined();
+    expect(screen.getByText("还需开启：悬浮窗权限")).toBeInTheDocument();
   });
 
   it("可选区域默认收起", () => {
@@ -85,7 +85,7 @@ describe("Permissions", () => {
   it("展开后显示可选权限", () => {
     renderPermissions({ isNative: true, isDomestic: true });
     fireEvent.click(screen.getByText("提升后台稳定性（可稍后设置）"));
-    expect(screen.getByText("通知权限")).toBeDefined();
+    expect(screen.getByText("通知权限")).toBeInTheDocument();
   });
 
   it("手动重新检测调用refresh", () => {
@@ -96,7 +96,7 @@ describe("Permissions", () => {
 
   it("optional权限不阻塞继续", () => {
     renderPermissions({ hasUsageStats: true, hasOverlay: true, isNative: true });
-    const btn = screen.getByText("继续设置保护");
-    expect((btn as HTMLButtonElement).disabled).toBe(false);
+    const btn = screen.getByText("继续设置保护") as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
   });
 });

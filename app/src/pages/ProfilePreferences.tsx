@@ -45,7 +45,7 @@ export default function ProfilePreferences() {
     setError("");
     try {
       updateProfile({
-        name,
+        name: name.trim(),
         type,
         dailyGoal,
         selectedBackground: background,

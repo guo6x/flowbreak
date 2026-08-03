@@ -50,26 +50,36 @@ function ProtectionStatusCard({
   const continuousSessionSeconds = useStore(s => s.continuousSessionSeconds);
 
   const handleRetry = () => setMonitoring(true);
-  
+
+  const noTargetApps = (profile.targetApps || []).length === 0;
+  const protectionActive = isMonitoring && !noTargetApps;
+
   const vm = getProtectionViewModel({
-    isMonitoring, serviceError, blockState,
+    isMonitoring: protectionActive,
+    serviceError,
+    blockState,
     sessionSeconds: continuousSessionSeconds,
     limitMinutes: profile.sessionLimit,
     graceUntil, now,
     missingPermissions,
-    noTargetApps: (profile.targetApps || []).length === 0,
+    noTargetApps,
     missingPermissionLabel,
     currentAppName,
   });
-  
+
+  const badgeLabel = !isMonitoring ? '已暂停'
+    : noTargetApps ? '未配置'
+    : '已开启';
+  const badgeClass = !isMonitoring ? 'bg-gray-100 text-gray-500'
+    : noTargetApps ? 'bg-amber-100 text-amber-700'
+    : 'bg-green-100 text-green-700';
+
   return (
     <div className="card-lg p-5 mb-4">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-[15px] font-bold">保护状态</h3>
-        <span className={`px-3 py-1 rounded-full text-[12px] font-medium ${
-          isMonitoring ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-        }`}>
-          {isMonitoring ? '已开启' : '已暂停'}
+        <span className={`px-3 py-1 rounded-full text-[12px] font-medium ${badgeClass}`}>
+          {badgeLabel}
         </span>
       </div>
       {vm.hasError && (
@@ -100,19 +110,19 @@ function ProtectionStatusCard({
           <span className="text-gray-500">当前状态</span>
           <span className="font-medium">{vm.stateLabel}</span>
         </div>
-        {blockState !== 'BLOCKED' && blockState !== 'RESTING' && blockState !== 'GRACE' && (
+        {protectionActive && blockState !== 'BLOCKED' && blockState !== 'RESTING' && blockState !== 'GRACE' && (
           <div className="flex justify-between">
             <span className="text-gray-500">连续使用</span>
             <span className="font-medium">{vm.sessionMinutes} 分钟</span>
           </div>
         )}
-        {isMonitoring && blockState !== 'BLOCKED' && blockState !== 'RESTING' && blockState !== 'GRACE' && !vm.nextThreshold.blocked && (
+        {protectionActive && blockState !== 'BLOCKED' && blockState !== 'RESTING' && blockState !== 'GRACE' && !vm.nextThreshold.blocked && (
           <div className="flex justify-between">
             <span className="text-gray-500">下一阶段</span>
             <span className="font-medium text-primary">{formatRemainingTime(vm.nextThreshold.remainingSeconds)} 后{vm.nextThreshold.label}</span>
           </div>
         )}
-        {blockState === 'BLOCKED' && (
+        {protectionActive && blockState === 'BLOCKED' && (
           <div className="flex justify-between">
             <span className="text-gray-500">操作</span>
             <button onClick={() => navigate('/rest')} className="text-[13px] font-medium text-primary underline">
@@ -120,19 +130,19 @@ function ProtectionStatusCard({
             </button>
           </div>
         )}
-        {blockState === 'GRACE' && vm.graceRemainingSeconds > 0 && (
+        {protectionActive && blockState === 'GRACE' && vm.graceRemainingSeconds > 0 && (
           <div className="flex justify-between">
             <span className="text-gray-500">访问窗口剩余</span>
             <span className="font-medium text-primary">{formatCountdown(vm.graceRemainingSeconds)}</span>
           </div>
         )}
-        {isMonitoring && currentAppName && (
+        {protectionActive && currentAppName && (
           <div className="flex justify-between">
             <span className="text-gray-500">当前应用</span>
             <span className="font-medium">{currentAppName}</span>
           </div>
         )}
-        {!isMonitoring && vm.noTargetApps && (
+        {noTargetApps && (
           <div className="flex justify-between items-center">
             <span className="text-gray-500">受限应用</span>
             <button onClick={() => navigate('/target-apps')} className="text-[13px] text-primary underline">
@@ -172,10 +182,11 @@ export default function Dashboard() {
   const [summaryError, setSummaryError] = useState(false);
   const [toggling, setToggling] = useState(false);
   const { isNative, permissions } = useNativePermissions();
-  const missingCritical = isNative && isMonitoring && (!permissions.hasUsageStats || !permissions.hasOverlay);
+  const noTargetApps = profile.targetApps.length === 0;
+  const missingCritical = isNative && isMonitoring && !noTargetApps && (!permissions.hasUsageStats || !permissions.hasOverlay);
   const missingCriticalLabel = !permissions.hasUsageStats
-    ? '使用情况访问权限'
-    : '悬浮窗权限';
+    ? '使用情况访问'
+    : '悬浮窗';
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -236,11 +247,10 @@ export default function Dashboard() {
 
   const handleToggleMonitoring = async () => {
     if (toggling) return;
+    if (noTargetApps) return;
     setToggling(true);
     try {
-      // setMonitoring 内部会触发 native 服务启停，await 一下让 effect 跑完
       setMonitoring(!isMonitoring);
-      // 给 native 服务一点时间，避免快速连点导致反复启停
       await new Promise(r => setTimeout(r, 300));
     } finally {
       setToggling(false);
@@ -296,13 +306,13 @@ export default function Dashboard() {
 
       <button
         onClick={handleToggleMonitoring}
-        disabled={toggling}
+        disabled={toggling || noTargetApps}
         className={`w-full h-12 rounded-xl text-[14px] font-medium transition-colors mb-5 ${
-          isMonitoring ? 'bg-gray-200 text-gray-700' : 'bg-primary text-white'
+          isMonitoring ? 'bg-gray-200 text-gray-700' : noTargetApps ? 'bg-gray-200 text-gray-500' : 'bg-primary text-white'
         }`}
-        aria-label={isMonitoring ? '暂停保护' : '开启保护'}
+        aria-label={isMonitoring ? '暂停保护' : noTargetApps ? '请先选择受限应用' : '开启保护'}
       >
-        {toggling ? (isMonitoring ? '正在暂停...' : '正在开启...') : (isMonitoring ? '暂停保护' : '开启保护')}
+        {noTargetApps ? '请先选择受限应用' : toggling ? (isMonitoring ? '正在暂停...' : '正在开启...') : (isMonitoring ? '暂停保护' : '开启保护')}
       </button>
 
       <motion.div
