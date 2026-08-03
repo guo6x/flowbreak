@@ -15,43 +15,23 @@ vi.mock("../../hooks/useNativePermissions", () => ({
   useNativePermissions: () => ({
     isNative: false,
     permissions: {
-      hasUsageStats: true,
-      hasOverlay: true,
-      isIgnoringBattery: false,
-      hasNotification: false,
-      hasAccessibility: false,
-      isDomestic: false,
-      channel: "base" as const,
-      manufacturer: "",
+      hasUsageStats: true, hasOverlay: true, isIgnoringBattery: false,
+      hasNotification: false, hasAccessibility: false, isDomestic: false,
+      channel: "base" as const, manufacturer: "",
     },
-    checking: false,
-    error: "",
-    refresh: vi.fn(),
+    checking: false, error: "", refresh: vi.fn(),
   }),
 }));
 
 function renderBlockingSettings() {
   useStore.setState({
-    profile: {
-      ...useStore.getState().profile,
-      sessionLimit: 15,
-      restDuration: 120,
-      allowEmergencyUnlock: false,
-      strongBlockingEnabled: false,
-      onboardingDone: true,
-    },
+    profile: { ...useStore.getState().profile, sessionLimit: 15, restDuration: 120, allowEmergencyUnlock: false, strongBlockingEnabled: false, onboardingDone: true },
   });
-  return render(
-    <BrowserRouter>
-      <BlockingSettings />
-    </BrowserRouter>
-  );
+  return render(<BrowserRouter><BlockingSettings /></BrowserRouter>);
 }
 
 describe("BlockingSettings", () => {
-  beforeEach(() => {
-    mockNavigate.mockClear();
-  });
+  beforeEach(() => mockNavigate.mockClear());
 
   it("15分钟=12/15/18换算", () => {
     renderBlockingSettings();
@@ -60,10 +40,16 @@ describe("BlockingSettings", () => {
     expect(screen.getByText(/18分钟进入休息引导/)).toBeInTheDocument();
   });
 
-  it("紧急解锁Toggle有正确ARIA", () => {
+  it("紧急解锁Toggle元素为BUTTON且role=switch", () => {
     renderBlockingSettings();
     const toggle = screen.getByRole("switch", { name: "允许每日一次紧急使用" });
-    expect(toggle).toBeInTheDocument();
+    expect(toggle.tagName).toBe("BUTTON");
+    expect(toggle.getAttribute("role")).toBe("switch");
+  });
+
+  it("紧急解锁Toggle初始aria-checked为false", () => {
+    renderBlockingSettings();
+    const toggle = screen.getByRole("switch", { name: "允许每日一次紧急使用" });
     expect(toggle.getAttribute("aria-checked")).toBe("false");
   });
 
@@ -74,27 +60,7 @@ describe("BlockingSettings", () => {
     expect(toggle.getAttribute("aria-checked")).toBe("true");
   });
 
-  it("Toggle键盘Enter可切换", () => {
-    renderBlockingSettings();
-    const toggle = screen.getByRole("switch", { name: "允许每日一次紧急使用" });
-    // Buttons natively respond to Enter/Space as click; simulate via click
-    fireEvent.click(toggle);
-    expect(toggle.getAttribute("aria-checked")).toBe("true");
-    // Click again to toggle back
-    fireEvent.click(toggle);
-    expect(toggle.getAttribute("aria-checked")).toBe("false");
-  });
-
-  it("Toggle键盘Space可切换", () => {
-    renderBlockingSettings();
-    const toggle = screen.getByRole("switch", { name: "允许每日一次紧急使用" });
-    // Verify toggle is operable (button with role=switch responds to Space via onClick)
-    expect(toggle.tagName).toBe("BUTTON");
-    fireEvent.click(toggle);
-    expect(toggle.getAttribute("aria-checked")).toBe("true");
-  });
-
-  it("切换限额显示不同换算", () => {
+  it("切换限额显示当前值", () => {
     renderBlockingSettings();
     expect(screen.getByText("15 分钟")).toBeInTheDocument();
   });

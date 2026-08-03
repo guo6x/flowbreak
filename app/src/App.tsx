@@ -1,4 +1,4 @@
-﻿// src/App.tsx
+// src/App.tsx
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useNavigate, useLocation } from 'react-router';
 import { MotionConfig } from 'framer-motion';
@@ -324,7 +324,7 @@ function MainLayout() {
   );
 }
 
-function AppRouter() {
+export function AppRouter() {
   const done = useStore(s => s.profile.onboardingDone);
   const updateProfile = useStore(s => s.updateProfile);
   const navigate = useNavigate();

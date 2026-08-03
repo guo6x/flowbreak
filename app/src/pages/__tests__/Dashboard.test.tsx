@@ -76,9 +76,7 @@ function renderDashboard(overrides: Record<string, any> = {}) {
     ...overrides,
   });
   return render(
-    <BrowserRouter>
-      <Dashboard />
-    </BrowserRouter>
+    <BrowserRouter><Dashboard /></BrowserRouter>
   );
 }
 
@@ -159,11 +157,10 @@ describe("Dashboard", () => {
 
   it("无应用且isMonitoring=true显示未配置状态", () => {
     renderDashboard({
-      isMonitoring: true,
-      blockState: "IDLE",
+      isMonitoring: true, blockState: "IDLE",
       profile: { targetApps: [] },
     });
-    expect(screen.getByText("未配置")).toBeInTheDocument();
+    const badges = screen.getAllByText("未配置"); expect(badges.length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText("已开启")).toBeNull();
     expect(screen.getByText("选择受限应用")).toBeInTheDocument();
     expect(screen.getByText("请先选择受限应用")).toBeInTheDocument();
@@ -173,8 +170,7 @@ describe("Dashboard", () => {
 
   it("无应用时点击主按钮不触发切换", () => {
     renderDashboard({
-      isMonitoring: false,
-      blockState: "IDLE",
+      isMonitoring: false, blockState: "IDLE",
       profile: { targetApps: [] },
     });
     const initialMonitoring = useStore.getState().isMonitoring;
@@ -182,35 +178,56 @@ describe("Dashboard", () => {
     expect(useStore.getState().isMonitoring).toBe(initialMonitoring);
   });
 
+  it("残留状态-无应用时isMonitoring=true清理所有活跃指示", () => {
+    const futureGrace = Date.now() + 300000;
+    renderDashboard({
+      isMonitoring: true, blockState: "IDLE",
+      currentAppName: "抖音", graceUntil: futureGrace,
+      profile: { targetApps: [] },
+    });
+    // Status card badge
+    const badges = screen.getAllByText("未配置"); expect(badges.length).toBeGreaterThanOrEqual(1);
+    // Header must NOT show "监控中"
+    expect(screen.queryByText("监控中")).toBeNull();
+    // Header must NOT show "当前: 抖音"
+    expect(screen.queryByText("当前: 抖音")).toBeNull();
+    // Status card must NOT show 当前应用
+    expect(screen.queryByText("当前应用")).toBeNull();
+    // Grace window stat must show "--"
+    const cards = screen.getAllByText("--");
+    expect(cards.length).toBeGreaterThanOrEqual(1);
+    // Main button text
+    expect(screen.getByText("请先选择受限应用")).toBeInTheDocument();
+    // aria-label
+    expect(screen.getByLabelText("请先选择受限应用")).toBeInTheDocument();
+    // disabled
+    const btn = screen.getByLabelText("请先选择受限应用") as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    // No 下一阶段
+    expect(screen.queryByText("下一阶段")).toBeNull();
+  });
+
   it("权限失效-缺usage显示警告", () => {
-    mockIsNative = true;
-    mockHasUsage = false;
-    mockHasOverlay = true;
+    mockIsNative = true; mockHasUsage = false; mockHasOverlay = true;
     renderDashboard({ isMonitoring: true, blockState: "IDLE" });
     expect(screen.getByText("使用情况访问权限已失效")).toBeInTheDocument();
   });
 
   it("权限失效-缺overlay显示警告", () => {
-    mockIsNative = true;
-    mockHasUsage = true;
-    mockHasOverlay = false;
+    mockIsNative = true; mockHasUsage = true; mockHasOverlay = false;
     renderDashboard({ isMonitoring: true, blockState: "IDLE" });
     expect(screen.getByText("悬浮窗权限已失效")).toBeInTheDocument();
   });
 
   it("权限齐全时不显示警告", () => {
-    mockIsNative = true;
-    mockHasUsage = true;
-    mockHasOverlay = true;
+    mockIsNative = true; mockHasUsage = true; mockHasOverlay = true;
     renderDashboard({ isMonitoring: true, blockState: "IDLE" });
     expect(screen.queryByText("使用情况访问权限已失效")).toBeNull();
     expect(screen.queryByText("悬浮窗权限已失效")).toBeNull();
   });
 
   it("点击去授权导航到permissions", () => {
-    mockIsNative = true;
-    mockHasUsage = false;
-    mockHasOverlay = true;
+    mockIsNative = true; mockHasUsage = false; mockHasOverlay = true;
     renderDashboard({ isMonitoring: true, blockState: "IDLE" });
     fireEvent.click(screen.getByText("去授权"));
     expect(mockNavigate).toHaveBeenCalledWith("/permissions");
@@ -219,19 +236,21 @@ describe("Dashboard", () => {
   it("快速点击300ms内不重复切换", async () => {
     renderDashboard();
     const btn = screen.getByText("暂停保护");
-
-    // Double-click rapidly - the second click should be blocked
     fireEvent.click(btn);
     fireEvent.click(btn);
-
-    // State should have toggled exactly once (from true to false)
     expect(useStore.getState().isMonitoring).toBe(false);
-
-    // Wait for debounce to complete
     await new Promise(r => setTimeout(r, 400));
-
-    // Now click again
     fireEvent.click(btn);
     expect(useStore.getState().isMonitoring).toBe(true);
+  });
+
+  it("serviceError在页面中只出现一次且保留操作入口", () => {
+    renderDashboard({ serviceError: "测试错误" });
+    // Error text should appear exactly once (in status card, not duplicated below)
+    const errors = screen.getAllByText("测试错误");
+    expect(errors.length).toBe(1);
+    // Check that operation buttons are still present
+    expect(screen.getByText("检查权限")).toBeInTheDocument();
+    expect(screen.getByText("重试开启")).toBeInTheDocument();
   });
 });

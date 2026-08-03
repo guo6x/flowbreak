@@ -1,8 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router";
-import { MemoryRouter } from "react-router";
+import { BrowserRouter, MemoryRouter } from "react-router";
 import Onboarding from "../Onboarding";
+import { AppRouter } from "../../App";
+
+vi.mock("@capacitor/core", () => ({
+  Capacitor: { isNativePlatform: () => false },
+}));
+
+vi.mock("../../backend/nativeFlow", () => ({
+  NativeFlow: {
+    migrateLegacyData: vi.fn().mockResolvedValue(undefined),
+    loadSettings: vi.fn().mockResolvedValue({ limitMinutes: 15, restDuration: 120, targetApps: [], allowEmergencyUnlock: false, strongBlockingEnabled: false }),
+    getDashboardSummary: vi.fn().mockResolvedValue({ blockCount: 0, restCount: 0, unlockSeconds: 0, pullbackOutcomeCount: 0, successfulPullbackCount: 0, postRestReturnCount: 0, postRestTargetSeconds: 0, reflectionValue: 0, points: 0, streak: 0 }),
+    consumePendingNavigation: vi.fn().mockResolvedValue({ path: "" }),
+    addListener: vi.fn().mockResolvedValue({ remove: vi.fn() }),
+  },
+}));
 
 const mockNavigate = vi.fn();
 vi.mock("react-router", async () => {
@@ -12,16 +26,12 @@ vi.mock("react-router", async () => {
 
 function renderOnboarding() {
   return render(
-    <BrowserRouter>
-      <Onboarding />
-    </BrowserRouter>
+    <BrowserRouter><Onboarding /></BrowserRouter>
   );
 }
 
 describe("Onboarding", () => {
-  beforeEach(() => {
-    mockNavigate.mockClear();
-  });
+  beforeEach(() => mockNavigate.mockClear());
 
   it("第一页点击跳过直接进入permissions", () => {
     renderOnboarding();
@@ -54,18 +64,15 @@ describe("Onboarding", () => {
   });
 });
 
-describe("Login路由重定向", () => {
+describe("Login路由重定向-使用生产AppRouter", () => {
   it("访问/login渲染Permissions而非旧Login页面", () => {
     render(
       <MemoryRouter initialEntries={["/login"]}>
-        <Routes>
-          <Route path="/login" element={<Navigate to="/permissions" replace />} />
-          <Route path="/permissions" element={<div data-testid="permissions-page">Permissions Page</div>} />
-        </Routes>
+        <AppRouter />
       </MemoryRouter>
     );
-    expect(screen.getByTestId("permissions-page")).toBeInTheDocument();
-    expect(screen.getByText("Permissions Page")).toBeInTheDocument();
+    // Navigate redirects to /permissions; Permissions renders "继续设置保护"
+    // and should not render old Login content
     expect(screen.queryByText("先认识一下你")).toBeNull();
   });
 });

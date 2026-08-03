@@ -165,7 +165,6 @@ export default function Dashboard() {
   const level = useStore(s => s.fatigueLevel);
   const currentAppName = useStore(s => s.currentAppName);
   const graceUntil = useStore(s => s.graceUntil);
-  const serviceError = useStore(s => s.serviceError);
   const [now, setNow] = useState(Date.now());
   const [summary, setSummary] = useState({
     blockCount: stats.interventionCount,
@@ -183,7 +182,8 @@ export default function Dashboard() {
   const [toggling, setToggling] = useState(false);
   const { isNative, permissions } = useNativePermissions();
   const noTargetApps = profile.targetApps.length === 0;
-  const missingCritical = isNative && isMonitoring && !noTargetApps && (!permissions.hasUsageStats || !permissions.hasOverlay);
+  const protectionActive = isMonitoring && !noTargetApps;
+  const missingCritical = isNative && protectionActive && (!permissions.hasUsageStats || !permissions.hasOverlay);
   const missingCriticalLabel = !permissions.hasUsageStats
     ? '使用情况访问'
     : '悬浮窗';
@@ -293,10 +293,12 @@ export default function Dashboard() {
             className="flex flex-col items-end"
           >
             <div className="flex items-center gap-1.5 bg-primary/10 px-3 py-1.5 rounded-full">
-              <div className={`w-2 h-2 rounded-full ${isMonitoring ? 'bg-primary animate-pulse' : 'bg-gray-400'}`} />
-              <span className="text-[11px] text-primary font-medium">{isMonitoring ? '监控中' : '已暂停'}</span>
+              <div className={`w-2 h-2 rounded-full ${protectionActive ? 'bg-primary animate-pulse' : 'bg-gray-400'}`} />
+              <span className="text-[11px] text-primary font-medium">
+                {noTargetApps ? '未配置' : isMonitoring ? '监控中' : '已暂停'}
+              </span>
             </div>
-            {currentAppName && isMonitoring && (
+            {protectionActive && currentAppName && (
               <span className="text-[11px] text-gray-500 mt-1">当前: {currentAppName}</span>
             )}
           </motion.div>
@@ -310,7 +312,7 @@ export default function Dashboard() {
         className={`w-full h-12 rounded-xl text-[14px] font-medium transition-colors mb-5 ${
           isMonitoring ? 'bg-gray-200 text-gray-700' : noTargetApps ? 'bg-gray-200 text-gray-500' : 'bg-primary text-white'
         }`}
-        aria-label={isMonitoring ? '暂停保护' : noTargetApps ? '请先选择受限应用' : '开启保护'}
+        aria-label={noTargetApps ? '请先选择受限应用' : isMonitoring ? '暂停保护' : '开启保护'}
       >
         {noTargetApps ? '请先选择受限应用' : toggling ? (isMonitoring ? '正在暂停...' : '正在开启...') : (isMonitoring ? '暂停保护' : '开启保护')}
       </button>
@@ -373,7 +375,7 @@ export default function Dashboard() {
         <div className="card p-3">
           <p className="text-[10px] text-gray-500">访问窗口</p>
           <p className="text-[20px] font-bold mt-1">
-            {graceSeconds > 0 ? `${Math.floor(graceSeconds / 60)}:${String(graceSeconds % 60).padStart(2, '0')}` : '--'}
+            {protectionActive && graceSeconds > 0 ? `${Math.floor(graceSeconds / 60)}:${String(graceSeconds % 60).padStart(2, '0')}` : '--'}
           </p>
         </div>
       </div>
@@ -425,11 +427,6 @@ export default function Dashboard() {
           </div>
         </motion.button>
       </div>
-      {serviceError && (
-        <div className="mb-5 rounded-xl border border-error/20 bg-error/5 px-4 py-3 text-[12px] text-error">
-          {serviceError}
-        </div>
-      )}
 
 
       {/* Fatigue level indicator */}

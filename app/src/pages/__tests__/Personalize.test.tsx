@@ -72,8 +72,7 @@ describe("Personalize", () => {
 
   it("选择应用入口导航到target-apps带returnTo", () => {
     renderPersonalize(["com.test.app"]);
-    const all = screen.getAllByText("受限应用");
-    fireEvent.click(all[1]);
+    fireEvent.click(screen.getAllByText("受限应用")[1]);
     expect(mockNavigate).toHaveBeenCalledWith("/target-apps", { state: { returnTo: "/personalize" } });
   });
 
@@ -96,13 +95,40 @@ describe("Personalize", () => {
     expect(screen.getByText("每日一次紧急使用")).toBeInTheDocument();
   });
 
-  it("startService失败时不导航Dashboard", async () => {
-    (NativeFlow.startService as any).mockRejectedValueOnce(new Error("服务启动失败"));
+  it("成功保存后onboardingDone=true且参数正确", async () => {
+    renderPersonalize(["com.test.app"]);
+    fireEvent.click(screen.getByText("开启保护"));
+    await waitFor(() => {
+      expect(useStore.getState().profile.onboardingDone).toBe(true);
+    });
+    expect(NativeFlow.saveSettings).toHaveBeenCalledWith({
+      limitMinutes: 15, restDuration: 120, targetApps: ["com.test.app"],
+      allowEmergencyUnlock: false,
+    });
+    expect(NativeFlow.startService).toHaveBeenCalledWith({
+      limitMinutes: 15, apps: ["com.test.app"], monitoringEnabled: true,
+    });
+  });
+
+  it("startService失败时不导航且保留状态", async () => {
+    (NativeFlow.startService as any).mockRejectedValueOnce(new Error("启动失败"));
     renderPersonalize(["com.test.app"]);
     fireEvent.click(screen.getByText("开启保护"));
     await waitFor(() => {
       expect(mockNavigate).not.toHaveBeenCalledWith("/dashboard");
+      expect(useStore.getState().profile.onboardingDone).toBe(false);
     });
+  });
+
+  it("失败后限额等状态保留", async () => {
+    (NativeFlow.startService as any).mockRejectedValueOnce(new Error("错误"));
+    renderPersonalize(["com.test.app"]);
+    fireEvent.click(screen.getByText("30分钟"));
+    fireEvent.click(screen.getByText("开启保护"));
+    await waitFor(() => {
+      expect(screen.getByText("开启保护")).toBeInTheDocument();
+    });
+    expect(useStore.getState().profile.onboardingDone).toBe(false);
   });
 
   it("权限错误显示权限入口", async () => {
@@ -120,14 +146,6 @@ describe("Personalize", () => {
     fireEvent.click(screen.getByText("开启保护"));
     await waitFor(() => {
       expect(screen.getByText("前往选择应用")).toBeInTheDocument();
-    });
-  });
-
-  it("成功保存后设置onboardingDone", async () => {
-    renderPersonalize(["com.test.app"]);
-    fireEvent.click(screen.getByText("开启保护"));
-    await waitFor(() => {
-      expect(useStore.getState().profile.onboardingDone).toBe(true);
     });
   });
 });
