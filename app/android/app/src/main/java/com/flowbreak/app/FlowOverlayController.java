@@ -6,6 +6,7 @@ import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
+import android.util.Log;
 import android.os.Handler;
 import android.provider.Settings;
 import android.view.Gravity;
@@ -36,6 +37,8 @@ import java.util.Locale;
  * 控制器不持有 Service 或 Activity，通过 Callbacks 回调业务。
  */
 public final class FlowOverlayController {
+    private static final String TAG = "FlowOverlay";
+
     private final Context context;
     private final WindowManager windowManager;
     private final Handler handler;
@@ -354,7 +357,12 @@ public final class FlowOverlayController {
         Intent intent = new Intent(context, BlockActivity.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         intent.putExtra("blockedPackage", packageName);
-        try { context.startActivity(intent); } catch (Exception ignored) { }
+        try {
+            context.startActivity(intent);
+        } catch (Exception e) {
+            // HyperOS 可能拒绝后台 Activity 启动；阻断入口由无障碍横幅兜底。
+            Log.w(TAG, "openBlockActivity rejected for " + packageName, e);
+        }
     }
 
     private TextView text(String value, int sp, int color) {
