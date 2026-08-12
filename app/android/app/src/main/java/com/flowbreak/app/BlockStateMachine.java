@@ -59,7 +59,11 @@ public final class BlockStateMachine {
             // A target can be foreground again after the phone was locked or
             // FlowBreak was backgrounded. Reset before accepting it when the
             // user has been away from every target for the full grace period.
-            if (leftTargetsAt > 0 && now - leftTargetsAt >= LEAVE_RESET_MS) {
+            // BLOCKED is sticky: only a completed rest or a legitimate
+            // emergency unlock may leave it, never plain time away.
+            if (leftTargetsAt > 0
+                    && now - leftTargetsAt >= LEAVE_RESET_MS
+                    && state != State.BLOCKED) {
                 reset();
             }
             leftTargetsAt = 0;
@@ -67,6 +71,14 @@ public final class BlockStateMachine {
             targetActive = true;
             blockedPackage = foregroundPackage == null ? "" : foregroundPackage;
             state = stateFor(sessionMs, limitMs);
+            return state;
+        }
+
+        if (state == State.BLOCKED) {
+            // Once blocked, staying away must not reset the session: returning
+            // to a target later must re-enter BLOCKED immediately.
+            if (leftTargetsAt == 0 && sessionMs > 0) leftTargetsAt = now;
+            targetActive = false;
             return state;
         }
 

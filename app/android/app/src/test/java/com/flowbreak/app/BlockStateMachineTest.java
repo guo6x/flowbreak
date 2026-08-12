@@ -84,6 +84,96 @@ public class BlockStateMachineTest {
         assertEquals(10_000, machine.getSessionMs());
     }
 
+    @Test public void cognitionLeavesForThirtySecondsStillResets() {
+        BlockStateMachine machine = fresh();
+        for (int i = 0; i < 11; i++) {
+            machine.update(true, "one", 1_000L + i * 10_000L, LIMIT);
+        }
+        assertEquals(BlockStateMachine.State.COGNITION, machine.getState());
+        assertEquals(100_000, machine.getSessionMs());
+        machine.update(false, "", 102_000, LIMIT);
+        machine.update(false, "", 132_000, LIMIT);
+        assertEquals(BlockStateMachine.State.IDLE, machine.getState());
+        assertEquals(0, machine.getSessionMs());
+    }
+
+    @Test public void blockedStaysBlockedAfterTwentyNineSecondsAway() {
+        BlockStateMachine machine = blocked();
+        machine.update(true, "one", 1_000, LIMIT);
+        machine.update(false, "", 12_000, LIMIT);
+        machine.update(true, "one", 41_000, LIMIT);
+        assertEquals(BlockStateMachine.State.BLOCKED, machine.getState());
+        assertEquals(120_000, machine.getSessionMs());
+    }
+
+    @Test public void blockedStaysBlockedAfterThirtySecondsAway() {
+        BlockStateMachine machine = blocked();
+        machine.update(true, "one", 1_000, LIMIT);
+        machine.update(false, "", 12_000, LIMIT);
+        machine.update(true, "one", 42_000, LIMIT);
+        assertEquals(BlockStateMachine.State.BLOCKED, machine.getState());
+        assertEquals(120_000, machine.getSessionMs());
+    }
+
+    @Test public void blockedStaysBlockedAfterFiveMinutesAway() {
+        BlockStateMachine machine = blocked();
+        machine.update(true, "one", 1_000, LIMIT);
+        machine.update(false, "", 12_000, LIMIT);
+        machine.update(true, "one", 312_000, LIMIT);
+        assertEquals(BlockStateMachine.State.BLOCKED, machine.getState());
+        assertEquals(120_000, machine.getSessionMs());
+    }
+
+    @Test public void blockedReentryImmediatelyBlocksAgain() {
+        BlockStateMachine machine = blocked();
+        machine.update(true, "one", 1_000, LIMIT);
+        machine.update(false, "", 12_000, LIMIT);
+        machine.update(false, "", 312_000, LIMIT);
+        assertEquals(BlockStateMachine.State.BLOCKED, machine.getState());
+        machine.update(true, "one", 313_000, LIMIT);
+        assertEquals(BlockStateMachine.State.BLOCKED, machine.getState());
+        assertEquals(120_000, machine.getSessionMs());
+    }
+
+    @Test public void blockedSurvivesScreenOffAndOn() {
+        BlockStateMachine machine = blocked();
+        machine.update(true, "one", 1_000, LIMIT);
+        machine.onScreenOff(12_000);
+        machine.onScreenOn(70_000);
+        machine.update(true, "one", 71_000, LIMIT);
+        assertEquals(BlockStateMachine.State.BLOCKED, machine.getState());
+        assertEquals(120_000, machine.getSessionMs());
+    }
+
+    @Test public void restoredBlockedSnapshotStaysBlockedAfterLongAbsence() {
+        BlockStateMachine machine = new BlockStateMachine(
+                BlockStateMachine.State.BLOCKED, 120_000, 0, 100_000, "one"
+        );
+        machine.update(true, "one", 5_000_000, LIMIT);
+        assertEquals(BlockStateMachine.State.BLOCKED, machine.getState());
+        assertEquals(120_000, machine.getSessionMs());
+    }
+
+    @Test public void completeRestLeavesBlockedIntoGrace() {
+        BlockStateMachine machine = blocked();
+        machine.update(true, "one", 1_000, LIMIT);
+        assertEquals(BlockStateMachine.State.GRACE, machine.completeRest(10_000, 600_000));
+        assertEquals(BlockStateMachine.State.GRACE, machine.update(true, "one", 20_000, LIMIT));
+        assertEquals(610_000, machine.getGraceUntil());
+    }
+
+    @Test public void emergencyUnlockLeavesBlockedIntoGrace() {
+        BlockStateMachine machine = blocked();
+        machine.update(true, "one", 1_000, LIMIT);
+        assertEquals(BlockStateMachine.State.GRACE, machine.emergencyUnlock(10_000, 300_000));
+        assertEquals(310_000, machine.getGraceUntil());
+        assertEquals(BlockStateMachine.State.GRACE, machine.update(true, "one", 20_000, LIMIT));
+    }
+
+    private BlockStateMachine blocked() {
+        return new BlockStateMachine(BlockStateMachine.State.BLOCKED, 120_000L, 0, 0, "one");
+    }
+
     private BlockStateMachine fresh() {
         return new BlockStateMachine(BlockStateMachine.State.IDLE, 0, 0, 0, "");
     }
