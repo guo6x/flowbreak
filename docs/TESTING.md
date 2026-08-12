@@ -18,11 +18,7 @@
 
 CI（`.github/workflows/android.yml`）在 master push / PR 时执行：
 
-- 做：
-pm ci`、npm audit 门禁（生产依赖 high 级 + 全依赖 critical 级）、
-pm test`、
-pm run build`、
-px cap sync android`、双渠道单测 + lint + Debug 构建、`assemblePlayDebugAndroidTest`、Release 双渠道构建、R8 mapping 检查、Room schema drift 检查。
+- 做：`npm ci`、npm audit 门禁（生产依赖 high 级 + 全依赖 critical 级）、`npm test`、`npm run build`、`npx cap sync android`、双渠道单测 + lint + Debug 构建、`assemblePlayDebugAndroidTest`、Release 双渠道构建、R8 mapping 检查、Room schema drift 检查。
 - 不做：**不执行 connected instrumentation tests**。`assemblePlayDebugAndroidTest` 只是构建 instrumentation APK，不等于在设备上执行测试。
 - 不做：真机验证（厂商后台限制、悬浮窗/无障碍行为、统计误差对照等只能真机做）。
 
