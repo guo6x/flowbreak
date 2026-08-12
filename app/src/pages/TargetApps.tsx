@@ -87,6 +87,23 @@ export default function TargetApps() {
     }
   }, [loading, apps.length]);
 
+  // 系统返回键（Capacitor WebView 不经 history API）：由 MainActivity 原生层
+  // 通过 evaluateJavascript 询问本钩子。dirty 时消费按键并弹出与页面内返回
+  // 按钮一致的确认框；未挂载/无修改时返回 false 保持默认退出行为。
+  useEffect(() => {
+    const handleSystemBack = () => {
+      if (isDirty) {
+        setShowConfirm(true);
+        return true;
+      }
+      return false;
+    };
+    (window as any).__flowbreakHandleBack = handleSystemBack;
+    return () => {
+      delete (window as any).__flowbreakHandleBack;
+    };
+  }, [isDirty]);
+
   const filtered = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     const base = keyword

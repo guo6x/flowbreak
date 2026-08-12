@@ -24,6 +24,26 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
+    public void onBackPressed() {
+        // 系统返回键不经过 Web 端 history API（Capacitor 默认直接结束 Activity）。
+        // 先询问 Web 层当前页面是否有未保存修改：返回 true 表示页面已消费
+        // （例如弹出"有未保存的修改"确认框），否则保持默认退出行为。
+        if (getBridge() != null && getBridge().getWebView() != null) {
+            getBridge().getWebView().evaluateJavascript(
+                    "window.__flowbreakHandleBack && window.__flowbreakHandleBack();",
+                    value -> {
+                        String result = value == null ? "" : value.trim();
+                        if (!"true".equals(result)) {
+                            MainActivity.super.onBackPressed();
+                        }
+                    }
+            );
+            return;
+        }
+        super.onBackPressed();
+    }
+
+    @Override
     public void onResume() {
         super.onResume();
         if (getBridge() != null && getBridge().getWebView() != null) {

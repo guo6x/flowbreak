@@ -194,6 +194,34 @@ describe("TargetApps", () => {
     });
   });
 
+  it("系统返回键在未保存修改时被拦截并弹出确认框", async () => {
+    renderTargetApps();
+    await waitFor(() => { expect(screen.getByText("应用B")).toBeInTheDocument(); });
+    fireEvent.click(screen.getByText("应用B"));
+    const handler = (window as any).__flowbreakHandleBack;
+    expect(typeof handler).toBe("function");
+    expect(handler()).toBe(true);
+    await waitFor(() => {
+      expect(screen.getByText("有未保存的修改")).toBeInTheDocument();
+    });
+  });
+
+  it("无未保存修改时系统返回键不被拦截", async () => {
+    renderTargetApps();
+    await waitFor(() => { expect(screen.getByText("应用A")).toBeInTheDocument(); });
+    const handler = (window as any).__flowbreakHandleBack;
+    expect(typeof handler).toBe("function");
+    expect(handler()).toBe(false);
+    expect(screen.queryByText("有未保存的修改")).toBeNull();
+  });
+
+  it("离开页面后移除系统返回键钩子", async () => {
+    const { unmount } = renderTargetApps();
+    await waitFor(() => { expect(screen.getByText("应用A")).toBeInTheDocument(); });
+    unmount();
+    expect((window as any).__flowbreakHandleBack).toBeUndefined();
+  });
+
   it("搜索结果计数", async () => {
     renderTargetApps();
     await waitFor(() => { expect(screen.getByPlaceholderText("搜索应用")).toBeInTheDocument(); });
