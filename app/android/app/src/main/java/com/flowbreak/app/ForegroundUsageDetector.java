@@ -13,10 +13,16 @@ import android.content.Context;
  * - 异常安全降级，返回 tracker 当前状态
  * - 通过 accept() 喂入事件，MOVE_TO_FOREGROUND 等才会更新前台包
  *
+ * 冷启动引导（bootstrap）：在 tracker 确认前台包之前，每次 detect 都会
+ * 重置 tracker 并回看最近 BOOTSTRAP_RETRY_WINDOW_MS 的事件，确保服务冷启动
+ * 或 detector 重建后，已在前台的目标应用在第一次或最迟下一轮 detect 被识别。
+ * 一旦前台包已知，后续轮询只增量读取新事件，不重复扫描历史窗口。
+ *
  * 不持有 Service 或 Activity，不访问 SharedPreferences 或状态机。
  */
 public final class ForegroundUsageDetector {
     public static final long INITIAL_EVENT_LOOKBACK_MS = 36 * 60 * 60_000L;
+    static final long BOOTSTRAP_RETRY_WINDOW_MS = 60_000L;
 
     private final Context context;
     private final ForegroundAppTracker tracker;
@@ -24,6 +30,7 @@ public final class ForegroundUsageDetector {
 
     private long usageEventsCursor;
     private long lastUsageEventAt;
+    private boolean bootstrapPending = true;
 
     public ForegroundUsageDetector(Context context) {
         this(context, new ForegroundAppTracker(), INITIAL_EVENT_LOOKBACK_MS);
@@ -43,21 +50,33 @@ public final class ForegroundUsageDetector {
         UsageStatsManager manager = (UsageStatsManager) context.getSystemService(Context.USAGE_STATS_SERVICE);
         if (manager == null) return "";
         try {
-            long begin = usageEventsCursor > 0
-                    ? usageEventsCursor
-                    : Math.max(0, now - initialLookbackMs);
+            long begin;
+            if (bootstrapPending) {
+                // 冷启动首轮回看完整历史；若上一轮仍未确定前台包，
+                // 重置 tracker 后回看最近窗口，避免旧事件被单调时间戳守卫丢弃。
+                tracker.reset();
+                begin = usageEventsCursor > 0
+                        ? Math.max(0, now - BOOTSTRAP_RETRY_WINDOW_MS)
+                        : Math.max(0, now - initialLookbackMs);
+            } else {
+                begin = usageEventsCursor;
+            }
             UsageEvents events = manager.queryEvents(begin, now);
             UsageEvents.Event event = new UsageEvents.Event();
             while (events != null && events.hasNextEvent()) {
                 events.getNextEvent(event);
                 tracker.accept(
-                        event.getPackageName(), event.getEventType(), event.getTimeStamp()
+                        event.getPackageName(),
+                        event.getClassName(),
+                        event.getEventType(),
+                        event.getTimeStamp()
                 );
                 lastUsageEventAt = Math.max(lastUsageEventAt, event.getTimeStamp());
                 usageEventsCursor = Math.max(usageEventsCursor, event.getTimeStamp());
             }
             // 后续轮询只需新事件，避免重复扫描整个回看窗口
             usageEventsCursor = Math.max(usageEventsCursor, now);
+            bootstrapPending = tracker.getForegroundPackage().isEmpty();
         } catch (Exception ignored) { }
         return tracker.getForegroundPackage();
     }
@@ -65,6 +84,7 @@ public final class ForegroundUsageDetector {
     /** 重置游标和 tracker（屏幕关闭或重新交互时调用）。 */
     public void reset() {
         tracker.reset();
+        bootstrapPending = true;
     }
 
     /** 设置游标到指定时间（screen on 后回看 36 小时；post-unlock 回看 60 秒）。 */
