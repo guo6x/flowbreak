@@ -18,7 +18,11 @@
 
 CI（`.github/workflows/android.yml`）在 master push / PR 时执行：
 
-- 做：`npm ci`、npm audit 门禁（生产依赖 high 级 + 全依赖 critical 级）、`npm test`、`npm run build`、`npx cap sync android`、双渠道单测 + lint + Debug 构建、`assemblePlayDebugAndroidTest`、Release 双渠道构建、R8 mapping 检查、Room schema drift 检查。
+- 做：
+pm ci`、npm audit 门禁（生产依赖 high 级 + 全依赖 critical 级）、
+pm test`、
+pm run build`、
+px cap sync android`、双渠道单测 + lint + Debug 构建、`assemblePlayDebugAndroidTest`、Release 双渠道构建、R8 mapping 检查、Room schema drift 检查。
 - 不做：**不执行 connected instrumentation tests**。`assemblePlayDebugAndroidTest` 只是构建 instrumentation APK，不等于在设备上执行测试。
 - 不做：真机验证（厂商后台限制、悬浮窗/无障碍行为、统计误差对照等只能真机做）。
 
@@ -37,10 +41,12 @@ CI（`.github/workflows/android.yml`）在 master push / PR 时执行：
 
 - 设备：Redmi Note 13 Pro 5G（`2312DRA50C` / garnet）/ Android 16 / SDK 36 / HyperOS 3.0（`OS3.0.306.0.WNRCNXM`）
 - APK：`app-domestic-debug.apk`（com.flowbreak.app.cn，versionCode 2 / versionName 1.1.0），代码基线 `a06a772`
-- 外部证据目录：`D:\ai_code\flowbreak-device-evidence\`（reports/、screenshots/、ui/、dumpsys/、db/、logs/）
+- 2026-08-12 测试工作站当时的本地证据根目录：`D:\ai_code\flowbreak-device-evidence\`（reports/、screenshots/、ui/、dumpsys/、db/、logs/）。**这是验证快照元数据，不是项目要求，也不是文档链接**；设备原始证据不入 Git 仓库，由测试工作区外部保存，换电脑后以下记录仍然有效。
 - 总结果：**FAILED**（`reports/final-report.md`；T01–T42 矩阵）
 - 缺陷明细：`KNOWN_ISSUES.md`（FB-P1-01/02/03、FB-P2-01）
-- 通过项摘要：Onboarding/权限/目标应用/个性化/Dashboard/暂停恢复、PERCEPTION/COGNITION/BLOCKED 触发、Overlay 专项、休息与后台恢复、锁屏恢复、GRACE 窗口、最近任务移除、进程重建（START_STICKY）、force-stop 语义、系统返回键对照、输入法、紧急使用（含每日一次）、无障碍强阻断（授权/持久化/自动回桌面/overlay 阻断页/次日紧急解锁）、覆盖安装、BLOCKED 粘滞（T40）、重启 T41/T42。
+- 通过项摘要：Onboarding/权限/目标应用/个性化/Dashboard/暂停恢复、PERCEPTION/COGNITION/BLOCKED 触发、Overlay 专项、休息与后台恢复、锁屏恢复、GRACE 窗口、最近任务移除、进程重建（START_STICKY）、force-stop 语义、输入法、紧急使用（含每日一次）、无障碍强阻断（授权/持久化/自动回桌面/overlay 阻断页/次日紧急解锁）、覆盖安装、重启 T41/T42。
+- 已执行验证但发现缺陷（不列入 PASS）：Android 系统返回键（未保存修改拦截）→ `FB-P2-01`；BLOCKED 离开/恢复语义（离开 30 秒可绕过）→ `FB-P1-02`。
+- T40 精确行为：BLOCKED 期间持续停留在目标应用内 12 分钟，无自动解除、无自动进入休息（等待用户主动休息）——该 PASS 不覆盖「离开目标应用后的解除语义」。
 
 ### 证据标准
 

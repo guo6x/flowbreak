@@ -19,7 +19,8 @@
 - 测试 APK：domestic debug，`com.flowbreak.app.cn`，versionCode 2 / versionName 1.1.0
 - 结论：**核心验收暂未通过**。
 - 已确认缺陷：`FB-P1-01` 冷启动前台追踪失效、`FB-P1-02` BLOCKED 可被离开 30 秒绕过、`FB-P1-03`（候选）BlockActivity 后台启动被 HyperOS 拒绝、`FB-P2-01` 系统返回键不拦截未保存修改。
-- 已真实通过（以 `flowbreak-device-evidence/reports/final-report.md` 为准）：PERCEPTION / COGNITION / BLOCKED 触发、Overlay、紧急使用、每日一次语义、5 分钟 Emergency GRACE、DB `emergency_unlock` 事件、Domestic Accessibility 强阻断（HOME 回桌面）、重启恢复（T41/T42）、覆盖安装、BLOCKED 粘滞（T40，但可被 30s 绕过）。
+- 已真实通过（以外部设备证据 `final-report.md` 为准）：PERCEPTION / COGNITION / BLOCKED 触发、Overlay、紧急使用、每日一次语义、5 分钟 Emergency GRACE、DB `emergency_unlock` 事件、Domestic Accessibility 强阻断（HOME 回桌面）、重启恢复（T41/T42）、覆盖安装。
+- 已执行验证但发现缺陷（不列为通过）：Android 系统返回键 → `FB-P2-01`；BLOCKED 离开/恢复语义（离开 30 秒可绕过）→ `FB-P1-02`。T40 验证的精确行为仅为「BLOCKED 期间持续停留在目标应用内无自动解除」，不覆盖离开后的解除语义。
 
 ## master 演进说明（重要）
 

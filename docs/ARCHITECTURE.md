@@ -59,7 +59,7 @@ BlockStateMachine.update(targetInForeground, pkg, now, limitMs)
 
 - `FlowOverlayController`：PERCEPTION/COGNITION 顶部提示条（非阻断）；BLOCKED 全屏遮罩（`TYPE_APPLICATION_OVERLAY`）；无悬浮窗权限或 addView 失败时 fallback `BlockActivity`。
 - `FlowNotificationController`：前台服务常驻通知 + 阶段提醒通知。
-- `FlowAccessibilityService`（仅 domestic source set）：监听 `TYPE_WINDOW_STATE_CHANGED`/`TYPE_WINDOWS_CHANGED`；BLOCKED + 目标应用在前台 → `GLOBAL_ACTION_HOME` + 尝试启动 `BlockActivity`（异常被吞，见 `KNOWN_ISSUES.md#FB-P1-03`）；微信视频号识别（className 关键词 + 60s TTL）。
+- `FlowAccessibilityService`（仅 domestic source set）：业务处理仅接收 `TYPE_WINDOW_STATE_CHANGED` 事件（无障碍配置订阅窗口状态与窗口列表变化，代码只处理窗口状态变化）；BLOCKED + 目标应用在前台 → `GLOBAL_ACTION_HOME` + 尝试启动 `BlockActivity`（异常被吞，见 `KNOWN_ISSUES.md#FB-P1-03`）；微信视频号识别（className 关键词 + 60s TTL）。
 
 ### 2.4 持久化（Persistence）
 

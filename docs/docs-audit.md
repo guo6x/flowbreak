@@ -3,7 +3,7 @@
 - 审计日期：2026-08-12
 - 文档基线：`a06a772bd0b12bc6a31e78d91a4d634ec7027437`
 - 审计人：Codex 文档整理任务（第一阶段）
-- 方法：逐份阅读仓库根目录文档 + 关键源码 + `D:\ai_code\flowbreak-device-evidence\reports\` 真机证据；冲突以「源码与真实测试证据 > 当前文档 > 历史进度报告 > 旧愿景文档」为序裁定，无法裁定的记入冲突矩阵并标注「未确定」。
+- 方法：逐份阅读仓库根目录文档 + 关键源码 + 真机证据（2026-08-12 测试工作站本地目录 `D:\ai_code\flowbreak-device-evidence\reports\`，仅为当时快照元数据）。裁定原则按事实类型区分（见 `docs/README.md`「不同事实类型的 Source of Truth」）：产品目标行为以 PRODUCT 为准；代码实际实现以源码为准；真实运行结果以真机证据为准；源码与真机证据冲突时登记为 Bug。无法裁定的记入冲突矩阵并标注「未确定」。
 
 处理代号说明：
 
@@ -44,7 +44,7 @@
 | 轮询频率 | 锚点/旧报告：「每5s轮询」「5s tick」 | 源码 `FlowForegroundService.monitor`：`handler.postDelayed(this, 2_000L)`（2秒）；delta 单次上限 10s | 当前 2 秒 tick | ARCHITECTURE 写 2 秒；旧文档归档 |
 | 目标App是否可自定义 | 锚点：「用户暂不能自定义（Personalize只读展示）」「T6 待办」 | 源码 `TargetApps.tsx`：搜索/清空/已选置顶/保存，上限30；真机 T14 PASS | 可自定义（≤30） | PRODUCT/ARCHITECTURE 按源码；旧文档归档 |
 | 默认目标App | 锚点：抖音/B站/快手/微信/小红书 5个 | 源码 `appNames.ts DEFAULT_TARGET_APPS`：同上 5 个 | 一致 | PRODUCT 保留 |
-| 首次权限数量 | 锚点：「四项权限（使用情况/悬浮窗/通知/电池白名单）」 | 源码 `Permissions.tsx`：必需=使用情况访问+悬浮窗；可选=通知、电池豁免、无障碍 | 必需 2 项 + 可选 | PRODUCT 按源码；真机 T06-T11 佐证 |
+| 首次权限数量 | 锚点：「四项权限（使用情况/悬浮窗/通知/电池白名单）」 | 源码 `Permissions.tsx`：必需=使用情况访问+悬浮窗（`canProceed = hasUsageStats && hasOverlay`，缺失时「继续设置保护」禁用并提示缺失项）；可选稳定性设置按渠道/OEM 动态出现（通知、电池豁免、OEM 自启动、无障碍） | 首次流程 2 项必需权限，缺失阻塞继续；可选稳定性设置动态出现（Redmi Domestic 实际为：通知、电池优化、自启动、无障碍） | PRODUCT 按源码；真机 T06-T11 佐证 |
 | Login是否真实账号 | 锚点：「Login页为本地占位」 | 源码 `Login.tsx`：直接重定向 `/permissions`，仅本地昵称；真机 T05「旧Login不出现」 | 无账号体系，Login 为遗留占位页 | PRODUCT 明确「无账号」 |
 | 数据存储方式 | README：SharedPreferences + Room；锚点：Web localStorage / 原生 SharedPreferences | 源码：Web UI=localStorage；原生=SharedPreferences + Room v3（FlowDatabase version=3） | 三层本地存储并存 | ARCHITECTURE 写明三种存储的职责 |
 | Room 版本 | THIRD_PARTY_NOTICES：「Room 2.7.2」 | 源码 `FlowDatabase` version=3，迁移 1→2、2→3 | 两者不矛盾：2.7.2 是 AndroidX Room 库版本，3 是数据库 schema 版本 | 文档中明确区分「库版本」与「schema版本」 |

@@ -18,17 +18,22 @@
 
 做文档变更时：先读 [`docs/docs-audit.md`](docs-audit.md) 了解本体系如何建立。
 
-## 事实优先级
+## 不同事实类型的 Source of Truth
 
-1. 当前已合并源码 + 自动化测试
-2. 最新真实设备验收证据（见 `docs/TESTING.md` 设备矩阵，外部证据目录 `D:\ai_code\flowbreak-device-evidence`）
-3. `docs/PRODUCT.md`
-4. `docs/ARCHITECTURE.md`
-5. `docs/CURRENT_STATUS.md`
-6. 其他当前文档
-7. `docs/archive/` 历史文件
+| 事实类型 | 唯一归属 |
+| ---- | ---- |
+| 产品目标行为（应该怎么工作） | `docs/PRODUCT.md` |
+| 当前代码实际上实现了什么 | 当前已合并源码 |
+| 自动化回归是否通过 | 最新 CI / 自动化测试结果（见 `docs/TESTING.md`） |
+| 真机/厂商系统上实际上发生什么 | 最新真实设备验收证据（见 `docs/TESTING.md` 设备矩阵） |
+| 当前项目是否可以发布 | `docs/CURRENT_STATUS.md` + `docs/KNOWN_ISSUES.md` + `docs/RELEASE.md` |
+| 历史背景 | `docs/archive/` |
 
-**特殊规则**：对于「产品应该怎么工作」的目标行为，`docs/PRODUCT.md` 是唯一规范。如果源码违反 `PRODUCT.md`，这是 Bug，不是自动把 PRODUCT 改成错误源码行为的理由（处理流程见 `docs/KNOWN_ISSUES.md`）。
+规则（所有 AI 必须遵守）：
+
+- 自动化测试**不能**覆盖或否定真实设备已经稳定复现的缺陷。
+- 源码与真机证据冲突时：源码说明「实现意图/当前实现」，真机证据说明「真实运行结果」；两者的差异应登记为 Bug（`docs/KNOWN_ISSUES.md`），而不是静默修改文档。
+- 对于「产品应该怎么工作」的目标行为，`docs/PRODUCT.md` 是唯一规范。如果源码违反 `PRODUCT.md`，这是 Bug，不是自动把 PRODUCT 改成错误源码行为的理由。
 
 ## 各文档职责（单一事实源）
 
@@ -50,3 +55,4 @@
 
 - 当前 HEAD、测试数量、CI Run ID、APK SHA 等易变事实**只允许**出现在 `CURRENT_STATUS.md` 和 `TESTING.md` 的验证快照中，其他文档只引用不复制。
 - 同一事实只写一次；新文档发现重复内容时应指向唯一归属文档。
+- 仓库文档不依赖任何一台电脑的绝对路径；设备原始证据不入 Git 仓库，由测试工作区外部保存（见 `TESTING.md` 验证快照元数据说明）。
