@@ -18,10 +18,11 @@
 
 CI（`.github/workflows/android.yml`）在 master push / PR 时执行：
 
-- 做：`npm ci`、npm audit 门禁（生产依赖 high 级 + 全依赖 critical 级）、`npm test`、`npm run build`、`npx cap sync android`、双渠道单测 + lint + Debug 构建、`assemblePlayDebugAndroidTest`、Release 双渠道构建、R8 mapping 检查、Room schema drift 检查。
+- 做：`npm ci`、npm audit 门禁（生产依赖 high 级 + 全依赖 critical 级）、`npm test`、`npm run test:provenance`、`npm run build`、`npx cap sync android`、双渠道单测 + lint + Debug 构建、`assemblePlayDebugAndroidTest`、Release 双渠道构建、R8 mapping 检查、Room schema drift 检查。
+- 做（Artifact Provenance 链，GATE C）：source identity 校验（checkout HEAD = `SOURCE_COMMIT_SHA`、工作区干净）→ 生成 `dist/build-provenance.json` → cap sync → **Web asset sync 校验**（dist 每个文件在 Android assets 中 SHA-256 一致，缺失/mismatch 直接 FAIL）→ Release 构建 → **APK/AAB 内部 provenance 校验**（unzip + `aapt2 dump badging` + AAB 自身 manifest 经 wrapper zip + `aapt2 dump xmltree` 读版本）→ `artifact-manifest.json` + `SHA256SUMS.txt` → upload-artifact（`flowbreak-unsigned-<sourceSha>`，retention 90 天）。
 - 不做：**不执行 connected instrumentation tests**。`assemblePlayDebugAndroidTest` 只是构建 instrumentation APK（AndroidTest APK successfully ASSEMBLED），**不等于**在设备上执行测试。
 - 不做：真机验证（厂商后台限制、悬浮窗/无障碍行为、统计误差对照等只能真机做）。
-- 产物（Release Engineering）：Run `31577669420`（HEAD = `99fdcc2`）成功构建 Play AAB 与 Domestic unsigned release APK，但本次 workflow **未持久上传 GitHub Actions artifacts**——「CI build success」≠「当前仍可以从该 Run 下载正式 artifact」。产物溯源缺口见 `RELEASE.md` GATE C。
+- 历史缺口（已关闭）：Run `31577669420`（HEAD = `99fdcc2`）当时**未持久上传 artifacts**——「CI build success」≠「仍可从该 Run 下载正式 artifact」。该缺口已由 GATE C 实现关闭（artifact 已持久上传并实际下载复核）。
 
 ## 3. 真机测试矩阵与证据标准
 
@@ -37,7 +38,7 @@ CI（`.github/workflows/android.yml`）在 master push / PR 时执行：
 ### 2026-08-14 Redmi R1–R4 复测记录（当前设备证据）
 
 - 设备：Redmi Note 13 Pro 5G（`2312DRA50C` / garnet）/ Android 16 / SDK 36 / HyperOS 3.0（`OS3.0.306.0.WNRCNXM`）
-- 被测 APK：domestic debug（com.flowbreak.app.cn，versionCode 2 / versionName 1.1.0）。复测前在代码工作区 `99fdcc2` 上重新执行前端 build → Capacitor sync → Android assemble 生成；该重建解决了此前旧 Web bundle 混入问题（`__flowbreakHandleBack` 缺失）。正式 Artifact Provenance 仍由 `RELEASE.md` GATE C 建立（PENDING）。
+- 被测 APK：domestic debug（com.flowbreak.app.cn，versionCode 2 / versionName 1.1.0）。复测前在代码工作区 `99fdcc2` 上重新执行前端 build → Capacitor sync → Android assemble 生成；该重建解决了此前旧 Web bundle 混入问题（`__flowbreakHandleBack` 缺失）。正式 Artifact Provenance 链已由 `RELEASE.md` GATE C 建立并通过（2026-08-15）。
 - 报告：External device evidence: `reports/R1-R4-retest-2026-08-14.md`、`reports/final-report.md`（第二轮结论）
 - 总结果：**PASSED**（R1 ×3 / R2 / R3 ×3 / R4 全部 PASS）
 - R1 冷启动前台追踪 ×3：MainActivity→BrowserActivity 同包 Activity 切换事件形态完全复现，sessionMs 1:1 连续增长、不再卡 0。
@@ -74,6 +75,19 @@ CI（`.github/workflows/android.yml`）在 master push / PR 时执行：
   6. 对 APK / AAB 计算 SHA-256 并留档
   7. release artifact 不允许使用来源不明的旧本地产物
 - 验证技巧：组装前确认 assets 中存在新代码特征字符串（如钩子名 `__flowbreakHandleBack`）。
+
+### 已实现的 provenance 工具链（GATE C，PR #1 实测通过）
+
+- 脚本（`app/scripts/`，Node 内置模块，无新增依赖；测试 `npm run test:provenance` 18/18）：
+  - `generate-build-provenance.mjs`：npm build 后生成 `dist/build-provenance.json`（allowlist 字段，缺 SHA/非法 SHA/非法版本号即 FAIL，绝不 dump 环境变量/secret）。
+  - `verify-web-asset-sync.mjs`：cap sync 后校验 dist 每个文件在 Android web assets 中 SHA-256 一致（缺失/mismatch 即 FAIL），并校验 provenance 的 sourceGitSha/versionCode/versionName 与本轮声明一致。
+  - `generate-artifact-manifest.mjs`：生成 `artifact-manifest.json`（binaries 的 filename/size/sha256）与 `SHA256SUMS.txt`（binaries + 双渠道 mapping + manifest 自身；manifest 不含自身 hash，无递归）。
+- CI（`.github/workflows/android.yml`）：
+  - PR 事件 checkout 固定到 `SOURCE_COMMIT_SHA`（PR head SHA）；manifest 区分 `sourceGitSha`（实际构建源码）与 `workflowSha`（github.sha，PR 为 merge SHA），并记录 `prHeadSha`——临时 merge commit 不冒充 source commit。
+  - APK 版本独立读取：`aapt2 dump badging`；AAB 版本独立读取：其自身 `base/manifest/AndroidManifest.xml` 经 wrapper zip 由 `aapt2 dump xmltree` 解析（AGP 8.13 对 AAB 不产出 output-metadata.json，已注明）。
+  - 产物命名：`flowbreak-unsigned-<sourceSha>`（UNSIGNED / TEST ONLY）；tag 签名发布复用同一链路（signing 属 GATE G）。
+- 独立复核流程（验收标准）：下载 artifact ZIP → 解压 → `sha256sum -c SHA256SUMS.txt`（或 Get-FileHash）→ manifest sourceGitSha = 期望 SHA → 从 APK/AAB 内读取 `build-provenance.json` 的 sourceGitSha 与版本一致性。
+- 实测记录：PR #1 CI Run `31900444404` verify SUCCESS；artifact `flowbreak-unsigned-ea53a22136dd58663291581763eb3614c4b10ba6` 下载后 5/5 校验一致，APK/AAB 内部 provenance sourceGitSha 均 = PR head SHA。
 
 ### Protection Integrity（UI promise ≤ 实际保护能力）
 

@@ -13,12 +13,12 @@
 | 阶段 | **RELEASE PREPARATION**（发布准备；不是 STORE READY，更不是 PRODUCTION RELEASE APPROVED） |
 | Redmi 核心真机验收 | **PASSED**（2026-08-14，R1–R4 全部通过） |
 | 当前确认阻塞 | **P0 = 0，P1 = 0**（原 `FB-P1-01/02/03`、`FB-P2-01` 全部 RESOLVED，见 `KNOWN_ISSUES.md`） |
-| 发布状态 | **RELEASE PREPARATION**（GATE A/B PASS；GATE C–I PENDING，见 `RELEASE.md`） |
+| 发布状态 | **RELEASE PREPARATION**（GATE A/B/C PASS；GATE D–I PENDING，见 `RELEASE.md`） |
 
 ## Redmi 设备验证（2026-08-14 当前快照）
 
 - 设备：Redmi Note 13 Pro 5G（`2312DRA50C` / garnet）/ Android 16 / SDK 36 / HyperOS 3.0（`OS3.0.306.0.WNRCNXM`）
-- 被测 APK：domestic debug（`com.flowbreak.app.cn`）。复测前在代码工作区 `99fdcc2` 上重新执行前端 build → Capacitor sync → Android assemble 后生成；该重建解决了此前旧 Web bundle 混入问题。正式 Artifact Provenance 仍由 `RELEASE.md` GATE C 建立（PENDING）。
+- 被测 APK：domestic debug（`com.flowbreak.app.cn`）。复测前在代码工作区 `99fdcc2` 上重新执行前端 build → Capacitor sync → Android assemble 后生成；该重建解决了此前旧 Web bundle 混入问题。正式 Artifact Provenance 链已由 `RELEASE.md` GATE C 建立并通过（2026-08-15，PR #1 实测）。
 - 复测报告（外部设备证据工作区）：`reports/R1-R4-retest-2026-08-14.md`、`reports/final-report.md`（第二轮结论）
 - **R1 冷启动前台追踪 ×3 PASS** → `FB-P1-01` RESOLVED（修复 `027af94`）：MainActivity→BrowserActivity 同包跳转事件形态复现，sessionMs 1:1 连续增长、不再卡 0。
 - **R2 BLOCKED sticky PASS** → `FB-P1-02` RESOLVED（修复 `9c34fe9`）：离开 29s/31s/64s/约 2min 重进均仍 BLOCKED，sessionMs 未被 30 秒规则重置；completeRest → GRACE 10min 正常；Emergency 长按约 11s → GRACE 5min，emergencyUnlockDay 更新、DB emergency_unlock 正常记录。
@@ -50,13 +50,14 @@
 ## 当前未解决问题（非 P0/P1 产品阻塞）
 
 1. **`COMPAT-001`（NON-BLOCKING / COMPATIBILITY OBSERVATION，OPEN OBSERVATION）**：HyperOS 仍可能拒绝尽力而为的 `tryStartBlockActivity` 后台启动（logcat `MIUILOG Permission Denied Activity`），但强阻断已不依赖它（无障碍横幅独立可用）。后续多 OEM 矩阵中决定删除 / OEM 条件化 / 保留 best-effort。
-2. **RELEASE ENGINEERING GAP — 产物溯源（Build Artifact Provenance）**：曾出现「本地 APK 原生 dex 已更新、Web bundle 仍是旧包」的不一致产物（R4 复测中暴露 `window.__flowbreakHandleBack` 缺失，重建后解决）；CI Run `31577669420` 成功构建 Play AAB 与 Domestic unsigned release APK，但本次 workflow 未持久上传 GitHub Actions artifacts——「CI build success」≠「仍可从该 Run 下载正式 artifact」。见 `RELEASE.md` GATE C 与 `TESTING.md`。
-3. **PENDING VALIDATION**：OEM 矩阵、UsageStats 精度对照、阻断延迟对照、24h stability + Protection Integrity、签名/版本/商店材料、小规模 Beta（`RELEASE.md` GATE D–I）。
+2. **PENDING VALIDATION**：OEM 矩阵、UsageStats 精度对照、阻断延迟对照、24h stability + Protection Integrity、签名/版本/商店材料、小规模 Beta（`RELEASE.md` GATE D–I）。
+
+> 历史 RELEASE ENGINEERING GAP（产物溯源）已关闭：曾出现「本地 APK 原生 dex 已更新、Web bundle 仍旧」的不一致产物与「CI 未持久上传 artifacts」两个缺口，已由 GATE C 实现并实测关闭（`RELEASE.md` GATE C = PASS，`TESTING.md` 产物溯源）。
 
 ## 发布状态边界（重要）
 
 - **RELEASE PREPARATION ≠ STORE READY ≠ PRODUCTION RELEASE APPROVED**。
-- Redmi 核心验收已通过，但发布准备仍需完成：release artifact provenance / signing、OEM matrix、usage accuracy validation、block latency validation、long-duration stability / 24h Protection Integrity、distribution compliance / store materials、beta validation。
+- Redmi 核心验收已通过，artifact provenance（GATE C）也已通过；发布准备仍需完成：release signing、OEM matrix、usage accuracy validation、block latency validation、long-duration stability / 24h Protection Integrity、distribution compliance / store materials、beta validation。
 
 ## 历史状态（2026-08-12 快照，不再代表当前）
 
@@ -65,11 +66,10 @@
 
 ## 下一路线（建议排序）
 
-1. 建立可信 release artifact pipeline / Artifact Provenance
-2. release signing / versioning 基础准备
-3. 多 OEM 真机矩阵
-4. UsageStats 精度对照
-5. blocking latency 对照
-6. 24h stability + Protection Integrity
-7. 小规模 Beta
-8. 商店正式发行准备
+1. release signing / versioning 基础准备（GATE G）
+2. 多 OEM 真机矩阵（GATE D）
+3. UsageStats 精度对照（GATE E）
+4. blocking latency 对照（GATE E）
+5. 24h stability + Protection Integrity（GATE F）
+6. 小规模 Beta（GATE I）
+7. 商店正式发行准备（GATE H）

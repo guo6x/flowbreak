@@ -19,8 +19,12 @@ cd app
 npm ci
 npm run dev          # 开发服务器
 npm test             # Vitest
+npm run test:provenance   # node:test — provenance 工具链测试（app/scripts/__tests__）
 npm run build        # tsc + vite build → dist/
+node scripts/generate-build-provenance.mjs dist   # 生成 dist/build-provenance.json（需 SOURCE_COMMIT_SHA 等 allowlist env）
 npx cap sync android # 同步 dist 与原生工程（构建原生前必须执行）
+node scripts/verify-web-asset-sync.mjs dist android/app/src/main/assets/public   # dist→assets SHA-256 全量校验
+node scripts/generate-artifact-manifest.mjs --out <dir> --provenance <json> --binaries '<json>' --extra-sums '<json>'   # manifest + SHA256SUMS
 
 # Android 原生（Windows 用 gradlew.bat）
 cd app/android
@@ -39,6 +43,7 @@ APK 同时包含原生 dex 与前端 Web bundle（`app/dist/` 经 `cap sync` 拷
 2. 组装产物前确认 assets 中包含新代码特征（例如对钩子字符串 `__flowbreakHandleBack` 做检查）。
 3. 产物必须记录构建对应的 Git SHA；对 APK/AAB 计算 SHA-256 并留档。
 4. 禁止使用来源不明的旧本地产物做验收/发布（详见 `TESTING.md` 产物溯源、`RELEASE.md` GATE C）。
+5. 本地验证 provenance 链：设 `SOURCE_COMMIT_SHA`（= 当前 HEAD）、`VERSION_CODE`、`VERSION_NAME` 环境变量后，按上述「常用命令」顺序执行脚本即可；CI 中的完整校验（source identity、dist→assets、APK/AAB 内部 provenance、aapt2 badging、manifest/SHA256SUMS、upload-artifact）见 `.github/workflows/android.yml`。
 
 ## 3. 代码敏感区（改动前必读）
 

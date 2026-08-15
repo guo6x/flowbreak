@@ -8,7 +8,7 @@
 **RELEASE PREPARATION**（截至 2026-08-14，Redmi R1–R4 复测通过）
 
 - 原 RELEASE BLOCKED 的原因（开放 P1）已消除：`FB-P1-01`、`FB-P1-02`、`FB-P1-03`、`FB-P2-01` 全部 RESOLVED（`KNOWN_ISSUES.md`），P0 = 0、P1 = 0。
-- 但 **RELEASE PREPARATION ≠ RELEASE APPROVED**：GATE C–I 仍 PENDING，当前不是 STORE READY，更不是 PRODUCTION RELEASE APPROVED。
+- 但 **RELEASE PREPARATION ≠ RELEASE APPROVED**：GATE C 已于 2026-08-15 通过（unsigned CI artifact provenance pipeline）；GATE D–I 仍 PENDING，当前不是 STORE READY，更不是 PRODUCTION RELEASE APPROVED。
 
 ## 发布门禁总览
 
@@ -16,7 +16,7 @@
 | ---- | ---- | ---- |
 | GATE A | Core automated validation | **PASS** |
 | GATE B | Redmi targeted P1/P2 revalidation | **PASS** |
-| GATE C | Artifact provenance / reproducible release build | **PENDING** |
+| GATE C | Artifact provenance / reproducible release build | **PASS** |
 | GATE D | OEM compatibility matrix | **PENDING** |
 | GATE E | Usage accounting accuracy / blocking latency | **PENDING** |
 | GATE F | 24h stability + Protection Integrity | **PENDING** |
@@ -28,8 +28,9 @@
 
 ### GATE A — Core automated validation：PASS
 
-- CI Run `31577669420`（verify Job `94053353542`）**SUCCESS**，HEAD = `99fdcc2f6f357e78fb70dd127adedfa31a098a71`。
-- frontend 151/151（14 test files）；Play JVM 244；Domestic JVM 254；RecoveryIntegration 23（仍是 23，不是 26）；Room migrations 6/6。
+- CI Run `31900444404`（PR #1，verify Job `95050260127`）**SUCCESS**，HEAD = `ea53a22136dd58663291581763eb3614c4b10ba6`（最新全矩阵验证）。
+- 基线运行 `31577669420`（verify Job `94053353542`）SUCCESS，HEAD = `99fdcc2f6f357e78fb70dd127adedfa31a098a71`。
+- frontend 151/151（14 test files）+ provenance 18/18（`npm run test:provenance`）；Play JVM 244；Domestic JVM 254；RecoveryIntegration 23（仍是 23，不是 26）；Room migrations 6/6。
 - `assemblePlayDebugAndroidTest` = AndroidTest APK successfully ASSEMBLED，**不等于** instrumentation tests executed（真机验证归 GATE B/D/F）。
 
 ### GATE B — Redmi targeted P1/P2 revalidation：PASS
@@ -38,23 +39,33 @@
 - 关闭：`FB-P1-01`（R1 ×3）、`FB-P1-02`（R2）、`FB-P1-03`（R3 ×3）、`FB-P2-01`（R4）。
 - 证据：External device evidence: `reports/R1-R4-retest-2026-08-14.md`、`reports/final-report.md`（第二轮结论）。
 
-### GATE C — Artifact provenance / reproducible release build：PENDING
+### GATE C — Artifact provenance / reproducible release build：PASS
 
-**ARTIFACT_PROVENANCE** 要求：
+**ARTIFACT_PROVENANCE 要求（7 条已全部实现，PR #1 真实验证）**：
 
-1. 前端 build
-2. cap sync
-3. Android build
-4. 同一工作流连续完成
-5. 产物记录 Git SHA
-6. 对 APK / AAB 计算 SHA-256
-7. release artifact 不允许使用来源不明的旧本地产物
+1. 前端 build ✓
+2. cap sync ✓
+3. Android build ✓
+4. 同一工作流连续完成 ✓
+5. 产物记录 Git SHA ✓
+6. 对 APK / AAB 计算 SHA-256 ✓
+7. release artifact 不允许使用来源不明的旧本地产物 ✓（CI 干净 checkout + source identity 校验）
 
-已知缺口（**RELEASE ENGINEERING GAP**，不是 P0/P1 产品 Bug）：
+已建立的链路（`.github/workflows/android.yml` + `app/scripts/`，详见 `TESTING.md`）：
 
-- 本地曾出现「原生 dex 已更新、Web bundle 仍旧」的不一致 APK（R4 复测中暴露 `window.__flowbreakHandleBack` 缺失；重建后解决，详见 `TESTING.md`）。
-- CI Run `31577669420` 成功构建 Play AAB 与 Domestic unsigned release APK，但本次 workflow **没有持久上传 GitHub Actions artifacts**。「CI build success」≠「当前仍可以从该 Run 下载正式 artifact」。
-- 待办：建立可信 release artifact pipeline（构建 → 记录 Git SHA → 上传/归档 artifacts → 校验 SHA-256）。
+- CI checkout 按 `SOURCE_COMMIT_SHA` 固定（PR = head SHA，master push = pushed SHA），构建前校验 `git rev-parse HEAD` 等于该 SHA 且工作区干净（`SOURCE_IDENTITY=PASS`）。
+- `npm run build` → 生成 `dist/build-provenance.json`（allowlist 字段：schemaVersion / sourceGitSha / workflowSha / gitRef / runId / runNumber / workflow / buildUtc / versionCode / versionName / prHeadSha；**不含任何 secret/token/keystore 信息**）→ `npx cap sync android`。
+- Web 资产同步校验：dist 内每个文件必须在 Android web assets 中存在且 SHA-256 一致（缺失或 mismatch 直接 CI FAIL）；允许 Capacitor 额外运行时文件。
+- 最终二进制内部校验：Domestic APK 与 Play AAB 内 `build-provenance.json` 存在且 sourceGitSha = 本轮 source SHA；Domestic APK 版本经 `aapt2 dump badging` 独立读取对照；Play AAB 版本经其自身打包的 `base/manifest/AndroidManifest.xml`（wrapper zip + `aapt2 dump xmltree`）独立读取对照（AGP 8.13 对 AAB 不产出 output-metadata.json，已在 workflow 注明）。
+- `artifact-manifest.json`（binaries 的 filename/size/sha256）+ `SHA256SUMS.txt`（binaries + 双渠道 mapping + manifest 自身）。
+- GitHub Actions artifact `flowbreak-unsigned-<sourceSha>` 持久上传（retention 90 天）；PR / master verify 产物明确 **UNSIGNED / TEST ONLY**，不冒充可发布产物；tag 签名发布（GATE G 范围）复用同一 provenance 链（signing 设计未改）。
+
+GATE C PASS 的范围（重要）：
+
+- **unsigned CI artifact provenance pipeline 已验证**：PR #1 CI Run `31900444404` verify SUCCESS；artifact 可下载、SHA256SUMS 复核一致、manifest sourceGitSha = PR head SHA、APK/AAB 内部 provenance 一致、版本信息与二进制独立读取一致。
+- **signed publishable build 仍属于 GATE G**；STORE READY 仍为 NO。
+
+历史缺口（已关闭，保留记录）：本地曾出现「native 已更新、Web bundle 仍旧」的不一致 APK；旧 CI Run `31577669420` 未持久上传 artifacts。
 
 ### GATE D — OEM compatibility matrix：PENDING
 
@@ -126,7 +137,10 @@
 - [x] `assemblePlayDebug`、`assembleDomesticDebug`、`bundlePlayRelease`、`assembleDomesticRelease` 通过，R8 mapping 存在
 - [x] Room schema drift 检查通过（migrations 6/6，无未提交 schema 变更）
 - [x] npm audit 门禁通过（生产依赖无 high，全依赖无 critical）
-- [ ] 构建产物持久上传/归档并可复核（GATE C，PENDING）
+- [x] 构建产物持久上传/归档并可复核（GATE C，PASS：`flowbreak-unsigned-<sha>` artifact，retention 90 天，已实际下载复核）
+- [x] provenance 工具链测试 `npm run test:provenance` 18/18
+- [x] Web asset sync 校验（dist → Android assets SHA-256 全量一致，缺失/mismatch 即 FAIL）
+- [x] APK/AAB 内部 provenance 校验（sourceGitSha + 版本独立读取对照）
 
 ### Security / 隐私
 
@@ -164,11 +178,10 @@
 
 ## 下一步路线（建议排序）
 
-1. 建立可信 release artifact pipeline / Artifact Provenance
-2. release signing / versioning 基础准备
-3. 多 OEM 真机矩阵
-4. UsageStats 精度对照
-5. blocking latency 对照
-6. 24h stability + Protection Integrity
-7. 小规模 Beta
-8. 商店正式发行准备
+1. release signing / versioning 基础准备（GATE G）
+2. 多 OEM 真机矩阵（GATE D）
+3. UsageStats 精度对照（GATE E）
+4. blocking latency 对照（GATE E）
+5. 24h stability + Protection Integrity（GATE F）
+6. 小规模 Beta（GATE I）
+7. 商店正式发行准备（GATE H）
