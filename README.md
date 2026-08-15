@@ -1,4 +1,4 @@
-﻿# FlowBreak
+# FlowBreak
 
 A local-first Android digital-wellbeing tool that helps reduce continuous use of short-video and social apps through progressive reminders and optional strong blocking.
 
@@ -6,9 +6,9 @@ A local-first Android digital-wellbeing tool that helps reduce continuous use of
 
 ## 当前阶段
 
-- 处于**真机验收阶段**（MVP，尚未发布）。
-- 2026-08-12 Redmi 真机验收：**核心验收暂未通过**，存在 P1/P2 缺陷（见 [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md)）。
-- 详细状态见 [docs/CURRENT_STATUS.md](docs/CURRENT_STATUS.md)。
+- 处于**发布准备阶段（RELEASE PREPARATION）**（MVP，尚未发布；不是 STORE READY）。
+- 2026-08-14 Redmi R1–R4 真机复测：**核心验收通过（PASSED）**，原 P1/P2 缺陷全部 RESOLVED（见 [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md)）。
+- 详细状态与发布门禁见 [docs/CURRENT_STATUS.md](docs/CURRENT_STATUS.md) 与 [docs/RELEASE.md](docs/RELEASE.md)。
 
 ## 核心机制
 

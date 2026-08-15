@@ -1,8 +1,8 @@
-﻿# PRODUCT — FlowBreak 产品行为规范
+# PRODUCT — FlowBreak 产品行为规范
 
 > 本文档是**唯一产品行为规范**：定义「现在产品应该怎么工作」。
 > 不写开发历史、不写「以前怎么做」。涉及仍在修复中的缺陷时，使用「目标产品语义」与「Known deviations（当前基线）」两种状态分别标注。
-> 当前文档基线：`a06a772bd0b12bc6a31e78d91a4d634ec7027437`（缺陷编号见 `KNOWN_ISSUES.md`）。
+> 当前文档基线：`99fdcc2f6f357e78fb70dd127adedfa31a098a71`（历史缺陷编号见 `KNOWN_ISSUES.md`）。
 
 ## 1. 产品定位与边界
 
@@ -58,13 +58,25 @@
 ### 目标产品语义（BLOCKED）
 
 - 一旦进入 **BLOCKED**，阻断必须 **sticky**：普通离开目标应用**不能**解除 BLOCKED，也不应重置会话。
-- 解除 BLOCKED 的唯一途径：**完成一次休息**（获得 10 分钟访问窗口 GRACE）；或使用**每日一次紧急使用**（长按 10 秒，获得 5 分钟 GRACE）。
+
+### TARGET / CURRENT RULE（30 秒 reset 的适用范围）
+
+- 30 秒连续会话 reset **只适用于尚未进入 BLOCKED 的连续会话**（离开目标应用或熄屏超过 30 秒，重置的是普通连续会话计时）。
+- 一旦进入 BLOCKED，以下行为都**不能**依靠「离开时间」解除 BLOCKED：
+  - 普通离开目标 App
+  - 长时间使用其他 App
+  - 锁屏 / 解锁
+  - 再次进入目标 App
+- BLOCKED 只能通过产品定义的合法状态迁移退出：
+  - 完成正式休息（获得 10 分钟访问窗口 GRACE）
+  - 合法 Emergency Unlock（每日一次，长按 10 秒，获得 5 分钟 GRACE）
+  - 明确定义的监控/配置生命周期转换（如用户关闭保护）
 - 熄屏/锁屏期间不累计使用时长；普通离开会话的重置规则不得解除 BLOCKED。
 
 ### Known deviations（当前基线）
 
-- **BLOCKED sticky**：当前验证基线存在「离开目标应用 30 秒可绕过 BLOCKED」的缺陷，目标行为尚未满足（`FB-P1-02`，详见 `KNOWN_ISSUES.md`）。
-- **前台追踪**：当前验证基线存在「冷启动/同包 Activity 跳转时前台追踪失效、sessionMs 恒为 0」的缺陷，目标行为尚未满足（`FB-P1-01`，详见 `KNOWN_ISSUES.md`）。
+- 当前基线 `99fdcc2` 已通过 Redmi R1–R4 真机复测，与上述目标语义一致：BLOCKED sticky（R2）与冷启动前台追踪（R1）两个历史偏差已关闭（`FB-P1-01`、`FB-P1-02` → RESOLVED，见 `KNOWN_ISSUES.md`），当前无已知产品行为偏差。
+- 兼容性观察（非产品行为偏差）：国内版 HyperOS 上 `tryStartBlockActivity` 尽力而为路径仍可能被系统拒绝（`COMPAT-001`，见 `KNOWN_ISSUES.md`），但不影响强阻断——无障碍顶部横幅独立可用。
 
 ## 6. 休息与解锁
 
@@ -84,8 +96,8 @@
 
 - PERCEPTION / COGNITION：顶部非阻断提示条（不拦截操作）。
 - BLOCKED：全屏不透明遮罩（拦截输入），含「开始休息」「紧急使用（长按 10 秒，每日一次）」。
-- 无悬浮窗权限或悬浮窗 addView 失败时，回退打开 `BlockActivity` 阻断页（国内版 HyperOS 上当前被系统「后台弹出界面」限制拒绝，见 `KNOWN_ISSUES.md#FB-P1-03`）。
-- 国内版无障碍强阻断：在 BLOCKED 且目标应用在前台时执行返回桌面（`GLOBAL_ACTION_HOME`）并显示阻断页；仅处理窗口状态变化事件。
+- 无悬浮窗权限或悬浮窗 addView 失败时，回退打开 `BlockActivity` 阻断页（尽力而为路径；国内版 HyperOS 上可能被系统「后台弹出界面」限制拒绝，但不影响强阻断，见 `KNOWN_ISSUES.md#COMPAT-001`）。
+- 国内版无障碍强阻断：在 BLOCKED 且目标应用在前台时执行返回桌面（`GLOBAL_ACTION_HOME`），并显示无障碍顶部横幅（`TYPE_ACCESSIBILITY_OVERLAY`，单实例、重复命中不堆叠）；横幅提供「开始休息」等可操作入口，是独立于 `BlockActivity` 的可靠可见引导；仅处理窗口状态变化事件。
 
 ## 9. 统计与数据
 

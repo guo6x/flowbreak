@@ -1,53 +1,76 @@
-﻿# CURRENT_STATUS — 项目当前状态
+# CURRENT_STATUS — 项目当前状态
 
 > 这是「项目现在在哪」的唯一当前视图。易变事实（HEAD、测试数、Run ID、APK SHA）只出现在本文档与 `TESTING.md` 的验证快照中。
+> 2026-08-12 的「真机验收 FAILED / RELEASE BLOCKED」快照已降级为历史记录（见下方「历史状态」），不再代表当前状态。
 
 ## 当前状态速览
 
 | 项 | 值 |
 | ---- | ---- |
-| Last verified date | 2026-08-12（真机） |
-| 文档基线 | `a06a772bd0b12bc6a31e78d91a4d634ec7027437` |
-| 阶段 | 真机验收阶段（MVP 未发布） |
-| CI | 绿（a06a772 基线；master 上后续 4 个修复提交的 CI 结果以最新 CI 为准） |
-| 真机验收 | **FAILED — blockers open**（见 `KNOWN_ISSUES.md`） |
-| 发布状态 | **RELEASE BLOCKED**（见 `RELEASE.md`） |
+| Last verified date | **2026-08-14**（Redmi R1–R4 真机复测） |
+| 代码基线 | `99fdcc2f6f357e78fb70dd127adedfa31a098a71` |
+| CI | **SUCCESS** — Run `31577669420` / verify Job `94053353542`（对应 HEAD = `99fdcc2`） |
+| 阶段 | **RELEASE PREPARATION**（发布准备；不是 STORE READY，更不是 PRODUCTION RELEASE APPROVED） |
+| Redmi 核心真机验收 | **PASSED**（2026-08-14，R1–R4 全部通过） |
+| 当前确认阻塞 | **P0 = 0，P1 = 0**（原 `FB-P1-01/02/03`、`FB-P2-01` 全部 RESOLVED，见 `KNOWN_ISSUES.md`） |
+| 发布状态 | **RELEASE PREPARATION**（GATE A/B PASS；GATE C–I PENDING，见 `RELEASE.md`） |
 
-## 设备验证（2026-08-12 快照）
+## Redmi 设备验证（2026-08-14 当前快照）
 
 - 设备：Redmi Note 13 Pro 5G（`2312DRA50C` / garnet）/ Android 16 / SDK 36 / HyperOS 3.0（`OS3.0.306.0.WNRCNXM`）
-- 测试 APK：domestic debug，`com.flowbreak.app.cn`，versionCode 2 / versionName 1.1.0
-- 结论：**核心验收暂未通过**。
-- 已确认缺陷：`FB-P1-01` 冷启动前台追踪失效、`FB-P1-02` BLOCKED 可被离开 30 秒绕过、`FB-P1-03`（候选）BlockActivity 后台启动被 HyperOS 拒绝、`FB-P2-01` 系统返回键不拦截未保存修改。
-- 已真实通过（以外部设备证据 `final-report.md` 为准）：PERCEPTION / COGNITION / BLOCKED 触发、Overlay、紧急使用、每日一次语义、5 分钟 Emergency GRACE、DB `emergency_unlock` 事件、Domestic Accessibility 强阻断（HOME 回桌面）、重启恢复（T41/T42）、覆盖安装。
-- 已执行验证但发现缺陷（不列为通过）：Android 系统返回键 → `FB-P2-01`；BLOCKED 离开/恢复语义（离开 30 秒可绕过）→ `FB-P1-02`。T40 验证的精确行为仅为「BLOCKED 期间持续停留在目标应用内无自动解除」，不覆盖离开后的解除语义。
+- 被测 APK：domestic debug（`com.flowbreak.app.cn`），2026-08-14 15:50 重建产物（native + web 资产同为基线 `99fdcc2`）
+- 复测报告（外部设备证据工作区）：`reports/R1-R4-retest-2026-08-14.md`、`reports/final-report.md`（第二轮结论）
+- **R1 冷启动前台追踪 ×3 PASS** → `FB-P1-01` RESOLVED（修复 `027af94`）：MainActivity→BrowserActivity 同包跳转事件形态复现，sessionMs 1:1 连续增长、不再卡 0。
+- **R2 BLOCKED sticky PASS** → `FB-P1-02` RESOLVED（修复 `9c34fe9`）：离开 29s/31s/64s/约 2min 重进均仍 BLOCKED，sessionMs 未被 30 秒规则重置；completeRest → GRACE 10min 正常；Emergency 长按约 11s → GRACE 5min，emergencyUnlockDay 更新、DB emergency_unlock 正常记录。
+- **R3 HyperOS 强阻断 ×3 PASS** → `FB-P1-03` RESOLVED（修复 `3600d97`）：BLOCKED → 打开目标 App → Accessibility 立即 HOME → 顶部横幅（TYPE_ACCESSIBILITY_OVERLAY）可见且含「开始休息」入口；横幅单实例不堆叠、非目标应用正常、无全手机锁死、连续三次重进均继续阻断；核心强阻断不依赖 BlockActivity 启动成功。
+- **R4 系统返回键 PASS** → `FB-P2-01` RESOLVED（修复 `99fdcc2`）：物理 Back 与手势 Back 在未保存修改时均弹「有未保存的修改」，应用不退出；无修改保持系统默认退出。
+- Smoke：IDLE→COGNITION→BLOCKED→RESTING→GRACE 全链路走通；force-stop 语义正常（不自动复活）；覆盖安装数据保留。
 
-## master 演进说明（重要）
-
-- 文档基线为 `a06a772`；之后 master 已合入 4 个代码修复提交（最新 `99fdcc2`：foreground bootstrap、sticky BLOCKED、domestic BAL 移除、返回键修复）。
-- 这些修复**尚未**在 Redmi 真机复测；P1/P2 在复测通过前**保持 OPEN**（`KNOWN_ISSUES.md`）。
-- 本文档分支（`docs/consolidate-project-docs`）等待代码修复任务给出 Documentation Delta 后进行第二阶段同步，再合并。
-
-## 自动化测试快照（a06a772 验证快照）
+## 自动化验证快照（基线 99fdcc2）
 
 | 层级 | 数量 |
 | ---- | ---- |
-| Frontend (Vitest) | 148 |
-| Play JVM (Robolectric) | 220 |
-| Domestic JVM (Robolectric) | 220 |
-| RecoveryIntegration | 23 |
-| Room migrations | 6 |
+| Frontend (Vitest) | **151 / 151 PASS**（14 test files） |
+| Play JVM (Robolectric) | **244 PASS** |
+| Domestic JVM (Robolectric) | **254 PASS**（比 Play 多出的测试包含新的 Accessibility 强阻断回归测试） |
+| RecoveryIntegration | 23 @Test（**仍是 23，不是 26**） |
+| Room migrations | **6 / 6** |
 
-> 这些数字属于 a06a772 验证快照，未来代码变化后以最新 CI 为准（master 含修复提交后本机本地结果已增至 Play 244 / Domestic 254，不属于本快照）。
+> `assemblePlayDebugAndroidTest` = AndroidTest APK **successfully ASSEMBLED**，**不等于** instrumentation tests 已在真机执行。真机验证以外部设备证据为准（`TESTING.md`）。
 
-## 当前公开阻塞（Open release blockers）
+## 已关闭的 P1/P2（历史保留）
 
-1. `FB-P1-01` foreground tracker 冷启动失效（核心保护高频路径）
-2. `FB-P1-02` BLOCKED 30 秒离开绕过（强阻断无强制力）
-3. `FB-P1-03`（候选）BlockActivity 后台启动被 HyperOS 拒绝
-4. `FB-P2-01` 系统返回键行为不一致
+- `FB-P1-01` 前台追踪冷启动失效 → **RESOLVED**（R1 ×3，修复 `027af94`）
+- `FB-P1-02` BLOCKED 30 秒离开绕过 → **RESOLVED**（R2，修复 `9c34fe9`）
+- `FB-P1-03`（候选）BlockActivity 后台启动被 HyperOS 拒绝 → **RESOLVED**（R3 ×3，修复 `3600d97`）
+- `FB-P2-01` 系统返回键不拦截未保存修改 → **RESOLVED**（R4，修复 `99fdcc2`）
 
-## 下一里程碑
+完整历史（原现象、root cause、fix SHA、自动化回归覆盖、Redmi 证据）保留在 `KNOWN_ISSUES.md` 的 Resolved 区。
 
-- 等待代码修复任务的：Documentation Delta、final SHA、CI 结果、Redmi 精准复测 R1–R4。
-- 复测通过 → 关闭对应 KNOWN_ISSUES → 更新 RELEASE 门禁 → 第二阶段文档同步 → 合并 docs 分支。
+## 当前未解决问题（非 P0/P1 产品阻塞）
+
+1. **`COMPAT-001`（NON-BLOCKING / COMPATIBILITY OBSERVATION，OPEN OBSERVATION）**：HyperOS 仍可能拒绝尽力而为的 `tryStartBlockActivity` 后台启动（logcat `MIUILOG Permission Denied Activity`），但强阻断已不依赖它（无障碍横幅独立可用）。后续多 OEM 矩阵中决定删除 / OEM 条件化 / 保留 best-effort。
+2. **RELEASE ENGINEERING GAP — 产物溯源（Build Artifact Provenance）**：曾出现「本地 APK 原生 dex 已更新、Web bundle 仍是旧包」的不一致产物（R4 复测中暴露 `window.__flowbreakHandleBack` 缺失，重建后解决）；CI Run `31577669420` 成功构建 Play AAB 与 Domestic unsigned release APK，但本次 workflow 未持久上传 GitHub Actions artifacts——「CI build success」≠「仍可从该 Run 下载正式 artifact」。见 `RELEASE.md` GATE C 与 `TESTING.md`。
+3. **PENDING VALIDATION**：OEM 矩阵、UsageStats 精度对照、阻断延迟对照、24h stability + Protection Integrity、签名/版本/商店材料、小规模 Beta（`RELEASE.md` GATE D–I）。
+
+## 发布状态边界（重要）
+
+- **RELEASE PREPARATION ≠ STORE READY ≠ PRODUCTION RELEASE APPROVED**。
+- Redmi 核心验收已通过，但发布准备仍需完成：release artifact provenance / signing、OEM matrix、usage accuracy validation、block latency validation、long-duration stability / 24h Protection Integrity、distribution compliance / store materials、beta validation。
+
+## 历史状态（2026-08-12 快照，不再代表当前）
+
+- 2026-08-12：physical-device acceptance **FAILED**，RELEASE BLOCKED due open P1（`FB-P1-01/02/03`、`FB-P2-01` OPEN）。
+- 该快照的详细记录保留在 `KNOWN_ISSUES.md` 的 Resolved 历史与 `TESTING.md` 的首轮记录中；旧结论不得冒充当前状态。
+
+## 下一路线（建议排序）
+
+1. 完成 canonical docs 第二阶段同步
+2. 建立可信 release artifact pipeline（产物溯源）
+3. release signing / versioning 基础准备
+4. 多 OEM 真机矩阵
+5. UsageStats 精度对照
+6. blocking latency 对照
+7. 24h stability + Protection Integrity
+8. 小规模 Beta
+9. 商店正式发行准备

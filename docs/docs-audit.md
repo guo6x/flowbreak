@@ -1,4 +1,4 @@
-﻿# 文档审计表（docs-audit）
+# 文档审计表（docs-audit）
 
 - 审计日期：2026-08-12
 - 文档基线：`a06a772bd0b12bc6a31e78d91a4d634ec7027437`
@@ -72,3 +72,11 @@
 - 归档文件不改写原文；`docs/archive/` 各 README 统一声明「历史资料，不具当前规范效力」。
 - 任务完成报告（progress_report* 等）代表当时执行 AI 的自述，不等同于独立验收结果。
 - 当前文档不得把 2026-08-12 真机 FAIL 写成 PASS。
+
+## 5. 第二阶段同步（2026-08-14，docs/consolidate-project-docs）
+
+- docs 分支已 rebase 到最终代码基线 `99fdcc2f6f357e78fb70dd127adedfa31a098a71`（origin/master），**无冲突**。master 上 `9c34fe9` 对旧锚点「FlowBreak 最终产品文档（开发锚点）.md」的两处修改（30 秒重置仅限未进入 BLOCKED 的会话、术语表）由 git 重命名检测自动带入 `docs/archive/product/` 的归档副本；旧锚点**未**恢复回仓库根目录，继续标注为历史资料、非规范源。
+- `9c34fe9` 中有效的新产品规则已同步进 `docs/PRODUCT.md`（第 5 节 TARGET / CURRENT RULE）。
+- 吸收 Redmi R1–R4 真机复测结果（2026-08-14，基线 `99fdcc2`）：`FB-P1-01/02/03`、`FB-P2-01` 全部 RESOLVED（`KNOWN_ISSUES.md` 完整保留历史）；新增 `COMPAT-001`（NON-BLOCKING 兼容性观察）与产物溯源（RELEASE ENGINEERING GAP）记录。
+- 阶段推进：RELEASE BLOCKED → **RELEASE PREPARATION**（`RELEASE.md` GATE A/B PASS，C–I PENDING）。
+- 第一阶段审计表「未确定事实」第 2 条（修复提交尚未真机复测）已由 2026-08-14 R1–R4 复测解决；其余条目（微信视频号、多机型误差、阻断延迟、24h）保持 PENDING。

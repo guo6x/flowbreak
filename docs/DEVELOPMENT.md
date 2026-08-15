@@ -1,4 +1,4 @@
-﻿# DEVELOPMENT — 开发指南
+# DEVELOPMENT — 开发指南
 
 > 给编码 AI / 开发者。当前环境示例仅描述本机现状，不是跨机器标准；构建命令与版本要求是项目要求。
 
@@ -31,13 +31,23 @@ cd app/android
 .\gradlew.bat assemblePlayDebugAndroidTest                # 仅构建 instrumentation APK，不执行设备测试
 ```
 
+### 构建产物溯源（必读）
+
+APK 同时包含原生 dex 与前端 Web bundle（`app/dist/` 经 `cap sync` 拷贝进 `android/app/src/main/assets`）。前端修改后如果跳过重建，会出现「原生已更新、Web 仍是旧包」的不一致 APK（案例：2026-08-12 16:14 本地 APK 的 dex 含 `__flowbreakHandleBack`，但 JS bundle 缺失该钩子，R4 复测失败；重建后通过）。规则：
+
+1. 前端改动后必须连续执行：`npm run build` → `npx cap sync android` → `gradlew assemble*`（同一工作流一次完成）。
+2. 组装产物前确认 assets 中包含新代码特征（例如对钩子字符串 `__flowbreakHandleBack` 做检查）。
+3. 产物必须记录构建对应的 Git SHA；对 APK/AAB 计算 SHA-256 并留档。
+4. 禁止使用来源不明的旧本地产物做验收/发布（详见 `TESTING.md` 产物溯源、`RELEASE.md` GATE C）。
+
 ## 3. 代码敏感区（改动前必读）
 
 - 状态机：`app/android/app/src/main/java/com/flowbreak/app/BlockStateMachine.java`（产品语义见 `PRODUCT.md`，改动必须配套单测）
-- 前台追踪：`ForegroundUsageDetector.java` / `ForegroundAppTracker.java`（已知缺陷 `FB-P1-01`）
+- 前台追踪：`ForegroundUsageDetector.java` / `ForegroundAppTracker.java`（历史缺陷 `FB-P1-01` 已 RESOLVED；改动必须配套单测）
 - 前台服务：`FlowForegroundService.java`（2s tick、START_STICKY、休息/紧急/拉回协调）
-- 覆盖层：`FlowOverlayController.java`（fallback `BlockActivity`，见 `FB-P1-03`）
-- 无障碍强阻断（仅 domestic）：`src/domestic/java/com/flowbreak/app/FlowAccessibilityService.java`
+- 覆盖层：`FlowOverlayController.java`（fallback `BlockActivity` 为尽力而为路径，见 `KNOWN_ISSUES.md#COMPAT-001`）
+- 无障碍强阻断（仅 domestic）：`src/domestic/java/com/flowbreak/app/FlowAccessibilityService.java`（HOME + 顶部横幅 + 尽力而为 `tryStartBlockActivity`）
+- 返回键桥接：`app/android/app/src/main/java/com/flowbreak/app/MainActivity.java`（onBackPressed → `window.__flowbreakHandleBack`）+ 前端 `app/src/pages/TargetApps.tsx`（脏检查钩子；历史缺陷 `FB-P2-01` 已 RESOLVED）
 - 统计取数：`NativeFlowPlugin.java` / `NativeFlowStatisticsService.java`（UsageEvents 配对算法）
 - 数据模型：`FlowDatabase.java`（schema v3；改 schema 必须提供迁移并提交 `app/schemas/`）
 - 前端全局：`app/src/App.tsx`（GlobalMonitor）、`app/src/hooks/useStore.ts`、`app/src/backend/storage.ts`
