@@ -154,14 +154,24 @@ jobs:
           test "$apk_vn_bin" = "$VERSION_NAME"
           echo "APK_INDEPENDENT_VERSION=PASS versionCode=$apk_vc_bin versionName=$apk_vn_bin"
 
-          # 3) Play AAB second evidence: Gradle bundle output metadata
-          aab_meta=$(find app/build/outputs/bundle/playRelease -maxdepth 1 -name 'output-metadata.json' | head -1)
-          test -n "$aab_meta"
-          aab_vc_meta=$(python3 -c "import json;d=json.load(open('$aab_meta'));print(d['elements'][0]['versionCode'])")
-          aab_vn_meta=$(python3 -c "import json;d=json.load(open('$aab_meta'));print(d['elements'][0]['versionName'])")
-          test "$aab_vc_meta" = "$VERSION_CODE"
-          test "$aab_vn_meta" = "$VERSION_NAME"
-          echo "AAB_GRADLE_METADATA_VERSION=PASS versionCode=$aab_vc_meta versionName=$aab_vn_meta"
+          # 3) Play AAB second evidence: the AAB's own packaged manifest.
+          # (AGP 8.13 emits no output-metadata.json for bundles; read the binary
+          #  AndroidManifest.xml from inside the AAB via aapt2 + a wrapper zip)
+          rm -rf "$RUNNER_TEMP/aab-version"
+          mkdir -p "$RUNNER_TEMP/aab-version"
+          unzip -p "$play_aab" base/manifest/AndroidManifest.xml > "$RUNNER_TEMP/aab-version/AndroidManifest.xml"
+          python3 - "$RUNNER_TEMP/aab-version/AndroidManifest.xml" "$RUNNER_TEMP/aab-version/aab-manifest.zip" <<'PYEOF'
+          import sys, zipfile
+          with zipfile.ZipFile(sys.argv[2], 'w', zipfile.ZIP_DEFLATED) as z:
+              z.write(sys.argv[1], 'AndroidManifest.xml')
+          PYEOF
+          aab_tree=$("$aapt2_bin" dump xmltree --file AndroidManifest.xml "$RUNNER_TEMP/aab-version/aab-manifest.zip")
+          aab_vc_bin=$(printf '%s\n' "$aab_tree" | sed -n 's/.*versionCode(0x0101021b)=\([0-9][0-9]*\).*/\1/p' | head -1)
+          aab_vn_bin=$(printf '%s\n' "$aab_tree" | sed -n 's/.*versionName(0x0101021c)="\([^"]*\)".*/\1/p' | head -1)
+          echo "AAB manifest: versionCode=$aab_vc_bin versionName=$aab_vn_bin"
+          test "$aab_vc_bin" = "$VERSION_CODE"
+          test "$aab_vn_bin" = "$VERSION_NAME"
+          echo "AAB_INDEPENDENT_VERSION=PASS versionCode=$aab_vc_bin versionName=$aab_vn_bin"
       - name: Verify R8 and ProGuard mapping files
         working-directory: app/android
         shell: bash
@@ -373,6 +383,24 @@ jobs:
           test "$apk_vc_bin" = "$VERSION_CODE"
           test "$apk_vn_bin" = "$VERSION_NAME"
           echo "APK_INDEPENDENT_VERSION=PASS versionCode=$apk_vc_bin versionName=$apk_vn_bin"
+          # 3) Play AAB second evidence: the AAB's own packaged manifest.
+          # (AGP 8.13 emits no output-metadata.json for bundles; read the binary
+          #  AndroidManifest.xml from inside the AAB via aapt2 + a wrapper zip)
+          rm -rf "$RUNNER_TEMP/aab-version"
+          mkdir -p "$RUNNER_TEMP/aab-version"
+          unzip -p "$play_aab" base/manifest/AndroidManifest.xml > "$RUNNER_TEMP/aab-version/AndroidManifest.xml"
+          python3 - "$RUNNER_TEMP/aab-version/AndroidManifest.xml" "$RUNNER_TEMP/aab-version/aab-manifest.zip" <<'PYEOF'
+          import sys, zipfile
+          with zipfile.ZipFile(sys.argv[2], 'w', zipfile.ZIP_DEFLATED) as z:
+              z.write(sys.argv[1], 'AndroidManifest.xml')
+          PYEOF
+          aab_tree=$("$aapt2_bin" dump xmltree --file AndroidManifest.xml "$RUNNER_TEMP/aab-version/aab-manifest.zip")
+          aab_vc_bin=$(printf '%s\n' "$aab_tree" | sed -n 's/.*versionCode(0x0101021b)=\([0-9][0-9]*\).*/\1/p' | head -1)
+          aab_vn_bin=$(printf '%s\n' "$aab_tree" | sed -n 's/.*versionName(0x0101021c)="\([^"]*\)".*/\1/p' | head -1)
+          echo "AAB manifest: versionCode=$aab_vc_bin versionName=$aab_vn_bin"
+          test "$aab_vc_bin" = "$VERSION_CODE"
+          test "$aab_vn_bin" = "$VERSION_NAME"
+          echo "AAB_INDEPENDENT_VERSION=PASS versionCode=$aab_vc_bin versionName=$aab_vn_bin"
       - name: Stage provenance artifact files
         shell: bash
         run: |
