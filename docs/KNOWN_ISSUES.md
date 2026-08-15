@@ -12,7 +12,7 @@
 | 字段 | 说明 |
 | ---- | ---- |
 | ID | `FB-<severity>-<seq>`（缺陷）/ `COMPAT-xxx`（兼容性观察） |
-| Severity | P1（核心保护失效）/ P2（一致性/体验）/ P1候选 / NON-BLOCKING COMPATIBILITY OBSERVATION |
+| Severity | P0（最高严重级，当前为 0）/ P1（核心保护失效）/ P2（一致性/体验）/ P1候选 / NON-BLOCKING COMPATIBILITY OBSERVATION |
 | Status | OPEN / RESOLVED（附复测日期与证据）/ OPEN OBSERVATION |
 | Affected version/SHA | 复现时的代码基线 |
 | Environment | 设备/系统/渠道 |

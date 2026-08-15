@@ -37,7 +37,7 @@ CI（`.github/workflows/android.yml`）在 master push / PR 时执行：
 ### 2026-08-14 Redmi R1–R4 复测记录（当前设备证据）
 
 - 设备：Redmi Note 13 Pro 5G（`2312DRA50C` / garnet）/ Android 16 / SDK 36 / HyperOS 3.0（`OS3.0.306.0.WNRCNXM`）
-- 被测 APK：domestic debug（com.flowbreak.app.cn，versionCode 2 / versionName 1.1.0），2026-08-14 15:50 重建产物（native + web 资产均为基线 `99fdcc2f6f357e78fb70dd127adedfa31a098a71`）
+- 被测 APK：domestic debug（com.flowbreak.app.cn，versionCode 2 / versionName 1.1.0）。复测前在代码工作区 `99fdcc2` 上重新执行前端 build → Capacitor sync → Android assemble 生成；该重建解决了此前旧 Web bundle 混入问题（`__flowbreakHandleBack` 缺失）。正式 Artifact Provenance 仍由 `RELEASE.md` GATE C 建立（PENDING）。
 - 报告：External device evidence: `reports/R1-R4-retest-2026-08-14.md`、`reports/final-report.md`（第二轮结论）
 - 总结果：**PASSED**（R1 ×3 / R2 / R3 ×3 / R4 全部 PASS）
 - R1 冷启动前台追踪 ×3：MainActivity→BrowserActivity 同包 Activity 切换事件形态完全复现，sessionMs 1:1 连续增长、不再卡 0。
@@ -92,7 +92,7 @@ CI（`.github/workflows/android.yml`）在 master push / PR 时执行：
 
 ### 尚未完成的设备验证
 
-- 多 OEM 真机矩阵（小米/OPPO/vivo/华为：权限、后台限制、重启、24 小时稳定性）。
+- 多 OEM 真机矩阵（Xiaomi / Redmi、OPPO / OnePlus、vivo / iQOO、Honor / Huawei：权限、后台限制、重启、24 小时稳定性）。
 - 与系统数字健康误差 ≤10% 的多设备对照（UsageStats 精度）。
 - 阻断触发延迟 ≤2s 实测（blocking latency）。
 - 24h stability + Protection Integrity（含上述失效注入）。

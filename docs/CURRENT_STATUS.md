@@ -18,7 +18,7 @@
 ## Redmi 设备验证（2026-08-14 当前快照）
 
 - 设备：Redmi Note 13 Pro 5G（`2312DRA50C` / garnet）/ Android 16 / SDK 36 / HyperOS 3.0（`OS3.0.306.0.WNRCNXM`）
-- 被测 APK：domestic debug（`com.flowbreak.app.cn`），2026-08-14 15:50 重建产物（native + web 资产同为基线 `99fdcc2`）
+- 被测 APK：domestic debug（`com.flowbreak.app.cn`）。复测前在代码工作区 `99fdcc2` 上重新执行前端 build → Capacitor sync → Android assemble 后生成；该重建解决了此前旧 Web bundle 混入问题。正式 Artifact Provenance 仍由 `RELEASE.md` GATE C 建立（PENDING）。
 - 复测报告（外部设备证据工作区）：`reports/R1-R4-retest-2026-08-14.md`、`reports/final-report.md`（第二轮结论）
 - **R1 冷启动前台追踪 ×3 PASS** → `FB-P1-01` RESOLVED（修复 `027af94`）：MainActivity→BrowserActivity 同包跳转事件形态复现，sessionMs 1:1 连续增长、不再卡 0。
 - **R2 BLOCKED sticky PASS** → `FB-P1-02` RESOLVED（修复 `9c34fe9`）：离开 29s/31s/64s/约 2min 重进均仍 BLOCKED，sessionMs 未被 30 秒规则重置；completeRest → GRACE 10min 正常；Emergency 长按约 11s → GRACE 5min，emergencyUnlockDay 更新、DB emergency_unlock 正常记录。
@@ -65,12 +65,11 @@
 
 ## 下一路线（建议排序）
 
-1. 完成 canonical docs 第二阶段同步
-2. 建立可信 release artifact pipeline（产物溯源）
-3. release signing / versioning 基础准备
-4. 多 OEM 真机矩阵
-5. UsageStats 精度对照
-6. blocking latency 对照
-7. 24h stability + Protection Integrity
-8. 小规模 Beta
-9. 商店正式发行准备
+1. 建立可信 release artifact pipeline / Artifact Provenance
+2. release signing / versioning 基础准备
+3. 多 OEM 真机矩阵
+4. UsageStats 精度对照
+5. blocking latency 对照
+6. 24h stability + Protection Integrity
+7. 小规模 Beta
+8. 商店正式发行准备

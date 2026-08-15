@@ -20,8 +20,8 @@
 | GATE D | OEM compatibility matrix | **PENDING** |
 | GATE E | Usage accounting accuracy / blocking latency | **PENDING** |
 | GATE F | 24h stability + Protection Integrity | **PENDING** |
-| GATE G | Signing / versioning / release materials | **PENDING** |
-| GATE H | Store / compliance readiness | **PENDING** |
+| GATE G | Signing / Versioning / Publishable Build | **PENDING** |
+| GATE H | Store / Compliance Readiness | **PENDING** |
 | GATE I | Small-scale Beta | **PENDING** |
 
 最终发布条件：**所有 release-blocking gates PASS**。
@@ -58,7 +58,7 @@
 
 ### GATE D — OEM compatibility matrix：PENDING
 
-- 小米/OPPO/vivo/华为等：权限、后台限制、重启恢复、24h 稳定性实测。
+- Xiaomi / Redmi、OPPO / OnePlus、vivo / iQOO、Honor / Huawei 等产品族：权限、后台限制、重启恢复、24h 稳定性实测。
 - 同时决定 `COMPAT-001`（HyperOS best-effort BlockActivity 后台启动被拒）的处理方向：删除 `tryStartBlockActivity` / OEM 条件化 / 保留 best-effort。
 
 ### GATE E — Usage accounting accuracy / blocking latency：PENDING
@@ -72,17 +72,40 @@
 - Protection Integrity 原则（`TESTING.md`）：**UI promise ≤ actual protection capability**。正常路径测试同步做失效注入：撤销 Usage Access / 撤销 Overlay / 关闭 Accessibility / service 被杀 / battery saver / OEM 后台限制 / force-stop 后手动重开；逐项验证 A. 实际保护行为 + B. UI 如实反映能力。
 - force-stop 语义：不要求自动复活；手动重开后 UI 不得谎称旧保护状态仍完全有效，应走合法恢复。
 
-### GATE G — Signing / versioning / release materials：PENDING
+### GATE G — Signing / Versioning / Publishable Build：PENDING
 
-- Release 签名、版本号决策、商店材料（截图/描述/Data Safety/无障碍用途说明）准备。
-- Distribution compliance research is in progress and will be incorporated after source verification.（合规研究完成后并入；不把未经最终审查的市场/政策推断写成项目事实。）
+只负责**工程发行产物**：
 
-### GATE H — Store / compliance readiness：PENDING
+- release signing
+- keystore / CI secret strategy
+- versionName
+- versionCode
+- channel / version consistency
+- signed Play AAB
+- signed / 最终 Domestic APK（按实际发行策略）
+- upgrade / install verification
+- release artifact metadata
+- CHANGELOG / version consistency
 
-- Play：前台服务声明、Data Safety、隐私政策 URL、商店截图、Android Vitals。
-- 国内：无障碍用途说明清晰，关闭后不执行强阻断；后台/自启动引导实测。
-- 版本号与 `CHANGELOG.md` 一致。
-- 合规文档任务单独进行（当前仓库不提前创建未经最终审查的 COMPLIANCE 文档）。
+**不由** GATE G 负责：Data Safety、Accessibility declaration、商店文案、隐私政策 URL、商店截图、合规申报材料（归 GATE H）。
+
+### GATE H — Store / Compliance Readiness：PENDING
+
+负责商店与合规发行材料：
+
+- Google Play Data Safety
+- FGS declaration（前台服务声明）
+- privacy policy URL
+- support contact
+- screenshots / store listing
+- Accessibility disclosure（如果对应渠道存在）
+- Domestic permission-use explanations（国内版权限用途说明）
+- APP 备案 / 版权 / 主体等经过确认的发行资质
+- 渠道审核材料
+- distribution compliance
+
+> Distribution compliance research is in progress and will be incorporated after source verification.（合规研究完成后并入；当前不提前创建未经最终审查的 COMPLIANCE 文档，不把未经确认的研究内容写成 CONFIRMED 项目事实。）
+> 本门禁只调整「职责归属」，不提前把任何 PENDING 改为 PASS。
 
 ### GATE I — Small-scale Beta：PENDING
 
@@ -125,7 +148,7 @@
 - [ ] 目标应用统计与系统数字健康误差 ≤10%（多机型，GATE E）
 - [ ] 阻断触发延迟 ≤2s（GATE E）
 - [ ] 连续运行 24 小时无时间暴涨、重复通知或 ANR，且无 silent protection drift（GATE F）
-- [ ] 小米/OPPO/vivo/华为：权限、后台限制、重启恢复实测（GATE D）
+- [ ] Xiaomi / Redmi、OPPO / OnePlus、vivo / iQOO、Honor / Huawei：权限、后台限制、重启恢复实测（GATE D）
 
 ### 商店
 
@@ -141,12 +164,11 @@
 
 ## 下一步路线（建议排序）
 
-1. 完成 canonical docs 第二阶段同步
-2. 建立可信 release artifact pipeline（产物溯源）
-3. release signing / versioning 基础准备
-4. 多 OEM 真机矩阵
-5. UsageStats 精度对照
-6. blocking latency 对照
-7. 24h stability + Protection Integrity
-8. 小规模 Beta
-9. 商店正式发行准备
+1. 建立可信 release artifact pipeline / Artifact Provenance
+2. release signing / versioning 基础准备
+3. 多 OEM 真机矩阵
+4. UsageStats 精度对照
+5. blocking latency 对照
+6. 24h stability + Protection Integrity
+7. 小规模 Beta
+8. 商店正式发行准备
