@@ -8,7 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview --host",
     "test": "vitest run",
-    "test:provenance": "node --test \"scripts/__tests__/*.test.mjs\""
+    "test:provenance": "node --test \"scripts/__tests__/provenance-lib.test.mjs\" \"scripts/__tests__/generate-build-provenance.test.mjs\" \"scripts/__tests__/verify-web-asset-sync.test.mjs\" \"scripts/__tests__/generate-artifact-manifest.test.mjs\"",
+    "test:release": "node --test \"scripts/__tests__/release-version.test.mjs\""
   },
   "dependencies": {
     "@capacitor/android": "^8.3.1",
