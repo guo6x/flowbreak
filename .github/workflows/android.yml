@@ -273,9 +273,10 @@ jobs:
           retention-days: 90
 
   release:
-    # tag push = production signed release; workflow_dispatch = signed dry-run (TEST NOT FOR DISTRIBUTION).
-    # Both require provisioned per-channel signing secrets — they fail clearly when secrets are absent.
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    # tag push = production signed release; workflow_dispatch = signed dry-run (TEST NOT FOR DISTRIBUTION),
+    # and dispatch is ONLY allowed from refs/heads/master (defense in depth: the
+    # production-signing environment additionally restricts deployments to master + v*).
+    if: (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') || startsWith(github.ref, 'refs/tags/v')
     needs: verify
     runs-on: ubuntu-latest
     # Production signing secrets live ONLY in this protected environment.
@@ -311,6 +312,13 @@ jobs:
           git fetch origin master
           git merge-base --is-ancestor "$GITHUB_SHA" origin/master
           echo "TAG_ON_MASTER_LINE=PASS tag=$GITHUB_REF_NAME sha=$GITHUB_SHA"
+      - name: Verify signed dispatch ref (workflow_dispatch must be master)
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -e
+          test "$GITHUB_REF" = "refs/heads/master"
+          echo "SIGNED_DISPATCH_REF=PASS ref=$GITHUB_REF"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22.23.1
