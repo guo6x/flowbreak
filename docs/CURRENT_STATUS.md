@@ -50,7 +50,7 @@
 ## 当前未解决问题（非 P0/P1 产品阻塞）
 
 1. **`COMPAT-001`（NON-BLOCKING / COMPATIBILITY OBSERVATION，OPEN OBSERVATION）**：HyperOS 仍可能拒绝尽力而为的 `tryStartBlockActivity` 后台启动（logcat `MIUILOG Permission Denied Activity`），但强阻断已不依赖它（无障碍横幅独立可用）。后续多 OEM 矩阵中决定删除 / OEM 条件化 / 保留 best-effort。
-2. **GATE G — PRODUCTION_SIGNING_PROVISIONED / SIGNED_DRY_RUN_PASS / INSTALL_UPGRADE_PENDING**：两把生产密钥（RSA 3072、约 50 年）已生成并 provision 到受保护 Environment `production-signing`（8 secrets，值绝不外泄）；`release-signing-policy.json` 已填真实 fingerprint 并在 CI 强制匹配；signed dry-run（Run `31934183213`）全绿且独立下载复核通过。剩余：① 产品负责人将密码交接文件存入密码管理器并做**独立加密备份**（`PRODUCTION_KEY_BACKUP = VERIFIED` 待确认）；② GATE G Stage C 真机 install/upgrade 验证。
+2. **GATE G — SECURITY_CLOSURE_PENDING**：首轮密钥已完成技术链 signed dry-run（Run `31934183213`）但降级为 **SUPERSEDED_PRE_PRODUCTION**（初始密码曾经过自动化进程与交接文件，无泄露证据、非安全事故，禁用于正式发行）。安全收尾进行中：工作流已收紧（dispatch 仅 master + `SIGNED_DISPATCH_REF` 守卫，PR #6）；Environment 部署分支策略待产品负责人 UI 设置（API 对公共仓库 404）；最终签名身份 = **HUMAN_KEY_GENERATION_REQUIRED**（产品负责人独立终端交互式生成，AI 不接触密码、不再产生 handoff 文件）；随后更新 policy fingerprint、重 provision 8 个 environment secrets、重跑最终 signed dry-run 并独立复核；备份与交接文件删除待确认。
 3. **PENDING VALIDATION**：OEM 矩阵、UsageStats 精度对照、阻断延迟对照、24h stability + Protection Integrity、商店材料、小规模 Beta（`RELEASE.md` GATE D–F、H–I）。
 
 > 历史 RELEASE ENGINEERING GAP（产物溯源）已关闭：曾出现「本地 APK 原生 dex 已更新、Web bundle 仍旧」的不一致产物与「CI 未持久上传 artifacts」两个缺口，已由 GATE C 实现并实测关闭（`RELEASE.md` GATE C = PASS，`TESTING.md` 产物溯源）。
@@ -67,7 +67,7 @@
 
 ## 下一路线（建议排序）
 
-1. GATE G 收尾：产品负责人完成密码管理器归档 + 两把密钥独立加密备份（`PRODUCTION_KEY_BACKUP = VERIFIED`）并删除交接文件
+1. GATE G 安全收尾：产品负责人 UI 设置 Environment 部署分支策略（master + v*）→ 负向测试 NON_MASTER_SIGNING_ACCESS=DENIED → 独立终端生成最终两把密钥（HUMAN-ONLY 密码）→ 更新 policy fingerprint + 重 provision secrets → 最终 signed dry-run + 独立复核 → 删除旧 handoff 文件 + 独立加密备份确认
 2. GATE G Stage C：真机 signed install/upgrade 验证（隔离设备/模拟器，不破坏 Redmi 现有数据）
 3. 多 OEM 真机矩阵（GATE D）
 4. UsageStats 精度对照（GATE E）

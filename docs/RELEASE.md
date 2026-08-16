@@ -90,10 +90,16 @@ GATE C PASS 的范围（重要）：
 **当前细分状态（2026-08-16）**：
 
 - **Stage A groundwork = PASS**（版本策略、签名工程机制、签名验证链已实现并实测）。
-- **PRODUCTION_SIGNING_PROVISIONED**：两把生产密钥已生成（RSA 3072、约 50 年有效期；Play upload key `flowbreak-play-upload` + Domestic app-signing key `flowbreak-domestic-release`），8 个 secrets 已 provision 到受保护 Environment `production-signing`（值绝不进入日志/聊天/git），`app/release-signing-policy.json` 已填入两枚真实证书 SHA-256 fingerprint（`provisioningStatus = PROVISIONED`）。
-- **SIGNED_DRY_RUN_PASS**：workflow_dispatch signed dry-run（Run `31934183213`，HEAD `f6cbcbb`，artifact `flowbreak-signed-dry-run-v1.1.0-f6cbcbb…`）全绿——decode → signed build → packaged provenance → **apksigner/jarsigner 签名验证 + fingerprint allowlist 强制匹配**（CI 证书 fingerprint = policy = 本地密钥，签名身份连续一致）→ manifest signed 证据 → keystore cleanup。独立下载复核：SHA256SUMS 0 失败、manifest sourceGitSha/version 1001000/1.1.0 一致、APK/AAB 证书指纹与 policy 一致。
+- **Stage B（首轮）technical dry-run = PASS，但身份已降级**：首轮两把密钥（Play `ebbf4e21…e095` / Domestic `bbb2ead0…5f0e`）的 signed dry-run（Run `31934183213`）验证了完整技术链，但因其初始密码曾存在于自动化进程与 `OWNER-PASSWORD-HANDOFF.txt` 交接文件中，标记为 **SUPERSEDED_PRE_PRODUCTION**（无泄露证据、不是安全事故），**禁止用于正式发行**。
+- **SECURITY_CLOSURE（进行中）**：
+  - 工作流边界（PR #6，已合并）：release job 仅 `workflow_dispatch && refs/heads/master` 或 `v*` tag 触发，dispatch 另有 `SIGNED_DISPATCH_REF=PASS` 显式守卫；负向测试要求 `NON_MASTER_SIGNING_ACCESS = DENIED`。
+  - Environment 部署分支策略：GitHub REST API 对公共仓库返回 404，**待产品负责人 UI 设置**（Settings → Environments → production-signing → Deployment branches and tags → Selected：master（branch）+ v*（tag）），设置后以 API 读取确认（`PRODUCTION_ENV_BRANCH_POLICY`）。
+  - 最终签名身份：**HUMAN_KEY_GENERATION_REQUIRED**——由产品负责人在独立终端以 keytool 交互式密码生成（命令中不得含 -storepass/-keypass），AI 不生成/读取/保存/接收最终密码；禁止再创建任何 password handoff 文件（旧 `OWNER-PASSWORD-HANDOFF.txt` 由产品负责人删除，`HANDOFF_FILE_REMOVED`）。
+  - 最终 policy：替换 fingerprint 为最终身份（旧指纹仅入历史，allowlist 不同时接受两套 production identity）。
 - **INSTALL_UPGRADE_PENDING**：正式 tag 未创建、商店未发布；signed install/upgrade 验证进入 GATE G Stage C。
-- **PRODUCTION_KEY_BACKUP = NOT VERIFIED**：产品负责人尚未确认独立加密备份（密码交接文件 `D:\environment\flowbreak-signing\OWNER-PASSWORD-HANDOFF.txt` 需存入密码管理器后删除）。
+- **PRODUCTION_KEY_BACKUP = NOT VERIFIED**：最终两把密钥的独立加密备份待产品负责人确认。
+
+**GATE G 当前 = SECURITY_CLOSURE_PENDING**（`PRODUCTION_ENV_BRANCH_POLICY`、`NON_MASTER_SIGNING_ACCESS`、`HUMAN_ONLY_PASSWORD_CUSTODY`、`HANDOFF_FILE_REMOVED`、最终身份与 secrets、最终 signed dry-run、备份确认全部满足前不得进入 Stage C）。
 
 只负责**工程发行产物**：
 
