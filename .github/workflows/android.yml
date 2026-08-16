@@ -368,9 +368,13 @@ jobs:
         shell: bash
         run: |
           set -e
-          echo "$FLOWBREAK_PLAY_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/flowbreak-play.jks"
-          echo "$FLOWBREAK_DOMESTIC_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/flowbreak-domestic.jks"
-          echo "keystores decoded to RUNNER_TEMP"
+          # strip any stray whitespace/CR introduced in transit, then decode;
+          # the decoded keystore must be non-empty or the job fails here.
+          printf '%s' "$FLOWBREAK_PLAY_KEYSTORE_BASE64" | tr -d '\r\n\t ' | base64 -d > "$RUNNER_TEMP/flowbreak-play.jks"
+          test -s "$RUNNER_TEMP/flowbreak-play.jks"
+          printf '%s' "$FLOWBREAK_DOMESTIC_KEYSTORE_BASE64" | tr -d '\r\n\t ' | base64 -d > "$RUNNER_TEMP/flowbreak-domestic.jks"
+          test -s "$RUNNER_TEMP/flowbreak-domestic.jks"
+          echo "keystores decoded: play=$(wc -c < "$RUNNER_TEMP/flowbreak-play.jks")B domestic=$(wc -c < "$RUNNER_TEMP/flowbreak-domestic.jks")B"
         env:
           FLOWBREAK_PLAY_KEYSTORE_BASE64: ${{ secrets.FLOWBREAK_PLAY_KEYSTORE_BASE64 }}
           FLOWBREAK_DOMESTIC_KEYSTORE_BASE64: ${{ secrets.FLOWBREAK_DOMESTIC_KEYSTORE_BASE64 }}
