@@ -8,6 +8,8 @@
 //          --out <dir> --provenance <build-provenance.json>
 //          --binaries '<json: [{channel,type,path,filename}...]>'
 //          --extra-sums '<json: [{channel,type,path,filename}...]>'
+//          --signing-evidence '<json: [{filename,role,certificateSha256}...]>'
+//            (public signing evidence only — never secrets; merged into artifact entries)
 import { mkdir, readFile, writeFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { sha256File, isValidArtifactFilename } from './provenance-lib.mjs';
@@ -18,7 +20,7 @@ function fail(msg) {
 }
 
 function parseArgs(argv) {
-  const out = { binaries: [], extraSums: [] };
+  const out = { binaries: [], extraSums: [], signingEvidence: [] };
   for (let i = 0; i < argv.length; i += 1) {
     const key = argv[i];
     if (key === '--out') { out.out = argv[++i]; }
@@ -27,6 +29,8 @@ function parseArgs(argv) {
     else if (key === '--extra-sums') { out.extraSums = JSON.parse(argv[++i]); }
     else if (key === '--binaries-file') { out.binariesFile = argv[++i]; }
     else if (key === '--extra-sums-file') { out.extraSumsFile = argv[++i]; }
+    else if (key === '--signing-evidence') { out.signingEvidence = JSON.parse(argv[++i]); }
+    else if (key === '--signing-evidence-file') { out.signingEvidenceFile = argv[++i]; }
     else fail('unknown argument: ' + key);
   }
   if (!out.out || !out.provenance) fail('--out and --provenance are required');
@@ -52,8 +56,16 @@ async function loadArgLists(args) {
       fail('cannot read extra sums file: ' + args.extraSumsFile);
     }
   }
+  if (args.signingEvidenceFile) {
+    try {
+      args.signingEvidence = JSON.parse(stripBom(await readFile(args.signingEvidenceFile, 'utf8')));
+    } catch {
+      fail('cannot read signing evidence file: ' + args.signingEvidenceFile);
+    }
+  }
   if (!Array.isArray(args.binaries) || args.binaries.length === 0) fail('--binaries must be a non-empty array');
   if (!Array.isArray(args.extraSums)) fail('--extra-sums must be an array');
+  if (!Array.isArray(args.signingEvidence)) fail('--signing-evidence must be an array');
   return args;
 }
 
@@ -96,8 +108,24 @@ const manifest = {
 };
 if (provenance.prHeadSha) manifest.prHeadSha = provenance.prHeadSha;
 
+const evidenceByFilename = new Map();
+for (const e of args.signingEvidence) {
+  if (!e || typeof e.filename !== 'string') fail('signing evidence entry needs a filename');
+  if (!isValidArtifactFilename(e.filename)) fail('signing evidence filename must be a plain basename: ' + e.filename);
+  evidenceByFilename.set(e.filename, e);
+}
+
 for (const entry of args.binaries) {
-  manifest.artifacts.push(await entryToRecord(entry));
+  const record = await entryToRecord(entry);
+  const evidence = evidenceByFilename.get(record.filename);
+  if (evidence) {
+    record.signed = true;
+    if (evidence.role) record.signingRole = String(evidence.role);
+    if (evidence.certificateSha256) record.certificateSha256 = String(evidence.certificateSha256);
+  } else {
+    record.signed = false;
+  }
+  manifest.artifacts.push(record);
 }
 
 const manifestPath = path.join(outDir, 'artifact-manifest.json');
@@ -118,6 +146,6 @@ await writeFile(path.join(outDir, 'SHA256SUMS.txt'), sumsLines.join('\n') + '\n'
 
 console.log('ARTIFACT_MANIFEST=PASS sourceGitSha=' + manifest.sourceGitSha + ' artifacts=' + manifest.artifacts.length);
 for (const a of manifest.artifacts) {
-  console.log('  ' + a.filename + ' size=' + a.size + ' sha256=' + a.sha256);
+  console.log('  ' + a.filename + ' size=' + a.size + ' sha256=' + a.sha256 + ' signed=' + a.signed);
 }
 console.log('  artifact-manifest.json sha256=' + manifestHash);

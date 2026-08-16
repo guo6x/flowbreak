@@ -116,6 +116,38 @@ test('accepts --binaries-file / --extra-sums-file (BOM tolerant)', async () => {
   await cleanup(root);
 });
 
+test('signing evidence is merged into artifact entries (public fields only)', async () => {
+  const { root, out, binDir } = await buildFixture();
+  const binaries = JSON.stringify([
+    { channel: 'play', type: 'aab', path: path.join(binDir, 'app-play-release.aab'), filename: 'app-play-release.aab' },
+  ]);
+  const evidence = JSON.stringify([
+    { filename: 'app-play-release.aab', role: 'upload-key', certificateSha256: 'aa'.repeat(32) },
+  ]);
+  const r = runScript('generate-artifact-manifest.mjs',
+    ['--out', out, '--provenance', path.join(root, 'build-provenance.json'), '--binaries', binaries, '--extra-sums', '[]', '--signing-evidence', evidence], {});
+  assert.equal(r.status, 0, r.stderr);
+  const manifest = JSON.parse(await readFile(path.join(out, 'artifact-manifest.json'), 'utf8'));
+  const aab = manifest.artifacts[0];
+  assert.equal(aab.signed, true);
+  assert.equal(aab.signingRole, 'upload-key');
+  assert.equal(aab.certificateSha256, 'aa'.repeat(32));
+  await cleanup(root);
+});
+
+test('artifacts without evidence are marked signed=false', async () => {
+  const { root, out, binDir } = await buildFixture();
+  const binaries = JSON.stringify([
+    { channel: 'domestic', type: 'apk', path: path.join(binDir, 'app-domestic-release-unsigned.apk'), filename: 'app-domestic-release-unsigned.apk' },
+  ]);
+  const r = runScript('generate-artifact-manifest.mjs',
+    ['--out', out, '--provenance', path.join(root, 'build-provenance.json'), '--binaries', binaries, '--extra-sums', '[]', '--signing-evidence', '[]'], {});
+  assert.equal(r.status, 0, r.stderr);
+  const manifest = JSON.parse(await readFile(path.join(out, 'artifact-manifest.json'), 'utf8'));
+  assert.equal(manifest.artifacts[0].signed, false);
+  await cleanup(root);
+});
+
 test('fails on missing artifact file', async () => {
   const { root, out } = await buildFixture();
   const binaries = JSON.stringify([

@@ -5,6 +5,10 @@ on:
     branches: [master]
     tags: ['v*']
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   verify:
@@ -55,6 +59,7 @@ jobs:
         run: npm audit --audit-level=critical
       - run: npm test
       - run: npm run test:provenance
+      - run: npm run test:release
       - run: npm run build
       - name: Generate build provenance
         run: node scripts/generate-build-provenance.mjs dist
@@ -268,15 +273,15 @@ jobs:
           retention-days: 90
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    # tag push = production signed release; workflow_dispatch = signed dry-run (TEST NOT FOR DISTRIBUTION).
+    # Both require provisioned per-channel signing secrets — they fail clearly when secrets are absent.
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     needs: verify
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: app
     env:
-      VERSION_CODE: ${{ github.run_number }}
-      VERSION_NAME: ${{ github.ref_name }}
       SOURCE_COMMIT_SHA: ${{ github.sha }}
       PR_HEAD_SHA: ''
     steps:
@@ -293,6 +298,15 @@ jobs:
           dirty="$(git status --porcelain)"
           test -z "$dirty"
           echo "SOURCE_IDENTITY=PASS sourceGitSha=$actual_sha workflowSha=$GITHUB_SHA"
+      - name: Verify release tag integrity (production tag only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          set -e
+          test "$GITHUB_REF_TYPE" = "tag"
+          git fetch origin master
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/master
+          echo "TAG_ON_MASTER_LINE=PASS tag=$GITHUB_REF_NAME sha=$GITHUB_SHA"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22.23.1
@@ -305,44 +319,69 @@ jobs:
           cache: gradle
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
       - run: npm ci
-      # build.gradle strips a leading 'v' from VERSION_NAME (replaceFirst('^v','')).
-      # Normalize here so provenance records exactly what the binary will contain.
-      # The signed build step keeps its own raw VERSION_NAME — version policy is unchanged.
-      - name: Normalize release version name
+      # Version policy: app/package.json "version" is the single Source of Truth.
+      # release-version.mjs validates stable SemVer, computes versionCode
+      # (MAJOR*1_000_000 + MINOR*1_000 + PATCH) and, for tag builds, verifies
+      # tag == v<version>. Output feeds GITHUB_ENV — no run_number/ref_name guessing.
+      - name: Determine release version
         shell: bash
         run: |
-          vn="${VERSION_NAME#v}"
-          echo "VERSION_NAME=$vn" >> "$GITHUB_ENV"
-          echo "NORMALIZED_VERSION_NAME=$vn"
+          set -e
+          args=()
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then args+=(--tag "$GITHUB_REF_NAME"); fi
+          node scripts/release-version.mjs "${args[@]}" >> "$GITHUB_ENV"
+          echo "VERSION_POLICY=PASS"
+          grep -E '^(VERSION_NAME|VERSION_CODE)=' "$GITHUB_ENV"
       - run: npm run build
       - name: Generate build provenance
         run: node scripts/generate-build-provenance.mjs dist
       - run: npx cap sync android
       - name: Verify web asset sync (dist -> Android assets)
         run: node scripts/verify-web-asset-sync.mjs dist android/app/src/main/assets/public
-      - name: Decode signing key
+      - name: Check signing secrets presence
         shell: bash
         run: |
-          test -n "$KEYSTORE_BASE64"
-          test -n "$FLOWBREAK_KEYSTORE_PASSWORD"
-          test -n "$FLOWBREAK_KEY_ALIAS"
-          test -n "$FLOWBREAK_KEY_PASSWORD"
-          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/flowbreak.jks"
+          set -e
+          if [ -z "$FLOWBREAK_PLAY_KEYSTORE_BASE64" ] || [ -z "$FLOWBREAK_PLAY_KEYSTORE_PASSWORD" ] || [ -z "$FLOWBREAK_PLAY_KEY_ALIAS" ] || [ -z "$FLOWBREAK_PLAY_KEY_PASSWORD" ]; then
+            echo "::error::Play signing secrets are not provisioned (FLOWBREAK_PLAY_*). Signed build cannot proceed."
+            exit 1
+          fi
+          if [ -z "$FLOWBREAK_DOMESTIC_KEYSTORE_BASE64" ] || [ -z "$FLOWBREAK_DOMESTIC_KEYSTORE_PASSWORD" ] || [ -z "$FLOWBREAK_DOMESTIC_KEY_ALIAS" ] || [ -z "$FLOWBREAK_DOMESTIC_KEY_PASSWORD" ]; then
+            echo "::error::Domestic signing secrets are not provisioned (FLOWBREAK_DOMESTIC_*). Signed build cannot proceed."
+            exit 1
+          fi
+          echo "SIGNING_SECRETS=PRESENT"
         env:
-          KEYSTORE_BASE64: ${{ secrets.FLOWBREAK_KEYSTORE_BASE64 }}
-          FLOWBREAK_KEYSTORE_PASSWORD: ${{ secrets.FLOWBREAK_KEYSTORE_PASSWORD }}
-          FLOWBREAK_KEY_ALIAS: ${{ secrets.FLOWBREAK_KEY_ALIAS }}
-          FLOWBREAK_KEY_PASSWORD: ${{ secrets.FLOWBREAK_KEY_PASSWORD }}
+          FLOWBREAK_PLAY_KEYSTORE_BASE64: ${{ secrets.FLOWBREAK_PLAY_KEYSTORE_BASE64 }}
+          FLOWBREAK_PLAY_KEYSTORE_PASSWORD: ${{ secrets.FLOWBREAK_PLAY_KEYSTORE_PASSWORD }}
+          FLOWBREAK_PLAY_KEY_ALIAS: ${{ secrets.FLOWBREAK_PLAY_KEY_ALIAS }}
+          FLOWBREAK_PLAY_KEY_PASSWORD: ${{ secrets.FLOWBREAK_PLAY_KEY_PASSWORD }}
+          FLOWBREAK_DOMESTIC_KEYSTORE_BASE64: ${{ secrets.FLOWBREAK_DOMESTIC_KEYSTORE_BASE64 }}
+          FLOWBREAK_DOMESTIC_KEYSTORE_PASSWORD: ${{ secrets.FLOWBREAK_DOMESTIC_KEYSTORE_PASSWORD }}
+          FLOWBREAK_DOMESTIC_KEY_ALIAS: ${{ secrets.FLOWBREAK_DOMESTIC_KEY_ALIAS }}
+          FLOWBREAK_DOMESTIC_KEY_PASSWORD: ${{ secrets.FLOWBREAK_DOMESTIC_KEY_PASSWORD }}
+      - name: Decode signing keys (RUNNER_TEMP only, never logged)
+        shell: bash
+        run: |
+          set -e
+          echo "$FLOWBREAK_PLAY_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/flowbreak-play.jks"
+          echo "$FLOWBREAK_DOMESTIC_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/flowbreak-domestic.jks"
+          echo "keystores decoded to RUNNER_TEMP"
+        env:
+          FLOWBREAK_PLAY_KEYSTORE_BASE64: ${{ secrets.FLOWBREAK_PLAY_KEYSTORE_BASE64 }}
+          FLOWBREAK_DOMESTIC_KEYSTORE_BASE64: ${{ secrets.FLOWBREAK_DOMESTIC_KEYSTORE_BASE64 }}
       - name: Build signed releases
         working-directory: app/android
         run: ./gradlew bundlePlayRelease assembleDomesticRelease --stacktrace
         env:
-          VERSION_CODE: ${{ github.run_number }}
-          VERSION_NAME: ${{ github.ref_name }}
-          FLOWBREAK_KEYSTORE_FILE: ${{ runner.temp }}/flowbreak.jks
-          FLOWBREAK_KEYSTORE_PASSWORD: ${{ secrets.FLOWBREAK_KEYSTORE_PASSWORD }}
-          FLOWBREAK_KEY_ALIAS: ${{ secrets.FLOWBREAK_KEY_ALIAS }}
-          FLOWBREAK_KEY_PASSWORD: ${{ secrets.FLOWBREAK_KEY_PASSWORD }}
+          FLOWBREAK_PLAY_KEYSTORE_FILE: ${{ runner.temp }}/flowbreak-play.jks
+          FLOWBREAK_PLAY_KEYSTORE_PASSWORD: ${{ secrets.FLOWBREAK_PLAY_KEYSTORE_PASSWORD }}
+          FLOWBREAK_PLAY_KEY_ALIAS: ${{ secrets.FLOWBREAK_PLAY_KEY_ALIAS }}
+          FLOWBREAK_PLAY_KEY_PASSWORD: ${{ secrets.FLOWBREAK_PLAY_KEY_PASSWORD }}
+          FLOWBREAK_DOMESTIC_KEYSTORE_FILE: ${{ runner.temp }}/flowbreak-domestic.jks
+          FLOWBREAK_DOMESTIC_KEYSTORE_PASSWORD: ${{ secrets.FLOWBREAK_DOMESTIC_KEYSTORE_PASSWORD }}
+          FLOWBREAK_DOMESTIC_KEY_ALIAS: ${{ secrets.FLOWBREAK_DOMESTIC_KEY_ALIAS }}
+          FLOWBREAK_DOMESTIC_KEY_PASSWORD: ${{ secrets.FLOWBREAK_DOMESTIC_KEY_PASSWORD }}
       - name: Verify packaged provenance (APK/AAB)
         working-directory: app/android
         shell: bash
@@ -401,6 +440,54 @@ jobs:
           test "$aab_vc_bin" = "$VERSION_CODE"
           test "$aab_vn_bin" = "$VERSION_NAME"
           echo "AAB_INDEPENDENT_VERSION=PASS versionCode=$aab_vc_bin versionName=$aab_vn_bin"
+      - name: Verify signatures (apksigner / jarsigner + fingerprint allowlist)
+        working-directory: app/android
+        shell: bash
+        run: |
+          set -e
+          play_aab=$(find app/build/outputs/bundle/playRelease -maxdepth 1 -name '*.aab' | head -1)
+          domestic_apk=$(find app/build/outputs/apk/domestic/release -maxdepth 1 -name '*.apk' | head -1)
+          aapt2_bin=$(find "$ANDROID_HOME/build-tools" -name aapt2 -type f | sort -V | tail -1)
+          apksigner_bin="$(dirname "$aapt2_bin")/apksigner"
+          policy=../release-signing-policy.json
+
+          echo "== Domestic APK: apksigner verify =="
+          "$apksigner_bin" verify --verbose --print-certs "$domestic_apk"
+          apk_cert=$("$apksigner_bin" verify --print-certs "$domestic_apk" | grep -E 'certificate SHA-256 digest' | head -1 | awk '{print $NF}')
+          test -n "$apk_cert"
+          echo "DOMESTIC_CERT_SHA256=$apk_cert"
+          echo "DOMESTIC_CERT_SHA256=$apk_cert" >> "$GITHUB_ENV"
+          expected_domestic=$(python3 -c "import json;print(json.load(open('$policy', encoding='utf-8'))['domestic']['certificateSha256'])")
+          if [ -n "$expected_domestic" ]; then
+            test "$apk_cert" = "$expected_domestic"
+            echo "DOMESTIC_FINGERPRINT_ALLOWLIST=PASS"
+          else
+            echo "::warning::release-signing-policy.json has no domestic fingerprint — allowlist NOT enforced"
+            if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+              echo "::error::production tag release requires a provisioned domestic fingerprint allowlist"
+              exit 1
+            fi
+          fi
+          echo "DOMESTIC_SIGNATURE=PASS"
+
+          echo "== Play AAB: jarsigner verify (self-signed upload keys are normal for Play) =="
+          jarsigner -verify "$play_aab"
+          aab_cert=$(keytool -printcert -jarfile "$play_aab" 2>/dev/null | grep -E 'SHA256:' | head -1 | sed -E 's/.*SHA256: *//' | tr -d ':' | tr '[:upper:]' '[:lower:]')
+          test -n "$aab_cert"
+          echo "PLAY_CERT_SHA256=$aab_cert"
+          echo "PLAY_CERT_SHA256=$aab_cert" >> "$GITHUB_ENV"
+          expected_play=$(python3 -c "import json;print(json.load(open('$policy', encoding='utf-8'))['play']['certificateSha256'])")
+          if [ -n "$expected_play" ]; then
+            test "$aab_cert" = "$expected_play"
+            echo "PLAY_FINGERPRINT_ALLOWLIST=PASS"
+          else
+            echo "::warning::release-signing-policy.json has no play fingerprint — allowlist NOT enforced"
+            if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+              echo "::error::production tag release requires a provisioned play fingerprint allowlist"
+              exit 1
+            fi
+          fi
+          echo "PLAY_AAB_SIGNATURE=PASS"
       - name: Stage provenance artifact files
         shell: bash
         run: |
@@ -416,16 +503,39 @@ jobs:
           cp android/app/build/outputs/mapping/playRelease/mapping.txt "$prov_dir/mapping-playRelease.txt"
           cp android/app/build/outputs/mapping/domesticRelease/mapping.txt "$prov_dir/mapping-domesticRelease.txt"
           cp dist/build-provenance.json "$prov_dir/build-provenance.json"
+          signing_evidence=$(python3 - "$aab_name" "$apk_name" <<'PYEOF'
+          import json, os, sys
+          aab_name, apk_name = sys.argv[1], sys.argv[2]
+          evidence = [
+              {"filename": aab_name, "role": "upload-key", "certificateSha256": os.environ.get("PLAY_CERT_SHA256", "")},
+              {"filename": apk_name, "role": "app-signing-key", "certificateSha256": os.environ.get("DOMESTIC_CERT_SHA256", "")},
+          ]
+          print(json.dumps(evidence))
+          PYEOF
+          )
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            artifact_name="flowbreak-signed-v${VERSION_NAME}-${SOURCE_COMMIT_SHA}"
+          else
+            artifact_name="flowbreak-signed-dry-run-v${VERSION_NAME}-${SOURCE_COMMIT_SHA}"
+          fi
+          echo "ARTIFACT_NAME=$artifact_name" >> "$GITHUB_ENV"
+          echo "SIGNED_ARTIFACT_NAME=$artifact_name"
           node scripts/generate-artifact-manifest.mjs \
             --out "$prov_dir" \
             --provenance "$prov_dir/build-provenance.json" \
             --binaries "[{\"channel\":\"play\",\"type\":\"aab\",\"path\":\"$prov_dir/$aab_name\",\"filename\":\"$aab_name\"},{\"channel\":\"domestic\",\"type\":\"apk\",\"path\":\"$prov_dir/$apk_name\",\"filename\":\"$apk_name\"}]" \
-            --extra-sums "[{\"channel\":\"play\",\"type\":\"mapping\",\"path\":\"$prov_dir/mapping-playRelease.txt\",\"filename\":\"mapping-playRelease.txt\"},{\"channel\":\"domestic\",\"type\":\"mapping\",\"path\":\"$prov_dir/mapping-domesticRelease.txt\",\"filename\":\"mapping-domesticRelease.txt\"}]"
+            --extra-sums "[{\"channel\":\"play\",\"type\":\"mapping\",\"path\":\"$prov_dir/mapping-playRelease.txt\",\"filename\":\"mapping-playRelease.txt\"},{\"channel\":\"domestic\",\"type\":\"mapping\",\"path\":\"$prov_dir/mapping-domesticRelease.txt\",\"filename\":\"mapping-domesticRelease.txt\"}]" \
+            --signing-evidence "$signing_evidence"
           echo "=== SHA256SUMS.txt ==="
           cat "$prov_dir/SHA256SUMS.txt"
+      - name: Cleanup decoded keystores
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/flowbreak-play.jks" "$RUNNER_TEMP/flowbreak-domestic.jks"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: flowbreak-release
+          # tag push -> flowbreak-signed-v<version>-<sha>; dry-run -> flowbreak-signed-dry-run-v<version>-<sha>
+          name: ${{ env.ARTIFACT_NAME }}
           path: |
             app/android/app/build/outputs/bundle/playRelease/*.aab
             app/android/app/build/outputs/apk/domestic/release/*.apk

@@ -4,7 +4,10 @@ def envOrDefault = { String key, String fallback ->
     def value = System.getenv(key)
     return value == null || value.trim().isEmpty() ? fallback : value
 }
-def releaseStoreFile = envOrDefault('FLOWBREAK_KEYSTORE_FILE', '')
+// Per-channel signing identities (GATE G): Play upload key + Domestic app-signing key.
+// Local/CI-verify builds never set these env vars and stay unsigned.
+def playStoreFile = envOrDefault('FLOWBREAK_PLAY_KEYSTORE_FILE', '')
+def domesticStoreFile = envOrDefault('FLOWBREAK_DOMESTIC_KEYSTORE_FILE', '')
 
 android {
     namespace = "com.flowbreak.app"
@@ -29,6 +32,24 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        playRelease {
+            if (!playStoreFile.isEmpty()) {
+                storeFile file(playStoreFile)
+                storePassword envOrDefault('FLOWBREAK_PLAY_KEYSTORE_PASSWORD', '')
+                keyAlias envOrDefault('FLOWBREAK_PLAY_KEY_ALIAS', '')
+                keyPassword envOrDefault('FLOWBREAK_PLAY_KEY_PASSWORD', '')
+            }
+        }
+        domesticRelease {
+            if (!domesticStoreFile.isEmpty()) {
+                storeFile file(domesticStoreFile)
+                storePassword envOrDefault('FLOWBREAK_DOMESTIC_KEYSTORE_PASSWORD', '')
+                keyAlias envOrDefault('FLOWBREAK_DOMESTIC_KEY_ALIAS', '')
+                keyPassword envOrDefault('FLOWBREAK_DOMESTIC_KEY_PASSWORD', '')
+            }
+        }
+    }
     flavorDimensions += "channel"
     productFlavors {
         play {
@@ -36,21 +57,17 @@ android {
             applicationId "com.flowbreak.app"
             buildConfigField "String", "CHANNEL", "\"play\""
             resValue "string", "channel_name", "Google Play"
+            if (!playStoreFile.isEmpty()) {
+                signingConfig signingConfigs.playRelease
+            }
         }
         domestic {
             dimension "channel"
             applicationId "com.flowbreak.app.cn"
             buildConfigField "String", "CHANNEL", "\"domestic\""
             resValue "string", "channel_name", "国内版"
-        }
-    }
-    signingConfigs {
-        release {
-            if (!releaseStoreFile.isEmpty()) {
-                storeFile file(releaseStoreFile)
-                storePassword envOrDefault('FLOWBREAK_KEYSTORE_PASSWORD', '')
-                keyAlias envOrDefault('FLOWBREAK_KEY_ALIAS', '')
-                keyPassword envOrDefault('FLOWBREAK_KEY_PASSWORD', '')
+            if (!domesticStoreFile.isEmpty()) {
+                signingConfig signingConfigs.domesticRelease
             }
         }
     }
@@ -59,9 +76,8 @@ android {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            if (!releaseStoreFile.isEmpty()) {
-                signingConfig signingConfigs.release
-            }
+            // signingConfig is assigned per flavor below — Play and Domestic
+            // keep separate signing identities when their keystores are provided.
         }
     }
     buildFeatures {

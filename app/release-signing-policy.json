@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "comment": "Public signing policy. No secrets: only roles and certificate fingerprints. Fingerprints are filled ONLY after production key provisioning (GATE G).",
+  "provisioningStatus": "NONE",
+  "play": {
+    "role": "upload-key",
+    "certificateSha256": ""
+  },
+  "domestic": {
+    "role": "app-signing-key",
+    "certificateSha256": ""
+  }
+}
