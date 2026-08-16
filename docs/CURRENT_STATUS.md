@@ -50,14 +50,15 @@
 ## 当前未解决问题（非 P0/P1 产品阻塞）
 
 1. **`COMPAT-001`（NON-BLOCKING / COMPATIBILITY OBSERVATION，OPEN OBSERVATION）**：HyperOS 仍可能拒绝尽力而为的 `tryStartBlockActivity` 后台启动（logcat `MIUILOG Permission Denied Activity`），但强阻断已不依赖它（无障碍横幅独立可用）。后续多 OEM 矩阵中决定删除 / OEM 条件化 / 保留 best-effort。
-2. **PENDING VALIDATION**：OEM 矩阵、UsageStats 精度对照、阻断延迟对照、24h stability + Protection Integrity、签名/版本/商店材料、小规模 Beta（`RELEASE.md` GATE D–I）。
+2. **GATE G — Production signing provisioning（PENDING）**：`SIGNING_ASSET_STATUS = NONE`（0 tag / 0 secrets / 无本地 keystore）。版本策略、签名工程机制、签名验证链已完成并实测（Stage A groundwork = PASS，TEST ONLY 密钥本地验证 + PR CI）；尚未 provision 生产密钥——AI 未生成任何生产密钥。剩余：双渠道生产密钥安全生成与 secrets provision、`release-signing-policy.json` fingerprint allowlist 填写、signed dry-run、真机 install/upgrade、`PRODUCTION_KEY_BACKUP = VERIFIED`。
+3. **PENDING VALIDATION**：OEM 矩阵、UsageStats 精度对照、阻断延迟对照、24h stability + Protection Integrity、商店材料、小规模 Beta（`RELEASE.md` GATE D–F、H–I）。
 
 > 历史 RELEASE ENGINEERING GAP（产物溯源）已关闭：曾出现「本地 APK 原生 dex 已更新、Web bundle 仍旧」的不一致产物与「CI 未持久上传 artifacts」两个缺口，已由 GATE C 实现并实测关闭（`RELEASE.md` GATE C = PASS，`TESTING.md` 产物溯源）。
 
 ## 发布状态边界（重要）
 
 - **RELEASE PREPARATION ≠ STORE READY ≠ PRODUCTION RELEASE APPROVED**。
-- Redmi 核心验收已通过，artifact provenance（GATE C）也已通过；发布准备仍需完成：release signing、OEM matrix、usage accuracy validation、block latency validation、long-duration stability / 24h Protection Integrity、distribution compliance / store materials、beta validation。
+- Redmi 核心验收已通过，artifact provenance（GATE C）也已通过；GATE G 的版本策略与签名验证链已就绪（Stage A），但生产签名身份尚未 provision。发布准备仍需完成：生产密钥 provision + 备份确认、signed 真机 install/upgrade、OEM matrix、usage accuracy validation、block latency validation、long-duration stability / 24h Protection Integrity、distribution compliance / store materials、beta validation。
 
 ## 历史状态（2026-08-12 快照，不再代表当前）
 
@@ -66,10 +67,11 @@
 
 ## 下一路线（建议排序）
 
-1. release signing / versioning 基础准备（GATE G）
-2. 多 OEM 真机矩阵（GATE D）
-3. UsageStats 精度对照（GATE E）
-4. blocking latency 对照（GATE E）
-5. 24h stability + Protection Integrity（GATE F）
-6. 小规模 Beta（GATE I）
-7. 商店正式发行准备（GATE H）
+1. GATE G 生产密钥 provisioning：产品负责人安全生成 Play upload key + Domestic app-signing key，provision 到 GitHub secrets（`FLOWBREAK_PLAY_*` / `FLOWBREAK_DOMESTIC_*`），填写 `release-signing-policy.json` fingerprint allowlist，并完成独立安全备份（`PRODUCTION_KEY_BACKUP = VERIFIED`）
+2. workflow_dispatch signed dry-run（真实 secrets，SIGNED-DRY-RUN 产物）+ 真机 signed install/upgrade 验证
+3. 多 OEM 真机矩阵（GATE D）
+4. UsageStats 精度对照（GATE E）
+5. blocking latency 对照（GATE E）
+6. 24h stability + Protection Integrity（GATE F）
+7. 小规模 Beta（GATE I）
+8. 商店正式发行准备（GATE H）

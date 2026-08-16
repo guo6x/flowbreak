@@ -78,7 +78,7 @@ CI（`.github/workflows/android.yml`）在 master push / PR 时执行：
 
 ### 已实现的 provenance 工具链（GATE C，PR #1 实测通过）
 
-- 脚本（`app/scripts/`，Node 内置模块，无新增依赖；测试 `npm run test:provenance` 18/18）：
+- 脚本（`app/scripts/`，Node 内置模块，无新增依赖；测试 `npm run test:provenance` 20/20、`npm run test:release` 8/8）：
   - `generate-build-provenance.mjs`：npm build 后生成 `dist/build-provenance.json`（allowlist 字段，缺 SHA/非法 SHA/非法版本号即 FAIL，绝不 dump 环境变量/secret）。
   - `verify-web-asset-sync.mjs`：cap sync 后校验 dist 每个文件在 Android web assets 中 SHA-256 一致（缺失/mismatch 即 FAIL），并校验 provenance 的 sourceGitSha/versionCode/versionName 与本轮声明一致。
   - `generate-artifact-manifest.mjs`：生成 `artifact-manifest.json`（binaries 的 filename/size/sha256）与 `SHA256SUMS.txt`（binaries + 双渠道 mapping + manifest 自身；manifest 不含自身 hash，无递归）。
@@ -88,6 +88,16 @@ CI（`.github/workflows/android.yml`）在 master push / PR 时执行：
   - 产物命名：`flowbreak-unsigned-<sourceSha>`（UNSIGNED / TEST ONLY）；tag 签名发布复用同一链路（signing 属 GATE G）。
 - 独立复核流程（验收标准）：下载 artifact ZIP → 解压 → `sha256sum -c SHA256SUMS.txt`（或 Get-FileHash）→ manifest sourceGitSha = 期望 SHA → 从 APK/AAB 内读取 `build-provenance.json` 的 sourceGitSha 与版本一致性。
 - 实测记录：PR #1 CI Run `31900444404` verify SUCCESS；artifact `flowbreak-unsigned-ea53a22136dd58663291581763eb3614c4b10ba6` 下载后 5/5 校验一致，APK/AAB 内部 provenance sourceGitSha 均 = PR head SHA。
+
+### 版本与签名验证（GATE G Stage A，2026-08-16）
+
+- **版本策略（VERSION_POLICY）**：versionName 唯一 Source of Truth = `app/package.json` version（stable SemVer，无 prerelease/build）；versionCode = `MAJOR*1_000_000 + MINOR*1_000 + PATCH`（1.1.0 → 1001000；MINOR/PATCH < 1000，总量 ≤ 2100000000），确定性、单调、与 CI run_number 无关；正式 tag 必须精确 = `v<versionName>`（`vfoo`/`v1`/`v1.1.0-test` 一律 FAIL）。`scripts/release-version.mjs` 输出 `VERSION_NAME`/`VERSION_CODE` 供 GITHUB_ENV；release job 构建前还校验 tag 指向的 SHA 是 origin/master 的 ancestor（`TAG_ON_MASTER_LINE=PASS`）。
+- **签名身份（SIGNING_IDENTITY_DECISION = SEPARATE）**：Play = upload key（`FLOWBREAK_PLAY_*`），Domestic = app-signing key（`FLOWBREAK_DOMESTIC_*`）；build.gradle 按 flavor 条件启用，env 缺失时保持 unsigned（CI verify 不受影响）。
+- **签名验证（CI release job）**：Domestic APK → `apksigner verify --verbose --print-certs`（Verifies + signer 数 + cert SHA-256）；Play AAB → `jarsigner -verify`（self-signed upload key 属正常，不用 `-strict`）+ `keytool -printcert -jarfile` 提取 cert SHA-256；两者与 `app/release-signing-policy.json`（仅公开信息，无 secret）allowlist 对照，不匹配 FAIL；tag 生产发布要求 allowlist 已 provision，dry-run 允许未 provision 但记录 warning。
+- **signed artifact provenance**：signed AAB/APK + mappings + build-provenance + artifact-manifest（含 signed/signingRole/certificateSha256）+ SHA256SUMS 一并上传；命名 `flowbreak-signed-v<version>-<sha>`（dry-run 前缀 `flowbreak-signed-dry-run-`）；`if: always()` 清理 `$RUNNER_TEMP` keystore。
+- **TEST ONLY 密钥纪律**：生产密钥不存在（`SIGNING_ASSET_STATUS = NONE`）。本地机制验证使用临时 TEST ONLY 密钥（`keytool` 生成于临时目录、明确 TEST ONLY、不进仓库、不作为正式 fingerprint）；GitHub CI 的 signed dry-run 在 secrets 缺失时清晰失败，**不**降级用 debug key 冒充 production signing。
+- **本地实测（TEST ONLY 密钥，2026-08-16）**：signed 构建 PASS；apksigner Verifies（v2，1 signer，cert = TEST domestic fingerprint）；jarsigner exit 0；keytool cert = TEST play fingerprint；badging versionCode=1001000/versionName=1.1.0 与 verifier 输出一致；manifest signed 证据 + sums 复核 0 失败。
+- **尚未执行（需生产密钥）**：真机 install/upgrade（当前无设备连接）、生产 fingerprint allowlist、`PRODUCTION_KEY_BACKUP = VERIFIED`——GATE G 保持 PENDING。
 
 ### Protection Integrity（UI promise ≤ 实际保护能力）
 

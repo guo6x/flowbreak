@@ -5,7 +5,7 @@
 
 ## 当前发布状态
 
-**RELEASE PREPARATION**（截至 2026-08-14，Redmi R1–R4 复测通过）
+**RELEASE PREPARATION**（截至 2026-08-16；Redmi R1–R4 复测 2026-08-14 通过；GATE C 2026-08-15 通过；GATE G Stage A 2026-08-16）
 
 - 原 RELEASE BLOCKED 的原因（开放 P1）已消除：`FB-P1-01`、`FB-P1-02`、`FB-P1-03`、`FB-P2-01` 全部 RESOLVED（`KNOWN_ISSUES.md`），P0 = 0、P1 = 0。
 - 但 **RELEASE PREPARATION ≠ RELEASE APPROVED**：GATE C 已于 2026-08-15 通过（unsigned CI artifact provenance pipeline）；GATE D–I 仍 PENDING，当前不是 STORE READY，更不是 PRODUCTION RELEASE APPROVED。
@@ -16,7 +16,7 @@
 | ---- | ---- | ---- |
 | GATE A | Core automated validation | **PASS** |
 | GATE B | Redmi targeted P1/P2 revalidation | **PASS** |
-| GATE C | Artifact provenance / reproducible release build | **PASS** |
+| GATE C | Artifact Provenance / Controlled Release Build | **PASS** |
 | GATE D | OEM compatibility matrix | **PENDING** |
 | GATE E | Usage accounting accuracy / blocking latency | **PENDING** |
 | GATE F | 24h stability + Protection Integrity | **PENDING** |
@@ -39,7 +39,9 @@
 - 关闭：`FB-P1-01`（R1 ×3）、`FB-P1-02`（R2）、`FB-P1-03`（R3 ×3）、`FB-P2-01`（R4）。
 - 证据：External device evidence: `reports/R1-R4-retest-2026-08-14.md`、`reports/final-report.md`（第二轮结论）。
 
-### GATE C — Artifact provenance / reproducible release build：PASS
+### GATE C — Artifact Provenance / Controlled Release Build：PASS
+
+> 术语说明：「Controlled / reproducible」指**受控、可重复执行的构建流程**（同一 SHA 可按同一工作流重复构建并复核），**不是 bit-for-bit deterministic build**——`build-provenance.json` 含冻结的 `buildUtc`，同一 SHA 在不同时间重建的产物字节哈希可以不同。GATE C 保持 PASS，本说明不重新打开 GATE C。
 
 **ARTIFACT_PROVENANCE 要求（7 条已全部实现，PR #1 真实验证）**：
 
@@ -85,20 +87,29 @@ GATE C PASS 的范围（重要）：
 
 ### GATE G — Signing / Versioning / Publishable Build：PENDING
 
+**当前细分状态（2026-08-16）**：
+
+- **Stage A groundwork = PASS**（版本策略、签名工程机制、签名验证链已实现并经本地 TEST ONLY 密钥实测 + PR CI 验证）。
+- **Production signing = PENDING**（`SIGNING_ASSET_STATUS = NONE`：仓库 0 个 tag、0 个 GitHub secrets、本地无 keystore；尚未 provision 生产密钥，AI 未生成任何生产密钥）。
+
 只负责**工程发行产物**：
 
-- release signing
-- keystore / CI secret strategy
-- versionName
-- versionCode
-- channel / version consistency
+- release signing（双渠道签名身份：Play upload key + Domestic app-signing key，`SIGNING_IDENTITY_DECISION = SEPARATE`）
+- keystore / CI secret strategy（`FLOWBREAK_PLAY_*` / `FLOWBREAK_DOMESTIC_*`，secret 只在 `$RUNNER_TEMP` 解码、`if: always()` 清理、绝不进日志/artifact/provenance）
+- versionName（Source of Truth = `app/package.json` version，stable SemVer；正式 tag 必须精确等于 `v<versionName>`，如 `v1.1.0`）
+- versionCode（确定性规则：`MAJOR*1_000_000 + MINOR*1_000 + PATCH`，1.1.0 → 1001000；MINOR/PATCH < 1000、总量 ≤ 2100000000；不依赖 CI run_number）
+- channel / version consistency（`scripts/release-version.mjs` 交叉验证 + APK badging / AAB 内 manifest 独立读回）
 - signed Play AAB
 - signed / 最终 Domestic APK（按实际发行策略）
-- upgrade / install verification
+- 签名验证（Domestic：`apksigner verify --print-certs`；Play AAB：`jarsigner -verify` + `keytool -printcert -jarfile`；证书 SHA-256 与 `app/release-signing-policy.json` allowlist 对照，不匹配即 FAIL）
+- signed artifact provenance（signed=true / signingRole / certificateSha256 进入 artifact-manifest；artifact 命名 `flowbreak-signed-v<version>-<sha>`，dry-run 为 `flowbreak-signed-dry-run-…`）
+- upgrade / install verification（需生产签名身份 + 真机；当前 NOT EXECUTED）
 - release artifact metadata
 - CHANGELOG / version consistency
 
 **不由** GATE G 负责：Data Safety、Accessibility declaration、商店文案、隐私政策 URL、商店截图、合规申报材料（归 GATE H）。
+
+**GATE G PASS 的剩余条件**（全部满足才可 PASS）：production signing identity 确定 + secrets 安全 provision + cert fingerprint allowlist 填写 + signed AAB/APK 验证 PASS + signed provenance PASS + 真机 install/upgrade PASS + `PRODUCTION_KEY_BACKUP = VERIFIED`（由产品负责人确认独立安全备份，AI 不得自行判定）。
 
 ### GATE H — Store / Compliance Readiness：PENDING
 
@@ -132,15 +143,19 @@ GATE C PASS 的范围（重要）：
 
 ### CI
 
-- [x] `npm test` / `npm run build` / `npx cap sync android` 通过（Run 31577669420）
+- [x] `npm test`（151）/ `npm run test:provenance`（20）/ `npm run test:release`（8）/ `npm run build` / `npx cap sync android` 通过（最新 PR #2 Run 31919816373；基线 Run 31577669420）
 - [x] `testPlayDebugUnitTest`（244）、`testDomesticDebugUnitTest`（254）、lint 双渠道通过
 - [x] `assemblePlayDebug`、`assembleDomesticDebug`、`bundlePlayRelease`、`assembleDomesticRelease` 通过，R8 mapping 存在
 - [x] Room schema drift 检查通过（migrations 6/6，无未提交 schema 变更）
 - [x] npm audit 门禁通过（生产依赖无 high，全依赖无 critical）
 - [x] 构建产物持久上传/归档并可复核（GATE C，PASS：`flowbreak-unsigned-<sha>` artifact，retention 90 天，已实际下载复核）
-- [x] provenance 工具链测试 `npm run test:provenance` 18/18
+- [x] provenance 工具链测试 `npm run test:provenance` 20/20（原 18 + signing evidence 2）
 - [x] Web asset sync 校验（dist → Android assets SHA-256 全量一致，缺失/mismatch 即 FAIL）
 - [x] APK/AAB 内部 provenance 校验（sourceGitSha + 版本独立读取对照）
+- [x] release 版本策略测试 `npm run test:release` 8/8（SemVer / tag / versionCode 编码 / overflow）
+- [x] 签名验证链已实现（apksigner / jarsigner / keytool + fingerprint allowlist；TEST ONLY 密钥本地实测）
+- [ ] 生产签名 secrets provision（GATE G，PENDING：`FLOWBREAK_PLAY_*` / `FLOWBREAK_DOMESTIC_*`）
+- [ ] signed dry-run + 真机 signed install/upgrade（GATE G，PENDING）
 
 ### Security / 隐私
 
@@ -178,10 +193,11 @@ GATE C PASS 的范围（重要）：
 
 ## 下一步路线（建议排序）
 
-1. release signing / versioning 基础准备（GATE G）
-2. 多 OEM 真机矩阵（GATE D）
-3. UsageStats 精度对照（GATE E）
-4. blocking latency 对照（GATE E）
-5. 24h stability + Protection Integrity（GATE F）
-6. 小规模 Beta（GATE I）
-7. 商店正式发行准备（GATE H）
+1. GATE G 生产密钥 provisioning（产品负责人：Play upload key + Domestic app-signing key → secrets → fingerprint allowlist → 独立安全备份）
+2. workflow_dispatch signed dry-run + 真机 signed install/upgrade 验证
+3. 多 OEM 真机矩阵（GATE D）
+4. UsageStats 精度对照（GATE E）
+5. blocking latency 对照（GATE E）
+6. 24h stability + Protection Integrity（GATE F）
+7. 小规模 Beta（GATE I）
+8. 商店正式发行准备（GATE H）

@@ -20,6 +20,9 @@ npm ci
 npm run dev          # 开发服务器
 npm test             # Vitest
 npm run test:provenance   # node:test — provenance 工具链测试（app/scripts/__tests__）
+npm run test:release   # node:test — release 版本策略测试
+node scripts/release-version.mjs            # 计算 VERSION_NAME/VERSION_CODE（package.json version 为 Source of Truth）
+node scripts/release-version.mjs --tag v1.1.0   # 校验 tag == v<version>，不符 FAIL
 npm run build        # tsc + vite build → dist/
 node scripts/generate-build-provenance.mjs dist   # 生成 dist/build-provenance.json（需 SOURCE_COMMIT_SHA 等 allowlist env）
 npx cap sync android # 同步 dist 与原生工程（构建原生前必须执行）
@@ -44,6 +47,20 @@ APK 同时包含原生 dex 与前端 Web bundle（`app/dist/` 经 `cap sync` 拷
 3. 产物必须记录构建对应的 Git SHA；对 APK/AAB 计算 SHA-256 并留档。
 4. 禁止使用来源不明的旧本地产物做验收/发布（详见 `TESTING.md` 产物溯源、`RELEASE.md` GATE C）。
 5. 本地验证 provenance 链：设 `SOURCE_COMMIT_SHA`（= 当前 HEAD）、`VERSION_CODE`、`VERSION_NAME` 环境变量后，按上述「常用命令」顺序执行脚本即可；CI 中的完整校验（source identity、dist→assets、APK/AAB 内部 provenance、aapt2 badging、manifest/SHA256SUMS、upload-artifact）见 `.github/workflows/android.yml`。
+
+### 版本策略（VERSION_POLICY，GATE G）
+
+- versionName 唯一 Source of Truth = `app/package.json` 的 `version`（stable SemVer `X.Y.Z`，无 prerelease/build/leading-zero）。
+- versionCode = `MAJOR*1_000_000 + MINOR*1_000 + PATCH`（1.1.0 → 1001000）；MINOR/PATCH 必须 < 1000，总量 ≤ 2100000000；单调且与 CI run_number 无关。
+- 正式发布 tag 必须精确 = `v<versionName>`；`vfoo`/`v1`/`v1.1.0-test` 等一律 FAIL。tag 所指 SHA 必须是 origin/master 的 ancestor（workflow 强制）。
+- CI verify 的 `ci-<sha>`/VERSION_CODE=1 仅属 unsigned 验证产物语义，保持不动。
+
+### 签名身份与 secret 纪律（GATE G）
+
+- 双渠道分离签名身份：Play `FLOWBREAK_PLAY_KEYSTORE_*`（upload key）、Domestic `FLOWBREAK_DOMESTIC_KEYSTORE_*`（app-signing key）；build.gradle 仅在对应 env 存在时启用该渠道 release 签名，否则 unsigned。
+- **禁止**：把 keystore/密码提交 git、写进 provenance/manifest、打进日志、放进 artifact；keystore 只允许解码到 `$RUNNER_TEMP` 并由 `if: always()` 清理。
+- 本地机制验证可用 TEST ONLY 密钥（keytool 生成于临时目录，明确 TEST ONLY，不进仓库）；生产密钥只能由产品负责人安全生成/provision，AI 不得自行生成生产密钥。
+- 证书 SHA-256 fingerprint 是公开信息，可写入 `app/release-signing-policy.json` allowlist（当前为空，待 provision 后填写）。
 
 ## 3. 代码敏感区（改动前必读）
 
