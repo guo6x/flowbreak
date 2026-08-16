@@ -89,8 +89,11 @@ GATE C PASS 的范围（重要）：
 
 **当前细分状态（2026-08-16）**：
 
-- **Stage A groundwork = PASS**（版本策略、签名工程机制、签名验证链已实现并经本地 TEST ONLY 密钥实测 + PR CI 验证）。
-- **Production signing = PENDING**（`SIGNING_ASSET_STATUS = NONE`：仓库 0 个 tag、0 个 GitHub secrets、本地无 keystore；尚未 provision 生产密钥，AI 未生成任何生产密钥）。
+- **Stage A groundwork = PASS**（版本策略、签名工程机制、签名验证链已实现并实测）。
+- **PRODUCTION_SIGNING_PROVISIONED**：两把生产密钥已生成（RSA 3072、约 50 年有效期；Play upload key `flowbreak-play-upload` + Domestic app-signing key `flowbreak-domestic-release`），8 个 secrets 已 provision 到受保护 Environment `production-signing`（值绝不进入日志/聊天/git），`app/release-signing-policy.json` 已填入两枚真实证书 SHA-256 fingerprint（`provisioningStatus = PROVISIONED`）。
+- **SIGNED_DRY_RUN_PASS**：workflow_dispatch signed dry-run（Run `31934183213`，HEAD `f6cbcbb`，artifact `flowbreak-signed-dry-run-v1.1.0-f6cbcbb…`）全绿——decode → signed build → packaged provenance → **apksigner/jarsigner 签名验证 + fingerprint allowlist 强制匹配**（CI 证书 fingerprint = policy = 本地密钥，签名身份连续一致）→ manifest signed 证据 → keystore cleanup。独立下载复核：SHA256SUMS 0 失败、manifest sourceGitSha/version 1001000/1.1.0 一致、APK/AAB 证书指纹与 policy 一致。
+- **INSTALL_UPGRADE_PENDING**：正式 tag 未创建、商店未发布；signed install/upgrade 验证进入 GATE G Stage C。
+- **PRODUCTION_KEY_BACKUP = NOT VERIFIED**：产品负责人尚未确认独立加密备份（密码交接文件 `D:\environment\flowbreak-signing\OWNER-PASSWORD-HANDOFF.txt` 需存入密码管理器后删除）。
 
 只负责**工程发行产物**：
 
@@ -109,7 +112,7 @@ GATE C PASS 的范围（重要）：
 
 **不由** GATE G 负责：Data Safety、Accessibility declaration、商店文案、隐私政策 URL、商店截图、合规申报材料（归 GATE H）。
 
-**GATE G PASS 的剩余条件**（全部满足才可 PASS）：production signing identity 确定 + secrets 安全 provision + cert fingerprint allowlist 填写 + signed AAB/APK 验证 PASS + signed provenance PASS + 真机 install/upgrade PASS + `PRODUCTION_KEY_BACKUP = VERIFIED`（由产品负责人确认独立安全备份，AI 不得自行判定）。
+**GATE G PASS 的剩余条件**（全部满足才可 PASS）：✔ production signing identity 确定（PROVISIONED）· ✔ secrets 安全 provision（Environment `production-signing`）· ✔ cert fingerprint allowlist 填写并强制匹配 · ✔ signed AAB/APK 验证 PASS（dry-run 实测）· ✔ signed provenance PASS（dry-run 实测）· ☐ 真机 install/upgrade PASS（Stage C）· ☐ `PRODUCTION_KEY_BACKUP = VERIFIED`（由产品负责人确认独立加密备份，AI 不得自行判定）。
 
 ### GATE H — Store / Compliance Readiness：PENDING
 
@@ -154,8 +157,9 @@ GATE C PASS 的范围（重要）：
 - [x] APK/AAB 内部 provenance 校验（sourceGitSha + 版本独立读取对照）
 - [x] release 版本策略测试 `npm run test:release` 8/8（SemVer / tag / versionCode 编码 / overflow）
 - [x] 签名验证链已实现（apksigner / jarsigner / keytool + fingerprint allowlist；TEST ONLY 密钥本地实测）
-- [ ] 生产签名 secrets provision（GATE G，PENDING：`FLOWBREAK_PLAY_*` / `FLOWBREAK_DOMESTIC_*`）
-- [ ] signed dry-run + 真机 signed install/upgrade（GATE G，PENDING）
+- [x] 生产签名 secrets provision（GATE G：8 secrets 位于 Environment `production-signing`，2026-08-16）
+- [x] signed dry-run（Run `31934183213` 全绿 + 独立下载复核）
+- [ ] 真机 signed install/upgrade（GATE G Stage C，PENDING）
 
 ### Security / 隐私
 
@@ -193,8 +197,8 @@ GATE C PASS 的范围（重要）：
 
 ## 下一步路线（建议排序）
 
-1. GATE G 生产密钥 provisioning（产品负责人：Play upload key + Domestic app-signing key → secrets → fingerprint allowlist → 独立安全备份）
-2. workflow_dispatch signed dry-run + 真机 signed install/upgrade 验证
+1. GATE G 收尾：密码管理器归档 + 两把密钥独立加密备份（`PRODUCTION_KEY_BACKUP = VERIFIED`）+ 删除交接文件
+2. GATE G Stage C：真机 signed install/upgrade 验证（隔离设备/模拟器）
 3. 多 OEM 真机矩阵（GATE D）
 4. UsageStats 精度对照（GATE E）
 5. blocking latency 对照（GATE E）

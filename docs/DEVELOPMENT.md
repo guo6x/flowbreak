@@ -59,8 +59,10 @@ APK 同时包含原生 dex 与前端 Web bundle（`app/dist/` 经 `cap sync` 拷
 
 - 双渠道分离签名身份：Play `FLOWBREAK_PLAY_KEYSTORE_*`（upload key）、Domestic `FLOWBREAK_DOMESTIC_KEYSTORE_*`（app-signing key）；build.gradle 仅在对应 env 存在时启用该渠道 release 签名，否则 unsigned。
 - **禁止**：把 keystore/密码提交 git、写进 provenance/manifest、打进日志、放进 artifact；keystore 只允许解码到 `$RUNNER_TEMP` 并由 `if: always()` 清理。
-- 本地机制验证可用 TEST ONLY 密钥（keytool 生成于临时目录，明确 TEST ONLY，不进仓库）；生产密钥只能由产品负责人安全生成/provision，AI 不得自行生成生产密钥。
-- 证书 SHA-256 fingerprint 是公开信息，可写入 `app/release-signing-policy.json` allowlist（当前为空，待 provision 后填写）。
+- 本地机制验证可用 TEST ONLY 密钥（keytool 生成于临时目录，明确 TEST ONLY，不进仓库）。
+- 生产密钥已 provision（2026-08-16，Stage B）：两把 RSA 3072/约 50 年密钥位于 `D:\environment\flowbreak-signing\{play,domestic}\`（**不在任何 git 仓库内**）；密码只在进程内/交接文件中传递，交接文件 `OWNER-PASSWORD-HANDOFF.txt`（ACL 受限）须由产品负责人存入密码管理器并删除；8 个 secrets 位于 Environment `production-signing`。
+- 证书 SHA-256 fingerprint 是公开信息，已写入 `app/release-signing-policy.json` allowlist（`provisioningStatus = PROVISIONED`），CI signed build 强制匹配，换错证书立即 FAIL。
+- 独立备份纪律：两把 `.jks` 必须存在与当前电脑物理/逻辑独立的加密备份（离线介质/密码管理器保险库）；仅复制到另一个本地文件夹不算备份；`PRODUCTION_KEY_BACKUP = VERIFIED` 只能由产品负责人确认。
 
 ## 3. 代码敏感区（改动前必读）
 
