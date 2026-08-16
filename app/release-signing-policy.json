@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "comment": "Public signing policy. No secrets: only roles and certificate fingerprints. Fingerprints are filled ONLY after production key provisioning (GATE G).",
-  "provisioningStatus": "NONE",
+  "comment": "Public signing policy. No secrets: only roles and certificate fingerprints (SHA-256, lowercase hex). Production keys provisioned 2026-08-16.",
+  "provisioningStatus": "PROVISIONED",
   "play": {
     "role": "upload-key",
-    "certificateSha256": ""
+    "certificateSha256": "ebbf4e21b90540b952aef7edaaf855b60d5a2b648a8335cd5baef8e64385e095"
   },
   "domestic": {
     "role": "app-signing-key",
-    "certificateSha256": ""
+    "certificateSha256": "bbb2ead0a6d2b4d2732cab10c0c7f63d20afc0a6ee46995166b94a7f615e5f0e"
   }
 }
