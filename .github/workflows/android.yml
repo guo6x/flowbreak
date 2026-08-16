@@ -278,6 +278,10 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     needs: verify
     runs-on: ubuntu-latest
+    # Production signing secrets live ONLY in this protected environment.
+    # PR / master verify jobs never enter it and never see signing secrets.
+    environment:
+      name: production-signing
     defaults:
       run:
         working-directory: app
