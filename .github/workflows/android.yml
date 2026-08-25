@@ -303,6 +303,25 @@ jobs:
           dirty="$(git status --porcelain)"
           test -z "$dirty"
           echo "SOURCE_IDENTITY=PASS sourceGitSha=$actual_sha workflowSha=$GITHUB_SHA"
+      - name: Verify signing policy (fail closed before signing setup)
+        shell: bash
+        run: |
+          set -euo pipefail
+          policy=release-signing-policy.json
+          policy_status=$(python3 -c "import json;print(json.load(open('$policy', encoding='utf-8'))['provisioningStatus'])")
+          if [ "$policy_status" != "PROVISIONED" ]; then
+            echo "::error::SIGNING_POLICY_NOT_PROVISIONED status=$policy_status"
+            exit 1
+          fi
+          python3 - "$policy" <<'PYEOF'
+          import json, re, sys
+          policy = json.load(open(sys.argv[1], encoding='utf-8'))
+          for role in ('play', 'domestic'):
+              fingerprint = policy.get(role, {}).get('certificateSha256', '')
+              if not re.fullmatch(r'[0-9a-f]{64}', fingerprint):
+                  raise SystemExit(f'SIGNING_POLICY_INVALID_FINGERPRINT role={role}')
+          PYEOF
+          echo "SIGNING_POLICY=PROVISIONED"
       - name: Verify release tag integrity (production tag only)
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
@@ -466,6 +485,9 @@ jobs:
           aapt2_bin=$(find "$ANDROID_HOME/build-tools" -name aapt2 -type f | sort -V | tail -1)
           apksigner_bin="$(dirname "$aapt2_bin")/apksigner"
           policy=../release-signing-policy.json
+          policy_status=$(python3 -c "import json;print(json.load(open('$policy', encoding='utf-8'))['provisioningStatus'])")
+          test "$policy_status" = "PROVISIONED"
+          echo "FINAL_SIGNING_POLICY=PROVISIONED"
 
           echo "== Domestic APK: apksigner verify =="
           "$apksigner_bin" verify --verbose --print-certs "$domestic_apk"
