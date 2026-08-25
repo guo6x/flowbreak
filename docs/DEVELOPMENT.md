@@ -60,10 +60,11 @@ APK 同时包含原生 dex 与前端 Web bundle（`app/dist/` 经 `cap sync` 拷
 - 双渠道分离签名身份：Play `FLOWBREAK_PLAY_KEYSTORE_*`（upload key）、Domestic `FLOWBREAK_DOMESTIC_KEYSTORE_*`（app-signing key）；build.gradle 仅在对应 env 存在时启用该渠道 release 签名，否则 unsigned。
 - **禁止**：把 keystore/密码提交 git、写进 provenance/manifest、打进日志、放进 artifact；keystore 只允许解码到 `$RUNNER_TEMP` 并由 `if: always()` 清理。
 - 本地机制验证可用 TEST ONLY 密钥（keytool 生成于临时目录，明确 TEST ONLY，不进仓库）。
-- 生产密钥（Stage B 首轮）已降级 **SUPERSEDED_PRE_PRODUCTION**（无泄露证据、非安全事故，禁用于正式发行）。**最终生产密钥 = HUMAN-ONLY 密码托管**：产品负责人独立终端用 keytool 交互式生成（命令不含 -storepass/-keypass），密码直接录入其密码管理器；AI 不得生成/读取/保存/接收密码；**禁止再创建任何 password handoff 文件**；AI 仅从 public certificate 独立计算 fingerprint 交叉核对。
-- 签名边界：release job 仅 `workflow_dispatch && refs/heads/master` 或 `v*` tag；Environment `production-signing` 部署分支策略（master + v*）由产品负责人 UI 设置。
+- 生产密钥：首轮 technical dry-run 身份已降级 **SUPERSEDED_PRE_PRODUCTION**（无泄露证据、非安全事故，禁用于正式发行）。当前电脑禁止生成 final identity；最终生产密钥延后到产品负责人长期使用的主笔记本生成，并由该流程完成密码托管。最终身份生成后，仅从 public certificate 独立计算 fingerprint 交叉核对，再更新 `app/release-signing-policy.json`。
+- 签名边界：release job 仅 `workflow_dispatch && refs/heads/master` 或 `v*` tag；Environment `production-signing` 已由产品负责人设置为 `master` + `v*`；当前无 v* tag，0 matching tags 正常。
 - 证书 SHA-256 fingerprint 是公开信息，写入 `app/release-signing-policy.json` allowlist（最终身份 fingerprint；CI signed build 强制匹配，换错证书立即 FAIL）。
-- 独立备份纪律：最终两把 `.jks` 必须存在与当前电脑物理/逻辑独立的加密备份（离线介质/密码管理器保险库）；仅复制到另一个本地文件夹不算备份；`PRODUCTION_KEY_BACKUP = VERIFIED` 只能由产品负责人确认。
+- Portable signing custody：禁止 Windows DPAPI、Credential Manager-only、当前 SID、TPM-only、BitLocker machine-bound state 或当前电脑专属证书作为正式恢复源。最终身份存在后才使用 `tools/New-PortableSigningVault.ps1` 创建 7z AES-256 + 文件名加密 vault；脚本拒绝未标记 `PROVISIONED` 的 policy，recovery secret 只经一次性剪贴板交接，不输出 stdout、不落盘。
+- 独立备份纪律：最终两把 `.jks` 必须存在与当前电脑物理/逻辑独立的加密备份（离线介质/可信个人存储）；仅复制到另一个本地文件夹不算备份。跨机器验收使用 `tools/Test-PortableSigningVault.ps1`，并以原笔记本或独立环境的 `CROSS_MACHINE_SIGNING_RECOVERY=PASS` 为准；在此之前不得写 `PRODUCTION_KEY_BACKUP = VERIFIED`。
 
 ## 3. 代码敏感区（改动前必读）
 

@@ -1,13 +1,19 @@
 {
   "schemaVersion": 1,
-  "comment": "Public signing policy. No secrets: only roles and certificate fingerprints (SHA-256, lowercase hex). Production keys provisioned 2026-08-16.",
-  "provisioningStatus": "PROVISIONED",
+  "comment": "Public signing policy only. No secrets. The previous technical dry-run identity is superseded and must not be accepted for production release.",
+  "provisioningStatus": "PENDING_FINAL_HUMAN_GENERATION",
+  "custody": {
+    "currentPcRole": "TEMPORARY_WORKSTATION",
+    "machineBoundCustody": false,
+    "portableVault": "PENDING_FINAL_IDENTITY",
+    "recoverySecret": "NOT_STARTED"
+  },
   "play": {
     "role": "upload-key",
-    "certificateSha256": "ebbf4e21b90540b952aef7edaaf855b60d5a2b648a8335cd5baef8e64385e095"
+    "certificateSha256": ""
   },
   "domestic": {
     "role": "app-signing-key",
-    "certificateSha256": "bbb2ead0a6d2b4d2732cab10c0c7f63d20afc0a6ee46995166b94a7f615e5f0e"
+    "certificateSha256": ""
   }
 }

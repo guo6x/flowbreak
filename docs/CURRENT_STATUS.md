@@ -50,7 +50,7 @@
 ## 当前未解决问题（非 P0/P1 产品阻塞）
 
 1. **`COMPAT-001`（NON-BLOCKING / COMPATIBILITY OBSERVATION，OPEN OBSERVATION）**：HyperOS 仍可能拒绝尽力而为的 `tryStartBlockActivity` 后台启动（logcat `MIUILOG Permission Denied Activity`），但强阻断已不依赖它（无障碍横幅独立可用）。后续多 OEM 矩阵中决定删除 / OEM 条件化 / 保留 best-effort。
-2. **GATE G — SECURITY_CLOSURE_PENDING**：首轮密钥已完成技术链 signed dry-run（Run `31934183213`）但降级为 **SUPERSEDED_PRE_PRODUCTION**（初始密码曾经过自动化进程与交接文件，无泄露证据、非安全事故，禁用于正式发行）。安全收尾进行中：工作流已收紧（dispatch 仅 master + `SIGNED_DISPATCH_REF` 守卫，PR #6）；Environment 部署分支策略待产品负责人 UI 设置（API 对公共仓库 404）；最终签名身份 = **HUMAN_KEY_GENERATION_REQUIRED**（产品负责人独立终端交互式生成，AI 不接触密码、不再产生 handoff 文件）；随后更新 policy fingerprint、重 provision 8 个 environment secrets、重跑最终 signed dry-run 并独立复核；备份与交接文件删除待确认。
+2. **GATE G — PAUSED_UNTIL_PRIMARY_WORKSTATION_FINAL_KEY_GENERATION**：首轮技术身份的 signed dry-run（Run `31934183213`）仅作为历史工程证据，身份已降级为 **SUPERSEDED_PRE_PRODUCTION**，禁止正式发行。当前 `app/release-signing-policy.json` 为 `PENDING_FINAL_HUMAN_GENERATION`，不接受旧指纹；最终 Play upload key 与 Domestic app-signing key 明确延后到原来的长期笔记本生成。当前电脑仅是 **TEMPORARY_WORKSTATION**；旧 CI signing credentials 已删除，portable vault 尚未开始。
 3. **PENDING VALIDATION**：OEM 矩阵、UsageStats 精度对照、阻断延迟对照、24h stability + Protection Integrity、商店材料、小规模 Beta（`RELEASE.md` GATE D–F、H–I）。
 
 > 历史 RELEASE ENGINEERING GAP（产物溯源）已关闭：曾出现「本地 APK 原生 dex 已更新、Web bundle 仍旧」的不一致产物与「CI 未持久上传 artifacts」两个缺口，已由 GATE C 实现并实测关闭（`RELEASE.md` GATE C = PASS，`TESTING.md` 产物溯源）。
@@ -58,7 +58,7 @@
 ## 发布状态边界（重要）
 
 - **RELEASE PREPARATION ≠ STORE READY ≠ PRODUCTION RELEASE APPROVED**。
-- Redmi 核心验收已通过，artifact provenance（GATE C）也已通过；GATE G 的版本策略与签名验证链已就绪（Stage A），但生产签名身份尚未 provision。发布准备仍需完成：生产密钥 provision + 备份确认、signed 真机 install/upgrade、OEM matrix、usage accuracy validation、block latency validation、long-duration stability / 24h Protection Integrity、distribution compliance / store materials、beta validation。
+- Redmi 核心验收已通过，artifact provenance（GATE C）也已通过；GATE G 的版本策略与签名验证链已就绪（Stage A），但 production signing 已安全冻结，最终身份 deferred to primary laptop。发布准备仍需完成：最终身份 provision、signed 真机 install/upgrade、OEM matrix、usage accuracy validation、block latency validation、long-duration stability / 24h Protection Integrity、distribution compliance / store materials、beta validation。
 
 ## 历史状态（2026-08-12 快照，不再代表当前）
 
@@ -67,11 +67,9 @@
 
 ## 下一路线（建议排序）
 
-1. GATE G 安全收尾：产品负责人 UI 设置 Environment 部署分支策略（master + v*）→ 负向测试 NON_MASTER_SIGNING_ACCESS=DENIED → 独立终端生成最终两把密钥（HUMAN-ONLY 密码）→ 更新 policy fingerprint + 重 provision secrets → 最终 signed dry-run + 独立复核 → 删除旧 handoff 文件 + 独立加密备份确认
-2. GATE G Stage C：真机 signed install/upgrade 验证（隔离设备/模拟器，不破坏 Redmi 现有数据）
-3. 多 OEM 真机矩阵（GATE D）
-4. UsageStats 精度对照（GATE E）
-5. blocking latency 对照（GATE E）
-6. 24h stability + Protection Integrity（GATE F）
-7. 小规模 Beta（GATE I）
-8. 商店正式发行准备（GATE H）
+1. GATE E：UsageStats 精度对照 + blocking latency 对照
+2. GATE F：24h stability + Protection Integrity
+3. GATE D：多 OEM 真机矩阵（取决于设备可用性）
+4. 原笔记本恢复后再恢复 GATE G：最终身份 → 新 secrets → signed dry-run → portable vault → cross-machine recovery → Stage C
+5. 小规模 Beta（GATE I）
+6. 商店正式发行准备（GATE H）
