@@ -304,7 +304,9 @@ real-device evidence for:
 - signed install/upgrade and any connected instrumentation behavior.
 
 Keep these gates `PENDING`; do not infer a device `PASS` from a successful
-Gradle build or from an assembled AndroidTest APK.
+Gradle build or from an assembled AndroidTest APK.  If an authorized future
+device attempt cannot see the specified handset, record `DEVICE_UNAVAILABLE`
+and stop before build/install/trials; do not substitute another device.
 
 ## 11. Resume point on the primary laptop
 
