@@ -199,6 +199,8 @@ instrumentation APK may be assembled for packaging checks:
 
 That task only assembles an APK; it does not run a connected test.  Do not use
 `connected...AndroidTest`, `adb`, or `scrcpy` while the phone is unavailable.
+Do not set local `FLOWBREAK_*` signing variables or point a local build at a
+keystore during workstation recovery.
 
 ## 6. Provenance build order
 

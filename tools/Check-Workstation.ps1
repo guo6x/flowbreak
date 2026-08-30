@@ -108,13 +108,21 @@ function Read-ToolVersion {
         }
         else {
             $line = $nonEmptyLines |
-                Where-Object { ([string]$_) -notmatch '(?i)(password|token|secret|credential|picked up .*_OPTIONS)' } |
+                Where-Object { ([string]$_) -notmatch '(?i)(password|token|secret|credential|api[_-]?key|bearer|authorization|private\s*key|picked up .*_OPTIONS)' } |
                 Select-Object -First 1
         }
         if ($null -eq $line) {
             return 'version unreadable'
         }
         $text = ([string]$line).Trim() -replace '\s+', ' '
+        if (-not [string]::IsNullOrWhiteSpace($ExpectedPattern)) {
+            $bannerMatch = [regex]::Match($text, $ExpectedPattern)
+            if ($bannerMatch.Success) {
+                # Keep only the matched banner prefix, not arbitrary trailing
+                # text emitted by a wrapper process.
+                $text = $bannerMatch.Value
+            }
+        }
         if ($text.Length -gt 180) {
             $text = $text.Substring(0, 180)
         }
@@ -299,7 +307,7 @@ if ($null -eq $node) {
     Add-Check 'node' 'FAIL' ('missing; required >= {0}.{1}.{2} and < 23' -f $nodeRequirementMajor, $nodeRequirementMinor, $nodeRequirementPatch)
 }
 else {
-    $nodeVersionText = Read-ToolVersion $node @('--version') '^v?\d+\.\d+'
+    $nodeVersionText = Read-ToolVersion $node @('--version') '^v?\d+\.\d+(?:\.\d+){0,2}'
     $nodeVersion = Get-VersionTriple $nodeVersionText
     $nodeInRange = ($null -ne $nodeVersion -and
         (Test-VersionAtLeast $nodeVersion $nodeRequirementMajor $nodeRequirementMinor $nodeRequirementPatch) -and
@@ -317,7 +325,7 @@ if ($null -eq $npm) {
     Add-Check 'npm' 'FAIL' 'executable not found; npm ci/build/test cannot run'
 }
 else {
-    $npmVersionText = Read-ToolVersion $npm @('--version') '^v?\d+\.\d+'
+    $npmVersionText = Read-ToolVersion $npm @('--version') '^v?\d+\.\d+(?:\.\d+){0,2}'
     $npmVersion = Get-VersionTriple $npmVersionText
     if ($null -ne $npmVersion) {
         Add-Check 'npm' 'PASS' ('{0}; path={1}' -f $npmVersionText, $npm.Path)
@@ -361,7 +369,7 @@ if ($null -eq $java) {
     Add-Check 'java' 'FAIL' 'JDK java executable not found'
 }
 else {
-    $javaVersionText = Read-ToolVersion $java @('-version') '(?i)^(?:openjdk|java)\s+version\s+["'']?\d+'
+    $javaVersionText = Read-ToolVersion $java @('-version') '(?i)^(?:openjdk|java)\s+version\s+["'']?\d+(?:\.\d+){0,2}["'']?'
     $javaVersion = Get-VersionTriple $javaVersionText
     if ($null -ne $javaVersion -and $javaVersion.Major -eq 21) {
         Add-Check 'java' 'PASS' ('{0}; path={1}' -f $javaVersionText, $java.Path)
@@ -394,7 +402,7 @@ if ($null -eq $keytool) {
     Add-Check 'keytool' 'FAIL' 'JDK keytool executable not found (required for public certificate verification)'
 }
 else {
-    $keytoolVersionText = Read-ToolVersion $keytool @('-J-Duser.language=en', '-J-Duser.country=US', '-version') '(?i)^keytool\s+\d+'
+    $keytoolVersionText = Read-ToolVersion $keytool @('-J-Duser.language=en', '-J-Duser.country=US', '-version') '(?i)^keytool\s+\d+(?:\.\d+){0,2}'
     $keytoolVersion = Get-VersionTriple $keytoolVersionText
     if ($null -ne $keytoolVersion -and $keytoolVersion.Major -eq 21) {
         Add-Check 'keytool' 'PASS' ('{0}; path={1}' -f $keytoolVersionText, $keytool.Path)
