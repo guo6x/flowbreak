@@ -286,11 +286,14 @@ This phase carries the following frozen status from the migration request:
 
 Gate G is intentionally frozen.  The current temporary workstation must not
 generate final Play/Domestic identities, create a portable vault, create a
-release tag, or run the portable signing scripts.  `SEC-PORTABILITY-001`
-records that `New-PortableSigningVault.ps1` and
-`Test-PortableSigningVault.ps1` still have process-command-line secret
-exposure risk.  This phase is **DO NOT FIX / DO NOT RUN / DO NOT CREATE VAULT**;
-the handoff requirement is `MUST_FIX_BEFORE_GATE_G_RESUME`.
+release tag, or run the portable signing scripts with production inputs.
+`SEC-PORTABILITY-001` is closed at the code level: keytool passwords use
+short-lived child environment references, and no recovery/JKS password is
+placed in a child command line or normal output.  No mature portable
+encryption/archive backend is currently approved or installed, so both
+portable signing scripts fail closed before reading secrets and reject
+arbitrary archive executables.  A safe backend must be selected and verified
+before Gate G vault work resumes.
 
 ## 10. What cannot be completed without a phone
 

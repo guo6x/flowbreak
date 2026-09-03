@@ -60,6 +60,10 @@ jobs:
       - run: npm test
       - run: npm run test:provenance
       - run: npm run test:release
+      - name: Targeted portable signing security regression
+        shell: pwsh
+        run: |
+          & ../tools/tests/Test-SEC-PORTABILITY-001.ps1
       - run: npm run build
       - name: Generate build provenance
         run: node scripts/generate-build-provenance.mjs dist
