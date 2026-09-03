@@ -111,9 +111,11 @@ SUPERSEDED_PRE_PRODUCTION_IDENTITIES = `DISABLED`
 
 MACHINE_BOUND_CUSTODY = `NO`
 
-PORTABLE_VAULT = `PENDING_FINAL_IDENTITY`
+PORTABLE_VAULT = `BLOCKED_PENDING_SAFE_TOOL`
 
-VAULT_ENCRYPTION = `NOT_STARTED`
+VAULT_ENCRYPTION = `BLOCKED_PENDING_SAFE_TOOL`
+
+SEC-PORTABILITY-001 = `CLOSED_AFTER_TARGETED_REGRESSION`
 
 RECOVERY_SECRET_HANDOFF = `NOT_STARTED`
 
@@ -124,6 +126,8 @@ CROSS_MACHINE_SIGNING_RECOVERY = `NOT_YET_TESTED`
 ORIGINAL_LAPTOP_RECOVERY = `NOT_YET_TESTED`
 
 只有在主笔记本生成最终身份后，才允许创建 vault、执行 recovery handoff、建立 off-machine copy 和进行跨机器恢复测试。
+
+`SEC-PORTABILITY-001` 的代码修复已完成：keytool 密码只通过短生命周期的子进程环境变量引用（`-storepass:env` / `-keypass:env`），不进入 child argv；当前没有经批准的成熟 portable encryption/archive backend，因此 vault 创建和恢复脚本会在读取任何秘密前失败闭合，并拒绝 PATH、Adobe-bundled 或其他任意归档器。选择并验证安全后端仍是正式创建 vault 前的独立前置条件。
 
 只负责**工程发行产物**：
 
@@ -142,7 +146,7 @@ ORIGINAL_LAPTOP_RECOVERY = `NOT_YET_TESTED`
 
 **不由** GATE G 负责：Data Safety、Accessibility declaration、商店文案、隐私政策 URL、商店截图、合规申报材料（归 GATE H）。
 
-**GATE G 当前不具备 PASS 条件**：最终 identity 延后到主笔记本生成；旧 identity 已禁用；portable vault 和跨机器恢复尚未开始。后续必须满足 final identity、8 个新 secrets、signed dry-run、install/upgrade、portable vault、off-machine backup 和 cross-machine recovery 全部 PASS 后才能关闭 Gate G。
+**GATE G 当前不具备 PASS 条件**：最终 identity 延后到主笔记本生成；旧 identity 已禁用；portable vault 仍阻断于安全后端选择，跨机器恢复尚未开始。后续必须满足 final identity、8 个新 secrets、signed dry-run、install/upgrade、portable vault、off-machine backup 和 cross-machine recovery 全部 PASS 后才能关闭 Gate G。
 
 ### GATE H — Store / Compliance Readiness：PENDING
 
@@ -192,7 +196,7 @@ ORIGINAL_LAPTOP_RECOVERY = `NOT_YET_TESTED`
 - [x] Superseded `production-signing` Environment secrets 删除并核对不存在
 - [ ] 真机 signed install/upgrade（GATE G Stage C，PENDING）
 - [ ] 最终 human-generated signing identity / policy / 8 secrets replacement（旧 technical dry-run identity superseded）
-- [ ] Portable vault（7z AES-256 + encrypted file names）创建并本地解密验证
+- [ ] Portable vault（经批准的成熟加密后端 + encrypted file names）创建并本地解密验证
 - [ ] Recovery secret 存入 owner 跨设备密码管理器
 - [ ] Vault off-machine copy
 - [ ] 原笔记本/独立环境跨机器恢复（keytool metadata + policy fingerprints）
