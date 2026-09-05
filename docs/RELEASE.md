@@ -5,7 +5,7 @@
 
 ## 当前发布状态
 
-**RELEASE PREPARATION**（截至 2026-08-16；Redmi R1–R4 复测 2026-08-14 通过；GATE C 2026-08-15 通过；GATE G Stage A 2026-08-16）
+**RELEASE PREPARATION**（截至 2026-09-06；Redmi R1–R4 复测 2026-08-14 通过；GATE C 2026-08-15 通过；GATE G final identity/local custody 2026-09-05）
 
 - 原 RELEASE BLOCKED 的原因（开放 P1）已消除：`FB-P1-01`、`FB-P1-02`、`FB-P1-03`、`FB-P2-01` 全部 RESOLVED（`KNOWN_ISSUES.md`），P0 = 0、P1 = 0。
 - 但 **RELEASE PREPARATION ≠ RELEASE APPROVED**：GATE C 已于 2026-08-15 通过（unsigned CI artifact provenance pipeline）；GATE D–I 仍 PENDING，当前不是 STORE READY，更不是 PRODUCTION RELEASE APPROVED。
@@ -87,47 +87,48 @@ GATE C PASS 的范围（重要）：
 
 ### GATE G — Signing / Versioning / Publishable Build：PENDING
 
-**当前细分状态（临时工作站安全冻结）**：
+**当前细分状态（主工作站 final identity 与本地 custody 已完成）**：
 
 - **Stage A groundwork = PASS**（版本策略、签名工程机制、签名验证链已实现并实测）。
 - **Stage B（首轮）technical dry-run = PASS，但身份已降级**：首轮身份的 signed dry-run（Run `31934183213`）仅验证了完整技术链；因其初始密码曾存在于自动化进程与旧交接文件中，标记为 **SUPERSEDED_PRE_PRODUCTION**（无泄露证据、不是安全事故），**禁止用于正式发行**。
-- **GATE_G_TEMP_WORKSTATION_SAFE_FREEZE**：
+- **GATE_G_SIGNING_WORKFLOW_BOUNDARY**：
   - 工作流边界（PR #6，已合并）：release job 仅 `workflow_dispatch && refs/heads/master` 或 `v*` tag 触发，dispatch 另有 `SIGNED_DISPATCH_REF=PASS` 显式守卫；负向测试要求 `NON_MASTER_SIGNING_ACCESS = DENIED`。
   - Environment 部署分支策略：产品负责人已在 UI 设置 `master` branch + `v*` tag，`ENV_BRANCH_POLICY = SET`；当前无 v* tag，UI 显示 0 matching tags 属正常状态。
-  - 最终签名身份：`FINAL_SIGNING_IDENTITY = DEFERRED_TO_PRIMARY_LAPTOP`。当前临时工作站禁止生成 final Play upload key / Domestic app-signing key。
-  - 最终 policy：当前仓库 policy 清空旧 allowlist 并标记 `PENDING_FINAL_HUMAN_GENERATION`；旧指纹仅存在历史说明，不接受为 active identity。
+  - 最终签名身份：`FINAL_SIGNING_IDENTITY = GENERATED`。Play upload key 与 Domestic app-signing key 已在主工作站生成并完成公开证书核验。
+  - 最终 policy：仓库 policy 已标记 `PROVISIONED`，并写入两个 final public certificate fingerprint；旧 technical dry-run identity 仍不接受为 active identity。
+  - Portable vault：`age v1.3.2` 已批准；本地加密 vault 创建与恢复均 PASS，off-machine backup 仍 PENDING，cross-machine recovery 保持 `NOT_YET_TESTED`。
 - **INSTALL_UPGRADE_PENDING**：正式 tag 未创建、商店未发布；signed install/upgrade 验证进入 GATE G Stage C。
 - **SUPERSEDED_CI_SIGNING_CREDENTIALS_REMOVED = YES**：旧 identity 的 8 个 Environment Secrets 已从 `production-signing` 删除；环境不再保留旧 signing credentials。
 
-**GATE G 当前 = PAUSED_UNTIL_PRIMARY_WORKSTATION_FINAL_KEY_GENERATION**。本阶段不创建 final key、不创建 vault、不创建 `v1.1.0` tag；signed release 必须在 policy 未 provisioned 或 secrets 缺失时 fail closed。
+**GATE G 当前 = STAGE_B_FINAL_IDENTITY_PASS_NEXT_SECRETS_AND_SIGNED_DRY_RUN**。final identity 与 local custody 已 PASS；8 个 GitHub signing secrets、signed dry-run、off-machine backup、cross-machine recovery 和 signed install/upgrade 仍未完成，不能整体关闭 GATE G。
 
 ### Signing Portability
 
-CURRENT_PC_ROLE = `TEMPORARY_WORKSTATION`
+CURRENT_PC_ROLE = `PRIMARY_WORKSTATION`
 
-FINAL_SIGNING_IDENTITY = `DEFERRED_TO_PRIMARY_LAPTOP`
+FINAL_SIGNING_IDENTITY = `GENERATED`
 
 SUPERSEDED_PRE_PRODUCTION_IDENTITIES = `DISABLED`
 
 MACHINE_BOUND_CUSTODY = `NO`
 
-PORTABLE_VAULT = `BLOCKED_PENDING_SAFE_TOOL`
+PORTABLE_VAULT = `LOCAL_ENCRYPTED_AGE_VAULT`
 
-VAULT_ENCRYPTION = `BLOCKED_PENDING_SAFE_TOOL`
+VAULT_ENCRYPTION = `AGE_V1_3_2_APPROVED_LOCAL_RESTORE_PASS`
 
 SEC-PORTABILITY-001 = `CLOSED_AFTER_TARGETED_REGRESSION`
 
-RECOVERY_SECRET_HANDOFF = `NOT_STARTED`
+RECOVERY_SECRET_HANDOFF = `OWNER_PASSWORD_MANAGER_CONFIRMED`
 
-OFF_MACHINE_BACKUP = `NOT_STARTED`
+OFF_MACHINE_BACKUP = `PENDING`
 
 CROSS_MACHINE_SIGNING_RECOVERY = `NOT_YET_TESTED`
 
 ORIGINAL_LAPTOP_RECOVERY = `NOT_YET_TESTED`
 
-只有在主笔记本生成最终身份后，才允许创建 vault、执行 recovery handoff、建立 off-machine copy 和进行跨机器恢复测试。
+最终身份已在 PRIMARY_WORKSTATION 生成；本地 vault 与 owner password-manager recovery handoff 已完成。建立 off-machine copy 和跨机器恢复测试仍待后续独立执行。
 
-`SEC-PORTABILITY-001` 的代码修复已完成：keytool 密码只通过短生命周期的子进程环境变量引用（`-storepass:env` / `-keypass:env`），不进入 child argv；当前没有经批准的成熟 portable encryption/archive backend，因此 vault 创建和恢复脚本会在读取任何秘密前失败闭合，并拒绝 PATH、Adobe-bundled 或其他任意归档器。选择并验证安全后端仍是正式创建 vault 前的独立前置条件。
+`SEC-PORTABILITY-001` 的代码修复已完成：keytool 密码只通过短生命周期的子进程环境变量引用（`-storepass:env` / `-keypass:env`），不进入 child argv。经批准的 portable backend 为官方 `age v1.3.2`；本轮仅使用其交互式 `-p` / `-d` 流程，拒绝 PATH、Adobe-bundled、batchpass 或其他任意归档器。
 
 只负责**工程发行产物**：
 
@@ -195,9 +196,10 @@ ORIGINAL_LAPTOP_RECOVERY = `NOT_YET_TESTED`
 - [x] 历史 signed dry-run（Run `31934183213` 全绿 + 独立下载复核；不代表最终 production identity）
 - [x] Superseded `production-signing` Environment secrets 删除并核对不存在
 - [ ] 真机 signed install/upgrade（GATE G Stage C，PENDING）
-- [ ] 最终 human-generated signing identity / policy / 8 secrets replacement（旧 technical dry-run identity superseded）
-- [ ] Portable vault（经批准的成熟加密后端 + encrypted file names）创建并本地解密验证
-- [ ] Recovery secret 存入 owner 跨设备密码管理器
+- [x] 最终 human-generated signing identity / public policy allowlist（旧 technical dry-run identity superseded）
+- [x] Portable vault（官方 age v1.3.2 + encrypted file names）创建并本地解密验证
+- [x] Recovery secret 存入 owner 跨设备密码管理器（owner-confirmed）
+- [ ] GitHub production signing secrets replacement（8 secrets，下一 Stage）
 - [ ] Vault off-machine copy
 - [ ] 原笔记本/独立环境跨机器恢复（keytool metadata + policy fingerprints）
 
@@ -240,6 +242,6 @@ ORIGINAL_LAPTOP_RECOVERY = `NOT_YET_TESTED`
 1. GATE E：UsageStats 精度对照 + blocking latency 对照
 2. GATE F：24h stability + Protection Integrity
 3. GATE D：多 OEM 真机矩阵（取决于设备可用性）
-4. 原笔记本恢复后再恢复 GATE G：最终 identity + secrets + policy → signed dry-run → portable vault → cross-machine recovery → Stage C
+4. GATE G Stage B continuation：GitHub 8 secrets → signed dry-run → off-machine backup → cross-machine recovery → Stage C signed install/upgrade
 5. 小规模 Beta（GATE I）
 6. 商店正式发行准备（GATE H）
