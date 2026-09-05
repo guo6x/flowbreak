@@ -1,19 +1,25 @@
 {
   "schemaVersion": 1,
-  "comment": "Public signing policy only. No secrets. The previous technical dry-run identity is superseded and must not be accepted for production release.",
-  "provisioningStatus": "PENDING_FINAL_HUMAN_GENERATION",
+  "comment": "Public signing policy only. No secrets. The previous technical dry-run identity is superseded; the final identities below are the active production allowlist.",
+  "provisioningStatus": "PROVISIONED",
   "custody": {
-    "currentPcRole": "TEMPORARY_WORKSTATION",
+    "currentPcRole": "PRIMARY_WORKSTATION",
     "machineBoundCustody": false,
-    "portableVault": "PENDING_FINAL_IDENTITY",
-    "recoverySecret": "NOT_STARTED"
+    "portableVault": {
+      "backend": "age v1.3.2",
+      "status": "LOCAL_ENCRYPTED_VAULT_VERIFIED",
+      "localRestore": "PASS",
+      "offMachineBackup": "PENDING",
+      "crossMachineRecovery": "NOT_YET_TESTED"
+    },
+    "recoverySecret": "OWNER_PASSWORD_MANAGER_CONFIRMED"
   },
   "play": {
     "role": "upload-key",
-    "certificateSha256": ""
+    "certificateSha256": "d9bd296af9ab15497a6b35a21bd656008f014c3652fcad69eb1ac5b92e9defdd"
   },
   "domestic": {
     "role": "app-signing-key",
-    "certificateSha256": ""
+    "certificateSha256": "8d69d1786ea63b05ff3b8d1f5a78266a2fa1eda7b823af0c295cbfdc10e77f20"
   }
 }
