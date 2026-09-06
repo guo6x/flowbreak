@@ -9,7 +9,7 @@
       "backend": "age v1.3.2",
       "status": "LOCAL_ENCRYPTED_VAULT_VERIFIED",
       "localRestore": "PASS",
-      "offMachineBackup": "PENDING",
+      "offMachineBackup": "PASS",
       "crossMachineRecovery": "NOT_YET_TESTED"
     },
     "recoverySecret": "OWNER_PASSWORD_MANAGER_CONFIRMED"
