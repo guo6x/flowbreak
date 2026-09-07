@@ -77,6 +77,31 @@ describe("Permissions", () => {
     expect(screen.getByText("还需开启：悬浮窗权限")).toBeInTheDocument();
   });
 
+  it("vivo未开启电池优化豁免时不能继续", () => {
+    renderPermissions({
+      hasUsageStats: true,
+      hasOverlay: true,
+      isNative: true,
+      manufacturer: "vivo",
+      isIgnoringBattery: false,
+    });
+    const btn = screen.getByText("还需开启：电池优化豁免") as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    expect(screen.getByText("电池优化豁免")).toBeInTheDocument();
+  });
+
+  it("vivo已开启电池优化豁免时可继续", () => {
+    renderPermissions({
+      hasUsageStats: true,
+      hasOverlay: true,
+      isNative: true,
+      manufacturer: "vivo",
+      isIgnoringBattery: true,
+    });
+    const btn = screen.getByText("继续设置保护") as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+  });
+
   it("可选区域默认收起", () => {
     renderPermissions();
     expect(screen.queryByText("通知权限")).toBeNull();

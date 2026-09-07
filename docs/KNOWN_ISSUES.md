@@ -24,7 +24,19 @@
 
 ## Open
 
-> 当前**没有** OPEN 的 P0/P1/P2 产品缺陷（Redmi R1–R4 复测后，原 `FB-P1-01/02/03`、`FB-P2-01` 全部 RESOLVED，见下方历史）。
+> Redmi R1–R4 复测后，原 `FB-P1-01/02/03`、`FB-P2-01` 全部 RESOLVED，当前开放项见下方。
+
+### FB-P1-04 vivo/iQOO 后台冻结导致连续使用计时停止
+
+- Severity：**P1（核心保护失效）**
+- Status：**OPEN**（待修复合入与最终签名 iQOO S6 复测）
+- Affected version/SHA：`da11623a84ad05af9824f260f85dd2003bbd6688`
+- Environment：vivo iQOO V2073A / OriginOS 13.5 / Android 13 (SDK 33) / Domestic final-production-signed APK
+- Observed：B站（设备实测包名 `tv.danmaku.bili`）保持前台使用时，FlowBreak 服务心跳停止，连续使用累计只增长到很短的一段后停住，递进阻断无法可靠开始。
+- Expected：保护服务持续运行，目标应用前台期间 `sessionSeconds` 持续增长并按限额进入递进状态。
+- Evidence：External device evidence: `D:\AI_code\flowbreak-device-evidence\iqoo-signed-sanity\2026-09-06-repair\device-signal-before.txt`、`flowbreak-diagnostics-after.json`、`flowbreak-diagnostics-after-vivo-allow.json`。
+- Suspected root cause：OriginOS 在未开启系统“允许后台高耗电”时把 FlowBreak 进程置于 `freezer:/frozen` / `State: D`，即使前台服务仍显示存活也不执行 2 秒监控心跳；开启豁免后进程恢复为可运行状态，`sessionSeconds` 持续增长。UsageEvents、目标判定和累计器不是根因。
+- Next action：vivo/iQOO 上将电池优化豁免作为启动保护前置条件；合入后重新生成新 master signed dry-run，只复测 iQOO S6。设备复测 PASS 后将本条更新为 RESOLVED，并附 fix SHA 与最终证据。
 
 ### COMPAT-001 HyperOS may reject best-effort BlockActivity background launch
 

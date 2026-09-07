@@ -123,9 +123,14 @@ public class NativeFlowPlugin extends Plugin {
 
     @PluginMethod public void startService(PluginCall call) {
         try {
+            boolean monitoringEnabled = call.getBoolean("monitoringEnabled", true);
+            if (monitoringEnabled && !permissions.isBackgroundStabilitySatisfied()) {
+                call.reject(NativeFlowPermissionManager.BACKGROUND_STABILITY_REQUIRED_MESSAGE);
+                return;
+            }
             SharedPreferences.Editor editor = prefs().edit()
                     .putBoolean("serviceConfigured", true)
-                    .putBoolean("monitoringEnabled", call.getBoolean("monitoringEnabled", true));
+                    .putBoolean("monitoringEnabled", monitoringEnabled);
             if (call.getData().has("limitMinutes")) {
                 editor.putInt("limitMinutes", Math.max(1, call.getInt("limitMinutes", 25)));
             }
@@ -251,12 +256,19 @@ public class NativeFlowPlugin extends Plugin {
             call.reject("最多选择 30 个应用");
             return;
         }
+        SharedPreferences current = prefs();
+        boolean shouldReload = current.getBoolean("serviceConfigured", false)
+                && current.getBoolean("monitoringEnabled", true);
+        if (shouldReload && !permissions.isBackgroundStabilitySatisfied()) {
+            call.reject(NativeFlowPermissionManager.BACKGROUND_STABILITY_REQUIRED_MESSAGE);
+            return;
+        }
         prefs().edit()
                 .putStringSet(PreferenceUtils.PREF_TARGET_APPS, filtered)
                 .putBoolean("serviceConfigured", true)
                 .apply();
         try {
-            serviceController.sendAction(FlowForegroundService.ACTION_RELOAD);
+            if (shouldReload) serviceController.sendAction(FlowForegroundService.ACTION_RELOAD);
             call.resolve();
         } catch (Exception error) {
             call.reject("保存受限应用失败", error);
@@ -267,7 +279,16 @@ public class NativeFlowPlugin extends Plugin {
 
     @PluginMethod public void saveSettings(PluginCall call) {
         JSObject data = call.getData();
-        SharedPreferences.Editor editor = prefs().edit().putBoolean("serviceConfigured", true);
+        SharedPreferences current = prefs();
+        boolean monitoringEnabled = data.has("monitoringEnabled")
+                ? call.getBoolean("monitoringEnabled", true)
+                : current.getBoolean("monitoringEnabled", true);
+        if (monitoringEnabled && !permissions.isBackgroundStabilitySatisfied()) {
+            call.reject(NativeFlowPermissionManager.BACKGROUND_STABILITY_REQUIRED_MESSAGE);
+            return;
+        }
+        boolean wasConfigured = current.getBoolean("serviceConfigured", false);
+        SharedPreferences.Editor editor = current.edit().putBoolean("serviceConfigured", true);
         if (data.has("limitMinutes")) editor.putInt(
                 "limitMinutes", Math.max(1, call.getInt("limitMinutes", 25))
         );
@@ -294,7 +315,7 @@ public class NativeFlowPlugin extends Plugin {
         }
         editor.apply();
         try {
-            serviceController.sendAction(FlowForegroundService.ACTION_RELOAD);
+            if (wasConfigured) serviceController.sendAction(FlowForegroundService.ACTION_RELOAD);
             call.resolve();
         } catch (Exception error) {
             call.reject("保存设置失败", error);

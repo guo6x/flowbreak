@@ -26,6 +26,9 @@ import java.util.Set;
  * 需要 UI 跳转的 Intent 由调用方在 UI 线程启动。
  */
 public final class NativeFlowPermissionManager {
+    public static final String BACKGROUND_STABILITY_REQUIRED_MESSAGE =
+            "请先开启电池优化豁免，否则 vivo/iQOO 可能冻结后台保护服务";
+
     private final Context context;
 
     public NativeFlowPermissionManager(Context context) {
@@ -59,6 +62,21 @@ public final class NativeFlowPermissionManager {
         result.put("manufacturer", Build.MANUFACTURER == null
                 ? "" : Build.MANUFACTURER.toLowerCase(Locale.ROOT));
         return result;
+    }
+
+    /**
+     * Device evidence currently covers vivo/iQOO only. Keep this allowlist
+     * narrow until another OEM has the same observed freezer failure.
+     */
+    public static boolean requiresBackgroundStability(String manufacturer) {
+        String normalized = manufacturer == null ? "" : manufacturer.trim().toLowerCase(Locale.ROOT);
+        return normalized.contains("vivo") || normalized.contains("iqoo");
+    }
+
+    /** Whether this device can safely run continuous foreground monitoring. */
+    public boolean isBackgroundStabilitySatisfied() {
+        if (!requiresBackgroundStability(Build.MANUFACTURER)) return true;
+        return permissionState().optBoolean("isIgnoringBattery", false);
     }
 
     public Intent usageStatsSettingsIntent() {

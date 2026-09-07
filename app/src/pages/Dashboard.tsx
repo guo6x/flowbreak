@@ -8,6 +8,7 @@ import { Capacitor } from '@capacitor/core';
 import { NativeFlow } from '../backend/nativeFlow';
 import { useNativePermissions } from '../hooks/useNativePermissions';
 import { getProtectionViewModel, formatRemainingTime, formatCountdown } from '../utils/protectionStatus';
+import { requiresBackgroundStabilityPermission } from '../utils/backgroundStability';
 
 function formatMinutes(seconds: number) {
   const h = Math.floor(seconds / 3600);
@@ -183,10 +184,17 @@ export default function Dashboard() {
   const { isNative, permissions } = useNativePermissions();
   const noTargetApps = profile.targetApps.length === 0;
   const protectionActive = isMonitoring && !noTargetApps;
-  const missingCritical = isNative && protectionActive && (!permissions.hasUsageStats || !permissions.hasOverlay);
+  const needsBackgroundStability = isNative && requiresBackgroundStabilityPermission(permissions.manufacturer);
+  const missingCritical = isNative && protectionActive && (
+    !permissions.hasUsageStats
+    || !permissions.hasOverlay
+    || (needsBackgroundStability && !permissions.isIgnoringBattery)
+  );
   const missingCriticalLabel = !permissions.hasUsageStats
     ? '使用情况访问'
-    : '悬浮窗';
+    : !permissions.hasOverlay
+      ? '悬浮窗'
+      : '电池优化豁免';
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
