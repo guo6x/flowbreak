@@ -97,10 +97,10 @@ GATE C PASS 的范围（重要）：
   - 最终签名身份：`FINAL_SIGNING_IDENTITY = GENERATED`。Play upload key 与 Domestic app-signing key 已在主工作站生成并完成公开证书核验。
   - 最终 policy：仓库 policy 已标记 `PROVISIONED`，并写入两个 final public certificate fingerprint；旧 technical dry-run identity 仍不接受为 active identity。
   - Portable vault：`age v1.3.2` 已批准；本地加密 vault 创建与恢复均 PASS，off-machine backup = `PASS`，cross-machine recovery 保持 `NOT_YET_TESTED`。
-- **INSTALL_UPGRADE_PENDING**：正式 tag 未创建、商店未发布；signed install/upgrade 验证进入 GATE G Stage C。
+- **SIGNED_INSTALL_UPGRADE = PASS**：新 master signed dry-run 的 Domestic APK 已在 vivo iQOO V2073A 上通过 `adb install -r` 验证并完成 S6 复测；正式 tag 未创建、商店未发布。
 - **GITHUB_FINAL_SIGNING_SECRETS = PROVISIONED**：旧 identity 的 secrets 已清理，本轮仅写入最终 identity 对应的 8 个 Environment Secrets；secret values 未读取或写入仓库。
 
-**GATE G 当前 = SIGNED_DRY_RUN_PASS_INSTALL_UPGRADE_AND_CROSS_MACHINE_PENDING**。final identity、local custody、8 个最终 GitHub signing secrets、signed dry-run 与 off-machine backup 已 PASS；cross-machine recovery 和 signed install/upgrade 仍未完成，不能整体关闭 GATE G。
+**GATE G 当前 = SIGNED_DRY_RUN_PASS_SIGNED_INSTALL_PASS_CROSS_MACHINE_PENDING**。final identity、local custody、8 个最终 GitHub signing secrets、signed dry-run、signed install/upgrade 与 off-machine backup 已 PASS；cross-machine recovery 仍未完成，不能整体关闭 GATE G。
 
 ### Signing Portability
 
@@ -141,13 +141,13 @@ ORIGINAL_LAPTOP_RECOVERY = `NOT_YET_TESTED`
 - signed / 最终 Domestic APK（按实际发行策略）
 - 签名验证（Domestic：`apksigner verify --print-certs`；Play AAB：`jarsigner -verify` + `keytool -printcert -jarfile`；证书 SHA-256 与 `app/release-signing-policy.json` allowlist 对照，不匹配即 FAIL）
 - signed artifact provenance（signed=true / signingRole / certificateSha256 进入 artifact-manifest；artifact 命名 `flowbreak-signed-v<version>-<sha>`，dry-run 为 `flowbreak-signed-dry-run-…`）
-- upgrade / install verification（需生产签名身份 + 真机；当前 NOT EXECUTED）
+- upgrade / install verification（需生产签名身份 + 真机；vivo iQOO V2073A `adb install -r` + S6 复测 = PASS；正式 tag/store release = NOT EXECUTED）
 - release artifact metadata
 - CHANGELOG / version consistency
 
 **不由** GATE G 负责：Data Safety、Accessibility declaration、商店文案、隐私政策 URL、商店截图、合规申报材料（归 GATE H）。
 
-**GATE G 当前不具备 PASS 条件**：final identity、8 个最终 secrets、signed dry-run、portable vault 与 off-machine backup 已完成；cross-machine recovery 和 signed install/upgrade 尚未完成。后续必须完成这两个剩余项后才能关闭 Gate G。
+**GATE G 当前不具备整体 PASS 条件**：final identity、8 个最终 secrets、signed dry-run、signed install/upgrade、portable vault 与 off-machine backup 已完成；cross-machine recovery 仍未完成。后续必须完成跨机器恢复测试后才能关闭 Gate G。
 
 ### GATE H — Store / Compliance Readiness：PENDING
 
