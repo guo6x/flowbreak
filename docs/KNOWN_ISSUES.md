@@ -26,18 +26,6 @@
 
 > Redmi R1–R4 复测后，原 `FB-P1-01/02/03`、`FB-P2-01` 全部 RESOLVED，当前开放项见下方。
 
-### FB-P1-04 vivo/iQOO 后台冻结导致连续使用计时停止
-
-- Severity：**P1（核心保护失效）**
-- Status：**OPEN**（待修复合入与最终签名 iQOO S6 复测）
-- Affected version/SHA：`da11623a84ad05af9824f260f85dd2003bbd6688`
-- Environment：vivo iQOO V2073A / OriginOS 13.5 / Android 13 (SDK 33) / Domestic final-production-signed APK
-- Observed：B站（设备实测包名 `tv.danmaku.bili`）保持前台使用时，FlowBreak 服务心跳停止，连续使用累计只增长到很短的一段后停住，递进阻断无法可靠开始。
-- Expected：保护服务持续运行，目标应用前台期间 `sessionSeconds` 持续增长并按限额进入递进状态。
-- Evidence：External device evidence: `D:\AI_code\flowbreak-device-evidence\iqoo-signed-sanity\2026-09-06-repair\device-signal-before.txt`、`flowbreak-diagnostics-after.json`、`flowbreak-diagnostics-after-vivo-allow.json`。
-- Suspected root cause：OriginOS 在未开启系统“允许后台高耗电”时把 FlowBreak 进程置于 `freezer:/frozen` / `State: D`，即使前台服务仍显示存活也不执行 2 秒监控心跳；开启豁免后进程恢复为可运行状态，`sessionSeconds` 持续增长。UsageEvents、目标判定和累计器不是根因。
-- Next action：vivo/iQOO 上将电池优化豁免作为启动保护前置条件；合入后重新生成新 master signed dry-run，只复测 iQOO S6。设备复测 PASS 后将本条更新为 RESOLVED，并附 fix SHA 与最终证据。
-
 ### COMPAT-001 HyperOS may reject best-effort BlockActivity background launch
 
 - Severity：**NON-BLOCKING / COMPATIBILITY OBSERVATION**（不是产品缺陷，不是 P1/P2）
@@ -57,6 +45,20 @@
 ## Resolved（2026-08-14 Redmi R1–R4 复测关闭）
 
 > 判定标准：修复已合入 master + Redmi 真机复测 PASS。每条保留完整历史：原现象、root cause、fix SHA、automated regression coverage、Redmi evidence。
+
+### FB-P1-04 vivo/iQOO 后台冻结导致连续使用计时停止
+
+- 原 Severity：**P1（核心保护失效）**；现 Status：**RESOLVED**（2026-09-07，最终签名 iQOO S6 PASS）
+- Affected version/SHA：`da11623a84ad05af9824f260f85dd2003bbd6688`
+- Environment：vivo iQOO V2073A / OriginOS 13.5 / Android 13 (SDK 33) / Domestic final-production-signed APK
+- Observed（原现象）：B站（设备实测包名 `tv.danmaku.bili`）保持前台使用时，FlowBreak 服务进程被 OriginOS 冻结，连续使用累计停止，递进阻断无法可靠开始。
+- Root cause：OriginOS 在未开启系统“允许后台高耗电”时把 FlowBreak 进程置于 `freezer:/frozen` / `State: D`，即使前台服务仍显示存活也不执行 2 秒监控心跳；UsageEvents、目标判定和累计器不是根因。
+- Fix SHA：`dde0bc57d03575d2314f13a6feb8004b695fd392`；已合入 master `6c6385fbc4da9f07c76a498abbfcf23954aea4e8`。vivo/iQOO 现在把后台稳定性/电池优化豁免作为启动保护、目标重载和开机重启前置条件。
+- Automated regression coverage：新增 vivo/iQOO 后台稳定性判定与权限门禁测试；前端全量 155 tests、Android targeted unit tests、release validation 8/8、GitHub verify 均 PASS。
+- Signed candidate：workflow run `34086540524`，source SHA `6c6385fbc4da9f07c76a498abbfcf23954aea4e8`；Domestic fingerprint `8d69d1786ea63b05ff3b8d1f5a78266a2fa1eda7b823af0c295cbfdc10e77f20`。
+- iQOO S6 evidence：最终签名 APK `adb install -r` 保留数据；2026-09-07 14:30:27–14:32:29 B站持续为实际前台；终点诊断 `sessionSeconds=191`、`serviceAlive=true`、`isIgnoringBattery=true`。
+- Security boundary：production JKS、GitHub signing secrets、age vault、USB backup、certificate fingerprints 和 signing policy allowlist 均未改变。
+- Evidence：External device evidence: `D:\AI_code\flowbreak-device-evidence\iqoo-signed-sanity\2026-09-06-repair\root-cause.txt`、`s6-retest.txt`、`sanity-report.md`。
 
 ### FB-P1-01 前台追踪冷启动失效（ForegroundAppTracker 同包 Activity 切换误清前台）
 
