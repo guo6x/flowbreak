@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { Accessibility, ArrowLeft, Battery, Bell, ChevronDown, ChevronUp, Clock, Eye, Power, RefreshCw, Shield } from 'lucide-react';
 import { NativeFlow } from '../backend/nativeFlow';
 import { useNativePermissions } from '../hooks/useNativePermissions';
+import { requiresBackgroundStabilityPermission } from '../utils/backgroundStability';
 
 const AUTO_START_BRANDS = [
   'xiaomi', 'redmi', 'blackshark',
@@ -51,15 +52,29 @@ export default function Permissions() {
   const needsAutoStart = isNative
     && state.isDomestic
     && AUTO_START_BRANDS.some(b => (manufacturer || '').toLowerCase().includes(b));
+  const needsBackgroundStability = isNative && requiresBackgroundStabilityPermission(manufacturer);
 
   const requiredItems = [
     { key: 'usage', icon: Clock, title: '使用情况访问', desc: '识别所选应用并计算连续使用时长', granted: state.hasUsageStats },
     { key: 'overlay', icon: Eye, title: '悬浮窗权限', desc: '在达到阻断条件时显示全屏覆盖页', granted: state.hasOverlay },
+    ...(needsBackgroundStability ? [{
+      key: 'battery',
+      icon: Battery,
+      title: '电池优化豁免',
+      desc: 'vivo / iQOO 未开启时可能冻结后台保护服务，无法持续累计时长',
+      granted: state.isIgnoringBattery,
+    }] : []),
   ];
 
   const optionalItems = [
     { key: 'notification', icon: Bell, title: '通知权限', desc: '显示前台服务状态与阶段提醒', granted: state.hasNotification },
-    { key: 'battery', icon: Battery, title: '电池优化豁免', desc: '降低厂商后台限制导致的漏检', granted: state.isIgnoringBattery },
+    ...(!needsBackgroundStability ? [{
+      key: 'battery',
+      icon: Battery,
+      title: '电池优化豁免',
+      desc: '降低厂商后台限制导致的漏检',
+      granted: state.isIgnoringBattery,
+    }] : []),
     ...(needsAutoStart ? [{
       key: 'autostart',
       icon: Power,
@@ -109,9 +124,10 @@ export default function Permissions() {
 
   const usageGranted = state.hasUsageStats;
   const overlayGranted = state.hasOverlay;
+  const batteryGranted = !needsBackgroundStability || state.isIgnoringBattery;
 
   const canProceed = isNative
-    ? usageGranted && overlayGranted
+    ? usageGranted && overlayGranted && batteryGranted
     : true;
 
   let btnText = '继续设置保护';
@@ -120,6 +136,8 @@ export default function Permissions() {
       btnText = '还需开启：使用情况访问';
     } else if (!overlayGranted) {
       btnText = '还需开启：悬浮窗权限';
+    } else if (!batteryGranted) {
+      btnText = '还需开启：电池优化豁免';
     }
   }
 
@@ -150,7 +168,7 @@ export default function Permissions() {
         <div className="w-14 h-14 rounded-2xl bg-secondary/10 flex items-center justify-center mb-5">
           <Shield size={30} className="text-secondary" />
         </div>
-        <h1 className="text-[24px] font-bold mb-2">开始保护前需要两项权限</h1>
+        <h1 className="text-[24px] font-bold mb-2">开始保护前需要{needsBackgroundStability ? '关键权限' : '两项权限'}</h1>
         <p className="text-[14px] text-gray-500 mb-7">所有数据仅在本机处理。权限可随时在系统设置中撤销。</p>
 
         {/* Required permissions */}

@@ -23,6 +23,10 @@ public class BootReceiver extends BroadcastReceiver {
                 Log.d("BootReceiver", "Protection is not configured or disabled, restart skipped");
                 return;
             }
+            if (!new NativeFlowPermissionManager(context).isBackgroundStabilitySatisfied()) {
+                Log.w("BootReceiver", "Background stability permission is missing, restart skipped");
+                return;
+            }
 
             Log.d("BootReceiver", "Boot completed, starting FlowForegroundService");
             try {
