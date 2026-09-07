@@ -242,6 +242,6 @@ ORIGINAL_LAPTOP_RECOVERY = `NOT_YET_TESTED`
 1. GATE E：UsageStats 精度对照 + blocking latency 对照
 2. GATE F：24h stability + Protection Integrity
 3. GATE D：多 OEM 真机矩阵（取决于设备可用性）
-4. GATE G remaining：cross-machine recovery → Stage C signed install/upgrade
+4. GATE G remaining：cross-machine recovery（完成后才可整体关闭 GATE G；formal tag/store release 另行执行）
 5. 小规模 Beta（GATE I）
 6. 商店正式发行准备（GATE H）
