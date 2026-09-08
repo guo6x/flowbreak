@@ -64,6 +64,7 @@ public final class NativeFlowDataManager {
         result.put("eventCount", dao.eventCount());
         result.put("usageRowCount", dao.usageRowCount());
         result.put("latestEventAt", dao.latestEventAt());
+        result.put("runtimeTracking", FlowForegroundService.getRuntimeTrackingDiagnostics());
         return result;
     }
 

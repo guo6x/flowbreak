@@ -20,6 +20,7 @@ import android.os.Vibrator;
 import android.os.VibratorManager;
 import androidx.annotation.Nullable;
 import androidx.core.app.ServiceCompat;
+import com.getcapacitor.JSObject;
 import java.util.Set;
 
 public class FlowForegroundService extends Service {
@@ -54,6 +55,7 @@ public class FlowForegroundService extends Service {
     private static volatile String staticForegroundPackage = "";
     private static volatile long staticLastTickAt;
     private static volatile long staticLastUsageEventAt;
+    private static final RuntimeTrackingCounters runtimeTracking = new RuntimeTrackingCounters();
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private FlowRepository repository;
@@ -289,6 +291,7 @@ public class FlowForegroundService extends Service {
 
     private void tick() {
         long now = System.currentTimeMillis();
+        runtimeTracking.recordTick(now);
         staticLastTickAt = now;
         stateStore.writeHeartbeatIfDue(now);
         if (!monitoringEnabled || targetApps.isEmpty()) {
@@ -305,7 +308,9 @@ public class FlowForegroundService extends Service {
             interactionAvailable = false;
             foregroundDetector.reset();
             usageAccumulator.resetObservation(now);
+            boolean hadForeground = staticForegroundPackage != null && !staticForegroundPackage.isEmpty();
             staticForegroundPackage = "";
+            runtimeTracking.recordForegroundCleared(hadForeground);
             overlayController.dismissBlocker();
             overlayController.dismissWarningBar();
             return;
@@ -320,7 +325,13 @@ public class FlowForegroundService extends Service {
             machine.onScreenOn(now);
             persistState();
         }
+        String previousForeground = staticForegroundPackage;
         String foreground = foregroundDetector.detect(now);
+        boolean foregroundPresent = foreground != null && !foreground.isEmpty();
+        boolean foregroundChanged = previousForeground == null
+                ? foreground != null
+                : !previousForeground.equals(foreground);
+        runtimeTracking.recordDetector(foregroundPresent, foregroundChanged);
         staticLastUsageEventAt = Math.max(staticLastUsageEventAt, foregroundDetector.getLastUsageEventAt());
         staticForegroundPackage = foreground;
         boolean isTarget = targetClassifier.isTarget(
@@ -330,9 +341,14 @@ public class FlowForegroundService extends Service {
                 stateStore.wechatInVideoChannelAt(),
                 now
         );
+        runtimeTracking.recordClassifier(isTarget);
 
         long prevObservedAt = usageAccumulator.getLastObservedAt();
         long observedTargetMs = usageAccumulator.observe(isTarget, foreground, now);
+        runtimeTracking.recordAccumulator(
+                observedTargetMs,
+                !usageAccumulator.getLastObservedTargetPackage().isEmpty()
+        );
         if (isTarget && observedTargetMs > 0L) usageAccumulator.queue(foreground, observedTargetMs);
         trackPullbackOutcome(isTarget, observedTargetMs, now);
 
@@ -357,12 +373,15 @@ public class FlowForegroundService extends Service {
             return;
         }
 
+        long machineSessionBeforeMs = machine.getSessionMs();
         BlockStateMachine.State state = machine.update(
                 isTarget,
                 foreground,
                 now,
                 limitMinutes * 60_000L
         );
+        long machineSessionAfterMs = machine.getSessionMs();
+        runtimeTracking.recordMachineSession(machineSessionBeforeMs, machineSessionAfterMs);
         flushPendingUsage(false);
 
         if (state != lastAnnouncedState) {
@@ -491,6 +510,27 @@ public class FlowForegroundService extends Service {
     public static long getLastTickAt() { return staticLastTickAt; }
     public static long getLastUsageEventAt() { return staticLastUsageEventAt; }
     public static String getForegroundPackage() { return staticForegroundPackage; }
+    public static JSObject getRuntimeTrackingDiagnostics() {
+        RuntimeTrackingSnapshot snapshot = runtimeTracking.snapshot();
+        JSObject result = new JSObject();
+        result.put("tickCount", snapshot.tickCount);
+        result.put("detectorNonEmptyTickCount", snapshot.detectorNonEmptyTickCount);
+        result.put("targetTrueTickCount", snapshot.targetTrueTickCount);
+        result.put("targetFalseTickCount", snapshot.targetFalseTickCount);
+        result.put("consecutiveTargetTicks", snapshot.consecutiveTargetTicks);
+        result.put("maxConsecutiveTargetTicks", snapshot.maxConsecutiveTargetTicks);
+        result.put("lastClassifierIsTarget", snapshot.lastClassifierIsTarget);
+        result.put("lastObservedTargetMs", snapshot.lastObservedTargetMs);
+        result.put("positiveObservedTargetTickCount", snapshot.positiveObservedTargetTickCount);
+        result.put("machineSessionBeforeMs", snapshot.machineSessionBeforeMs);
+        result.put("machineSessionAfterMs", snapshot.machineSessionAfterMs);
+        result.put("machineSessionIncreaseCount", snapshot.machineSessionIncreaseCount);
+        result.put("lastTickDeltaMs", snapshot.lastTickDeltaMs);
+        result.put("foregroundChangedCount", snapshot.foregroundChangedCount);
+        result.put("lastForegroundPresent", snapshot.lastForegroundPresent);
+        result.put("accumulatorLastTargetPresent", snapshot.accumulatorLastTargetPresent);
+        return result;
+    }
     public static int getCurrentLevel() {
         if (staticState == BlockStateMachine.State.PERCEPTION) return 1;
         if (staticState == BlockStateMachine.State.COGNITION) return 2;
@@ -498,6 +538,150 @@ public class FlowForegroundService extends Service {
         return 0;
     }
     public static long getTotalMinutes() { return staticSessionMs / 60_000L; }
+
+    /**
+     * Process-lifetime observations for the native tick path. This state is
+     * intentionally not persisted and contains no foreground package history.
+     */
+    static final class RuntimeTrackingCounters {
+        private long tickCount;
+        private long detectorNonEmptyTickCount;
+        private long targetTrueTickCount;
+        private long targetFalseTickCount;
+        private long consecutiveTargetTicks;
+        private long maxConsecutiveTargetTicks;
+        private boolean lastClassifierIsTarget;
+        private long lastObservedTargetMs;
+        private long positiveObservedTargetTickCount;
+        private long machineSessionBeforeMs;
+        private long machineSessionAfterMs;
+        private long machineSessionIncreaseCount;
+        private long lastTickDeltaMs;
+        private long foregroundChangedCount;
+        private boolean lastForegroundPresent;
+        private boolean accumulatorLastTargetPresent;
+        private long lastTickAt;
+
+        synchronized void recordTick(long now) {
+            lastTickDeltaMs = lastTickAt <= 0L ? 0L : Math.max(0L, now - lastTickAt);
+            lastTickAt = now;
+            tickCount++;
+        }
+
+        synchronized void recordDetector(boolean foregroundPresent, boolean foregroundChanged) {
+            if (foregroundPresent) detectorNonEmptyTickCount++;
+            if (foregroundChanged) foregroundChangedCount++;
+            lastForegroundPresent = foregroundPresent;
+        }
+
+        synchronized void recordForegroundCleared(boolean wasPresent) {
+            if (wasPresent) foregroundChangedCount++;
+            lastForegroundPresent = false;
+        }
+
+        synchronized void recordClassifier(boolean isTarget) {
+            lastClassifierIsTarget = isTarget;
+            if (isTarget) {
+                targetTrueTickCount++;
+                consecutiveTargetTicks++;
+                maxConsecutiveTargetTicks = Math.max(
+                        maxConsecutiveTargetTicks,
+                        consecutiveTargetTicks
+                );
+            } else {
+                targetFalseTickCount++;
+                consecutiveTargetTicks = 0L;
+            }
+        }
+
+        synchronized void recordAccumulator(long observedTargetMs, boolean targetPresent) {
+            lastObservedTargetMs = observedTargetMs;
+            if (observedTargetMs > 0L) positiveObservedTargetTickCount++;
+            accumulatorLastTargetPresent = targetPresent;
+        }
+
+        synchronized void recordMachineSession(long beforeMs, long afterMs) {
+            machineSessionBeforeMs = beforeMs;
+            machineSessionAfterMs = afterMs;
+            if (afterMs > beforeMs) machineSessionIncreaseCount++;
+        }
+
+        synchronized RuntimeTrackingSnapshot snapshot() {
+            return new RuntimeTrackingSnapshot(
+                    tickCount,
+                    detectorNonEmptyTickCount,
+                    targetTrueTickCount,
+                    targetFalseTickCount,
+                    consecutiveTargetTicks,
+                    maxConsecutiveTargetTicks,
+                    lastClassifierIsTarget,
+                    lastObservedTargetMs,
+                    positiveObservedTargetTickCount,
+                    machineSessionBeforeMs,
+                    machineSessionAfterMs,
+                    machineSessionIncreaseCount,
+                    lastTickDeltaMs,
+                    foregroundChangedCount,
+                    lastForegroundPresent,
+                    accumulatorLastTargetPresent
+            );
+        }
+    }
+
+    static final class RuntimeTrackingSnapshot {
+        final long tickCount;
+        final long detectorNonEmptyTickCount;
+        final long targetTrueTickCount;
+        final long targetFalseTickCount;
+        final long consecutiveTargetTicks;
+        final long maxConsecutiveTargetTicks;
+        final boolean lastClassifierIsTarget;
+        final long lastObservedTargetMs;
+        final long positiveObservedTargetTickCount;
+        final long machineSessionBeforeMs;
+        final long machineSessionAfterMs;
+        final long machineSessionIncreaseCount;
+        final long lastTickDeltaMs;
+        final long foregroundChangedCount;
+        final boolean lastForegroundPresent;
+        final boolean accumulatorLastTargetPresent;
+
+        RuntimeTrackingSnapshot(
+                long tickCount,
+                long detectorNonEmptyTickCount,
+                long targetTrueTickCount,
+                long targetFalseTickCount,
+                long consecutiveTargetTicks,
+                long maxConsecutiveTargetTicks,
+                boolean lastClassifierIsTarget,
+                long lastObservedTargetMs,
+                long positiveObservedTargetTickCount,
+                long machineSessionBeforeMs,
+                long machineSessionAfterMs,
+                long machineSessionIncreaseCount,
+                long lastTickDeltaMs,
+                long foregroundChangedCount,
+                boolean lastForegroundPresent,
+                boolean accumulatorLastTargetPresent
+        ) {
+            this.tickCount = tickCount;
+            this.detectorNonEmptyTickCount = detectorNonEmptyTickCount;
+            this.targetTrueTickCount = targetTrueTickCount;
+            this.targetFalseTickCount = targetFalseTickCount;
+            this.consecutiveTargetTicks = consecutiveTargetTicks;
+            this.maxConsecutiveTargetTicks = maxConsecutiveTargetTicks;
+            this.lastClassifierIsTarget = lastClassifierIsTarget;
+            this.lastObservedTargetMs = lastObservedTargetMs;
+            this.positiveObservedTargetTickCount = positiveObservedTargetTickCount;
+            this.machineSessionBeforeMs = machineSessionBeforeMs;
+            this.machineSessionAfterMs = machineSessionAfterMs;
+            this.machineSessionIncreaseCount = machineSessionIncreaseCount;
+            this.lastTickDeltaMs = lastTickDeltaMs;
+            this.foregroundChangedCount = foregroundChangedCount;
+            this.lastForegroundPresent = lastForegroundPresent;
+            this.accumulatorLastTargetPresent = accumulatorLastTargetPresent;
+        }
+    }
 
     private void handleGraceCountdown() {
         overlayController.showGraceCountdown(machine.getGraceUntil(), System.currentTimeMillis());
