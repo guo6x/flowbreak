@@ -12,9 +12,11 @@ import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.os.Process;
 import android.os.SystemClock;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
@@ -26,6 +28,9 @@ import com.getcapacitor.JSObject;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class FlowForegroundService extends Service {
     public static final String ACTION_START = "com.flowbreak.app.START";
@@ -62,10 +67,20 @@ public class FlowForegroundService extends Service {
     private static volatile int staticRuntimeTargetCount;
     private static volatile int staticPersistedTargetCount;
     private static volatile boolean staticRuntimeTargetsMatchPersisted;
+    private static volatile int staticLimitMinutes;
+    private static volatile boolean staticTargetAppsEmpty = true;
+    private static volatile boolean staticAllowEmergencyUnlock = true;
+    private static volatile boolean staticMonitorThreadAlive;
+    private static volatile boolean staticMonitorLooperIsMain;
     private static volatile Set<String> staticRuntimeTargetSnapshot = Collections.emptySet();
     private static final RuntimeTrackingCounters runtimeTracking = new RuntimeTrackingCounters();
 
-    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private HandlerThread monitorThread;
+    private Handler monitorHandler;
+    private FlowMonitorLoop monitorLoop;
+    private volatile boolean monitorShutdownRequested;
+    private boolean monitorShutdownComplete;
     private FlowRepository repository;
     private BlockStateMachine machine;
     private Set<String> targetApps;
@@ -90,43 +105,36 @@ public class FlowForegroundService extends Service {
 
     private final Runnable monitor = new Runnable() {
         @Override public void run() {
+            if (monitorShutdownRequested) return;
             long startElapsed = SystemClock.elapsedRealtime();
             runtimeTracking.recordMonitorStart(startElapsed);
             tick();
             long endElapsed = SystemClock.elapsedRealtime();
             runtimeTracking.recordMonitorEnd(endElapsed);
-            handler.postDelayed(this, 2_000L);
+            if (monitorLoop != null) monitorLoop.scheduleNext();
         }
     };
 
     private final BroadcastReceiver screenReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             long now = System.currentTimeMillis();
-            if (Intent.ACTION_SCREEN_OFF.equals(intent.getAction())) {
-                trackPullbackOutcome(false, 0L, now);
-                screenOn = false;
-                interactionAvailable = false;
-                foregroundDetector.reset();
-                usageAccumulator.resetObservation(now);
-                staticForegroundPackage = "";
-                if (machine != null) {
-                    machine.onScreenOff(now);
-                    persistState();
-                }
-                flushPendingUsage(true);
-                overlayController.dismissBlocker();
-                overlayController.dismissWarningBar();
-            } else if (Intent.ACTION_SCREEN_ON.equals(intent.getAction())) {
-                screenOn = true;
-                interactionAvailable = false;
-                foregroundDetector.reset();
-                foregroundDetector.resetCursor(Math.max(0, now - ForegroundUsageDetector.INITIAL_EVENT_LOOKBACK_MS));
+            String action = intent == null ? null : intent.getAction();
+            if (Intent.ACTION_SCREEN_OFF.equals(action)) {
+                postMonitorCommand(() -> handleScreenOff(now));
+            } else if (Intent.ACTION_SCREEN_ON.equals(action)) {
+                postMonitorCommand(() -> handleScreenOn(now));
             }
         }
     };
 
     @Override public void onCreate() {
         super.onCreate();
+        monitorThread = new HandlerThread("FlowBreakMonitor", Process.THREAD_PRIORITY_DEFAULT);
+        monitorThread.start();
+        monitorHandler = new Handler(monitorThread.getLooper());
+        monitorLoop = new FlowMonitorLoop(new HandlerScheduler(monitorHandler), monitor);
+        staticMonitorThreadAlive = monitorThread.isAlive();
+        staticMonitorLooperIsMain = monitorHandler.getLooper() == Looper.getMainLooper();
         stateStore = new FlowServiceStateStore(this);
         repository = FlowRepository.get(this);
         PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
@@ -143,73 +151,66 @@ public class FlowForegroundService extends Service {
         overlayController = new FlowOverlayController(
                 this,
                 (android.view.WindowManager) getSystemService(WINDOW_SERVICE),
-                handler,
+                mainHandler,
                 new FlowOverlayController.Callbacks() {
                     @Override public void onStartRest() { openRest(); }
 
                     @Override public boolean onEmergencyLongPress() {
-                        if (EmergencyUnlockManager.tryUnlock(FlowForegroundService.this)) {
-                            repository.log(
-                                    "emergency_unlock",
-                                    machine.getBlockedPackage(),
-                                    "",
-                                    300,
-                                    ""
-                            );
-                            machine.emergencyUnlock(System.currentTimeMillis(), EMERGENCY_GRACE_MS);
-                            persistState();
-                            return true;
-                        }
-                        return false;
+                        return runEmergencyUnlockOnMonitorAndWait();
                     }
 
                     @Override public void onEmergencyExhausted() {
-                        alert(
+                        postMonitorCommand(() -> alert(
                                 "今日紧急使用已用完",
                                 "完成休息后仍可正常获得访问窗口。"
-                        );
+                        ));
                     }
 
                     @Override public long currentSessionMs() {
-                        return machine == null ? 0L : machine.getSessionMs();
+                        return staticSessionMs;
                     }
 
                     @Override public int currentLimitMinutes() {
-                        return limitMinutes;
+                        return staticLimitMinutes;
                     }
 
                     @Override public boolean allowEmergencyUnlock() {
-                        return stateStore.allowEmergencyUnlock();
+                        return staticAllowEmergencyUnlock;
                     }
                 }
         );
-        load();
         IntentFilter filter = new IntentFilter();
         filter.addAction(Intent.ACTION_SCREEN_OFF);
         filter.addAction(Intent.ACTION_SCREEN_ON);
         registerReceiver(screenReceiver, filter);
+        // Establish the engine snapshot before any later service command can
+        // reach the monitor owner (for example BEGIN_REST after a cold start).
+        postMonitorCommand(this::load);
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent == null ? ACTION_START : intent.getAction();
         if (ACTION_STOP.equals(action)) {
-            monitoringEnabled = false;
-            flushPendingUsage(true);
-            stateStore.setMonitoringEnabled(false);
-            overlayController.dismissBlocker();
-            stopForeground(STOP_FOREGROUND_REMOVE);
-            stopSelf();
+            postMonitorCommand(() -> stopMonitoring(startId));
             return START_NOT_STICKY;
         }
 
+        // Foreground promotion stays on the Service/main entry path. The
+        // engine command and the monitor loop are serialized on the worker.
+        promoteToForeground();
+        postMonitorCommand(() -> handleEngineCommand(action));
+        return START_STICKY;
+    }
+
+    private void handleEngineCommand(String action) {
         if (ACTION_BEGIN_REST.equals(action)) {
             beginRestSession();
-            overlayController.dismissBlocker();
+            postOverlayAction(() -> overlayController.dismissBlocker());
         } else if (ACTION_COMPLETE_REST.equals(action)) {
             // NativeFlowPlugin validates and persists a completed rest before
             // asking a possibly recreated service to refresh its in-memory state.
             load();
-            overlayController.dismissBlocker();
+            postOverlayAction(() -> overlayController.dismissBlocker());
         } else if (ACTION_CANCEL_REST.equals(action)) {
             machine.cancelRest(limitMinutes * 60_000L);
             stateStore.clearActiveRestSession();
@@ -219,15 +220,25 @@ public class FlowForegroundService extends Service {
             stateStore.clearActiveRestSession();
             clearPullbackTracker();
             persistState();
-            overlayController.dismissBlocker();
+            postOverlayAction(() -> overlayController.dismissBlocker());
         } else {
             load();
         }
 
-        promoteToForeground();
-        handler.removeCallbacks(monitor);
-        handler.post(monitor);
-        return START_STICKY;
+        notificationController.updateServiceNotification(snapshot());
+        if (monitorLoop != null) monitorLoop.start();
+    }
+
+    private void stopMonitoring(int startId) {
+        if (monitorLoop != null) monitorLoop.stop();
+        monitoringEnabled = false;
+        flushPendingUsage(true);
+        stateStore.setMonitoringEnabled(false);
+        postOverlayAction(() -> overlayController.dismissBlocker());
+        mainHandler.post(() -> {
+            stopForeground(STOP_FOREGROUND_REMOVE);
+            stopSelfResult(startId);
+        });
     }
 
     /**
@@ -261,25 +272,29 @@ public class FlowForegroundService extends Service {
 
     private FlowNotificationController.State snapshot() {
         return new FlowNotificationController.State(
-                machine == null ? null : machine.getState(),
-                machine == null ? 0L : machine.getSessionMs(),
-                machine == null ? 0L : machine.getGraceUntil(),
-                limitMinutes,
-                targetApps == null || targetApps.isEmpty()
+                staticState,
+                staticSessionMs,
+                staticGraceUntil,
+                staticLimitMinutes,
+                staticTargetAppsEmpty
         );
     }
 
     private void load() {
         FlowServiceRecoveryCoordinator.Result result =
                 FlowServiceRecoveryCoordinator.restore(stateStore, System.currentTimeMillis());
-        targetApps = result.config.targetApps;
-        Set<String> runtimeTargets = targetApps == null
+        Set<String> loadedTargets = result.config.targetApps;
+        Set<String> runtimeTargets = loadedTargets == null
                 ? Collections.emptySet()
-                : new HashSet<>(targetApps);
+                : new HashSet<>(loadedTargets);
+        targetApps = Collections.unmodifiableSet(runtimeTargets);
         staticRuntimeTargetSnapshot = Collections.unmodifiableSet(runtimeTargets);
         staticRuntimeTargetCount = runtimeTargets.size();
         limitMinutes = result.config.limitMinutes;
         monitoringEnabled = result.config.monitoringEnabled;
+        staticLimitMinutes = limitMinutes;
+        staticTargetAppsEmpty = runtimeTargets.isEmpty();
+        staticAllowEmergencyUnlock = result.config.allowEmergencyUnlock;
         machine = result.machine;
         restorePullbackTrackerFromSnapshot(result.pullbackSnapshot);
         lastAnnouncedState = machine.getState();
@@ -323,13 +338,13 @@ public class FlowForegroundService extends Service {
         if (!monitoringEnabled) {
             runtimeTracking.recordMonitoringDisabledReturn();
             usageAccumulator.resetObservation(now);
-            overlayController.dismissBlocker();
+            postOverlayAction(() -> overlayController.dismissBlocker());
             return;
         }
         if (targetSetEmpty) {
             runtimeTracking.recordTargetSetEmptyReturn();
             usageAccumulator.resetObservation(now);
-            overlayController.dismissBlocker();
+            postOverlayAction(() -> overlayController.dismissBlocker());
             return;
         }
         if (!interactionAvailableNow) {
@@ -345,8 +360,10 @@ public class FlowForegroundService extends Service {
             boolean hadForeground = staticForegroundPackage != null && !staticForegroundPackage.isEmpty();
             staticForegroundPackage = "";
             runtimeTracking.recordForegroundCleared(hadForeground);
-            overlayController.dismissBlocker();
-            overlayController.dismissWarningBar();
+            postOverlayAction(() -> {
+                overlayController.dismissBlocker();
+                overlayController.dismissWarningBar();
+            });
             return;
         }
         if (!interactionAvailable && machine != null) {
@@ -434,25 +451,39 @@ public class FlowForegroundService extends Service {
             lastAnnouncedState = state;
         }
         if (state == BlockStateMachine.State.BLOCKED && isTarget) {
-            overlayController.showBlocker(
-                    foreground,
-                    machine.getSessionMs(),
-                    stateStore.allowEmergencyUnlock()
-            );
-            overlayController.dismissWarningBar();
+            String blockedPackage = foreground;
+            long sessionMs = machine.getSessionMs();
+            boolean allowEmergency = stateStore.allowEmergencyUnlock();
+            postOverlayAction(() -> {
+                overlayController.showBlocker(blockedPackage, sessionMs, allowEmergency);
+                overlayController.dismissWarningBar();
+            });
         } else {
-            overlayController.dismissBlocker();
+            long sessionMs = machine.getSessionMs();
+            int currentLimitMinutes = limitMinutes;
             // 渐进式提醒：PERCEPTION / COGNITION 显示顶部浮条
             if (state == BlockStateMachine.State.PERCEPTION && isTarget) {
-                overlayController.showWarningBar(1, machine.getSessionMs(), limitMinutes);
+                postOverlayAction(() -> {
+                    overlayController.dismissBlocker();
+                    overlayController.showWarningBar(1, sessionMs, currentLimitMinutes);
+                });
             } else if (state == BlockStateMachine.State.COGNITION && isTarget) {
-                overlayController.showWarningBar(2, machine.getSessionMs(), limitMinutes);
+                postOverlayAction(() -> {
+                    overlayController.dismissBlocker();
+                    overlayController.showWarningBar(2, sessionMs, currentLimitMinutes);
+                });
             } else if (state == BlockStateMachine.State.GRACE) {
                 handleGraceCountdown();
-                overlayController.dismissWarningBar();
+                postOverlayAction(() -> {
+                    overlayController.dismissBlocker();
+                    overlayController.dismissWarningBar();
+                });
             } else {
-                overlayController.dismissWarningBar();
-                overlayController.dismissGraceCountdown();
+                postOverlayAction(() -> {
+                    overlayController.dismissBlocker();
+                    overlayController.dismissWarningBar();
+                    overlayController.dismissGraceCountdown();
+                });
             }
         }
         // GRACE 状态即使不在目标应用也要检查倒计时
@@ -461,6 +492,88 @@ public class FlowForegroundService extends Service {
         }
         notificationController.updateServiceNotification(snapshot());
         persistState();
+    }
+
+    private void handleScreenOff(long now) {
+        trackPullbackOutcome(false, 0L, now);
+        screenOn = false;
+        interactionAvailable = false;
+        foregroundDetector.reset();
+        usageAccumulator.resetObservation(now);
+        staticForegroundPackage = "";
+        if (machine != null) {
+            machine.onScreenOff(now);
+            persistState();
+        }
+        flushPendingUsage(true);
+        postOverlayAction(() -> {
+            overlayController.dismissBlocker();
+            overlayController.dismissWarningBar();
+        });
+    }
+
+    private void handleScreenOn(long now) {
+        screenOn = true;
+        interactionAvailable = false;
+        foregroundDetector.reset();
+        foregroundDetector.resetCursor(Math.max(0, now - ForegroundUsageDetector.INITIAL_EVENT_LOOKBACK_MS));
+    }
+
+    /** All service commands and lifecycle transitions enter the engine owner. */
+    private void postMonitorCommand(Runnable command) {
+        Handler worker = monitorHandler;
+        if (worker == null || monitorShutdownRequested) return;
+        worker.post(() -> {
+            if (!monitorShutdownRequested) command.run();
+        });
+    }
+
+    /** Overlay/View state is owned by the main Looper, never by the monitor. */
+    private void postOverlayAction(Runnable action) {
+        if (monitorShutdownRequested) return;
+        mainHandler.post(() -> {
+            if (!monitorShutdownRequested && overlayController != null) action.run();
+        });
+    }
+
+    private boolean runEmergencyUnlockOnMonitorAndWait() {
+        Handler worker = monitorHandler;
+        if (worker == null || monitorShutdownRequested) return false;
+        if (Looper.myLooper() == worker.getLooper()) return performEmergencyUnlock();
+
+        AtomicBoolean unlocked = new AtomicBoolean(false);
+        CountDownLatch completed = new CountDownLatch(1);
+        if (!worker.post(() -> {
+            try {
+                unlocked.set(performEmergencyUnlock());
+            } finally {
+                completed.countDown();
+            }
+        })) {
+            return false;
+        }
+        try {
+            return completed.await(2L, TimeUnit.SECONDS) && unlocked.get();
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    private boolean performEmergencyUnlock() {
+        if (!EmergencyUnlockManager.tryUnlock(FlowForegroundService.this) || machine == null) {
+            return false;
+        }
+        repository.log(
+                "emergency_unlock",
+                machine.getBlockedPackage(),
+                "",
+                300,
+                ""
+        );
+        machine.emergencyUnlock(System.currentTimeMillis(), EMERGENCY_GRACE_MS);
+        persistState();
+        return true;
     }
 
     private void trackPullbackOutcome(boolean isTarget, long targetDeltaMs, long now) {
@@ -499,6 +612,26 @@ public class FlowForegroundService extends Service {
 
     private boolean isInteractionAvailable() {
         return screenOn && (keyguardManager == null || !keyguardManager.isKeyguardLocked());
+    }
+
+    private static final class HandlerScheduler implements FlowMonitorLoop.Scheduler {
+        private final Handler handler;
+
+        HandlerScheduler(Handler handler) {
+            this.handler = handler;
+        }
+
+        @Override public void removeCallbacks(Runnable runnable) {
+            handler.removeCallbacks(runnable);
+        }
+
+        @Override public void post(Runnable runnable) {
+            handler.post(runnable);
+        }
+
+        @Override public void postDelayed(Runnable runnable, long delayMs) {
+            handler.postDelayed(runnable, delayMs);
+        }
     }
 
     private void flushPendingUsage(boolean force) {
@@ -542,10 +675,13 @@ public class FlowForegroundService extends Service {
     }
 
     private void publishState() {
+        if (machine == null) return;
         staticState = machine.getState();
         staticSessionMs = machine.getSessionMs();
         staticGraceUntil = machine.getGraceUntil();
         staticBlockedPackage = machine.getBlockedPackage();
+        staticLimitMinutes = limitMinutes;
+        staticTargetAppsEmpty = targetApps == null || targetApps.isEmpty();
     }
 
     public static BlockStateMachine.State getState() { return staticState; }
@@ -623,6 +759,8 @@ public class FlowForegroundService extends Service {
         reasons.put("targetSetEmptyTickCount", snapshot.targetSetEmptyTickCount);
         reasons.put("interactionUnavailableTickCount", snapshot.interactionUnavailableTickCount);
         result.put("reasonCounters", reasons);
+        result.put("monitorThreadAlive", staticMonitorThreadAlive);
+        result.put("monitorLooperIsMain", staticMonitorLooperIsMain);
 
         JSArray recent = new JSArray();
         for (RecentTickSnapshot tick : snapshot.recentTicks) {
@@ -1162,7 +1300,9 @@ public class FlowForegroundService extends Service {
     }
 
     private void handleGraceCountdown() {
-        overlayController.showGraceCountdown(machine.getGraceUntil(), System.currentTimeMillis());
+        long graceUntil = machine.getGraceUntil();
+        long now = System.currentTimeMillis();
+        postOverlayAction(() -> overlayController.showGraceCountdown(graceUntil, now));
     }
 
     private void vibrate(long[] pattern) {
@@ -1198,11 +1338,26 @@ public class FlowForegroundService extends Service {
     }
 
     @Override public void onDestroy() {
-        flushPendingUsage(true);
-        handler.removeCallbacksAndMessages(null);
+        monitorShutdownRequested = true;
+        requestMonitorShutdown();
         overlayController.clearCallbacks();
         overlayController.dismissAll();
         try { unregisterReceiver(screenReceiver); } catch (Exception ignored) { }
         super.onDestroy();
+    }
+
+    private void requestMonitorShutdown() {
+        Handler worker = monitorHandler;
+        HandlerThread thread = monitorThread;
+        if (worker == null || thread == null) return;
+        worker.removeCallbacksAndMessages(null);
+        worker.postAtFrontOfQueue(() -> {
+            if (monitorShutdownComplete) return;
+            monitorShutdownComplete = true;
+            if (monitorLoop != null) monitorLoop.shutdown();
+            flushPendingUsage(true);
+            staticMonitorThreadAlive = false;
+            thread.quitSafely();
+        });
     }
 }
