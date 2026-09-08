@@ -8,7 +8,7 @@
 **RELEASE PREPARATION**（截至 2026-09-06；Redmi R1–R4 复测 2026-08-14 通过；GATE C 2026-08-15 通过；GATE G final signed dry-run 2026-09-06）
 
 - 原 Redmi 验收阻塞项已消除：`FB-P1-01`、`FB-P1-02`、`FB-P1-03`、`FB-P2-01` 全部 RESOLVED（`KNOWN_ISSUES.md`）。`FB-P1-05` 保持 **OPEN — UNSUPPORTED IN V1.1.0**，不属于 v1.1.0 支持设备运行时。
-- 但 **RELEASE PREPARATION ≠ RELEASE APPROVED**：GATE C 已于 2026-08-15 通过（unsigned CI artifact provenance pipeline）；GATE E–I 仍 PENDING，当前不是 STORE READY，更不是 PRODUCTION RELEASE APPROVED。
+- 但 **RELEASE PREPARATION ≠ RELEASE APPROVED**：GATE C 已于 2026-08-15 通过（unsigned CI artifact provenance pipeline）；GATE D–I 仍 PENDING，当前不是 STORE READY，更不是 PRODUCTION RELEASE APPROVED。
 
 ## 发布门禁总览
 
@@ -17,7 +17,7 @@
 | GATE A | Core automated validation | **PASS** |
 | GATE B | Redmi targeted P1/P2 revalidation | **PASS** |
 | GATE C | Artifact Provenance / Controlled Release Build | **PASS** |
-| GATE D | Supported OEM scope + fail-closed boundary | **PASS — SUPPORTED SCOPE** |
+| GATE D | Supported OEM scope + fail-closed boundary | **PENDING — FINAL FAIL-CLOSED DEVICE CHECK** |
 | GATE E | Usage accounting accuracy / blocking latency | **PENDING** |
 | GATE F | 24h stability + Protection Integrity | **PENDING** |
 | GATE G | Signing / Versioning / Publishable Build | **PENDING** |
@@ -69,10 +69,11 @@ GATE C PASS 的范围（重要）：
 
 历史缺口（已关闭，保留记录）：本地曾出现「native 已更新、Web bundle 仍旧」的不一致 APK；旧 CI Run `31577669420` 未持久上传 artifacts。
 
-### GATE D — Supported OEM scope + fail-closed boundary：PASS_SUPPORTED_SCOPE
+### GATE D — Supported OEM scope + fail-closed boundary：PENDING_FINAL_FAIL_CLOSED_DEVICE_CHECK
 
 - v1.1.0 支持范围已明确：Redmi/Xiaomi 参考设备保持支持证据；vivo/iQOO 因 `FB-P1-05` 真实失败证据明确不支持。
 - vivo/iQOO 的 Play 与 Domestic 激活、配置重载、开机恢复和服务入口均 fail closed，原因固定为 `UNSUPPORTED_DEVICE_FOR_RELIABLE_MONITORING`；不以“再开启权限”作为绕过方案。
+- 自动化代码与回归测试已通过；但在同一真实设备完成最终 Accessibility fail-closed 检查前，不将 Gate D 记为 PASS。
 - 其他未完成真机验证的 OEM 不因未命中 fail-closed 集合而自动获得已验证声明，后续兼容性矩阵仍可独立扩展。
 - 同时决定 `COMPAT-001`（HyperOS best-effort BlockActivity 后台启动被拒）的处理方向：删除 `tryStartBlockActivity` / OEM 条件化 / 保留 best-effort。
 
@@ -228,7 +229,7 @@ ORIGINAL_LAPTOP_RECOVERY = `NOT_YET_TESTED`
 - [ ] 目标应用统计与系统数字健康误差 ≤10%（多机型，GATE E）
 - [ ] 阻断触发延迟 ≤2s（GATE E）
 - [ ] 连续运行 24 小时无时间暴涨、重复通知或 ANR，且无 silent protection drift（GATE F）
-- [x] v1.1.0 supported scope + vivo/iQOO fail-closed boundary（GATE D）
+- [ ] v1.1.0 supported scope + vivo/iQOO fail-closed boundary 的最终真机检查（GATE D；自动化已通过，当前 PENDING_DEVICE_CHECK）
 - [ ] 其他受支持范围候选 OEM：权限、后台限制、重启恢复实测（后续兼容性扩展）
 
 ### 商店
@@ -247,7 +248,8 @@ ORIGINAL_LAPTOP_RECOVERY = `NOT_YET_TESTED`
 
 1. GATE E：UsageStats 精度对照 + blocking latency 对照
 2. GATE F：24h stability + Protection Integrity
-3. GATE G remaining：cross-machine recovery（完成后才可整体关闭 GATE G；formal tag/store release 另行执行）
-4. 受支持范围候选 OEM 的后续兼容性矩阵（不重新打开 vivo/iQOO 运行时支持）
-5. 小规模 Beta（GATE I）
-6. 商店正式发行准备（GATE H）
+3. GATE D：同一真实设备完成最终 Accessibility fail-closed 检查
+4. GATE G remaining：cross-machine recovery（完成后才可整体关闭 GATE G；formal tag/store release 另行执行）
+5. 受支持范围候选 OEM 的后续兼容性矩阵（不重新打开 vivo/iQOO 运行时支持）
+6. 小规模 Beta（GATE I）
+7. 商店正式发行准备（GATE H）
