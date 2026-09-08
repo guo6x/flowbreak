@@ -58,6 +58,8 @@ const emptyRuntimeTracking: RuntimeTrackingDiagnostics = {
   runtimeTargetCount: 0,
   persistedTargetCount: 0,
   runtimeTargetsMatchPersisted: false,
+  monitorThreadAlive: false,
+  monitorLooperIsMain: false,
   timing: {
     lastTickExecutionMs: 0,
     maxTickExecutionMs: 0,
@@ -179,6 +181,8 @@ export default function ValidationAndDiagnostics() {
   const permissionReady = !!diagnostics
     && diagnostics.permissions.hasUsageStats
     && diagnostics.permissions.hasOverlay;
+  const monitorThreadHealthy = diagnostics?.runtimeTracking.monitorThreadAlive === true
+    && diagnostics?.runtimeTracking.monitorLooperIsMain === false;
 
   return (
     <div className="flex flex-col pb-24 px-5 pt-6 no-scrollbar overflow-y-auto min-h-dvh" data-testid="validation-page">
@@ -236,6 +240,7 @@ export default function ValidationAndDiagnostics() {
       <div className="card overflow-hidden mb-4">
         {[
           ['保护服务', diagnostics?.serviceAlive, diagnostics?.serviceAlive ? '运行正常' : '未检测到心跳'],
+          ['监控线程', monitorThreadHealthy, monitorThreadHealthy ? '独立线程运行中' : '线程状态需检查'],
           ['关键权限', permissionReady, permissionReady ? '已具备' : '需要检查'],
           ['本地数据库', diagnostics?.databaseVersion === 3, `Room v${diagnostics?.databaseVersion ?? '--'}`],
           ['受限应用', (diagnostics?.targetCount ?? 0) > 0, `${diagnostics?.targetCount ?? 0} 个`],

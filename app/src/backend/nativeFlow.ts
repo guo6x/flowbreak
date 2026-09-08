@@ -66,6 +66,8 @@ export interface RuntimeTrackingDiagnostics {
   runtimeTargetCount: number;
   persistedTargetCount: number;
   runtimeTargetsMatchPersisted: boolean;
+  monitorThreadAlive: boolean;
+  monitorLooperIsMain: boolean;
   timing: {
     lastTickExecutionMs: number;
     maxTickExecutionMs: number;
