@@ -3,6 +3,7 @@ package com.flowbreak.app;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import android.accessibilityservice.AccessibilityService;
@@ -87,6 +88,11 @@ public class FlowAccessibilityServiceTest {
         return ((ShadowWindowManagerImpl) Shadows.shadowOf(wm)).getViews();
     }
 
+    private static List<View> windowViewsFor(FlowAccessibilityService target) {
+        WindowManager wm = (WindowManager) target.getSystemService(Context.WINDOW_SERVICE);
+        return ((ShadowWindowManagerImpl) Shadows.shadowOf(wm)).getViews();
+    }
+
     private static Button findButton(ViewGroup root) {
         for (int i = 0; i < root.getChildCount(); i++) {
             View child = root.getChildAt(i);
@@ -167,6 +173,72 @@ public class FlowAccessibilityServiceTest {
         assertEquals(FlowForegroundService.ACTION_BEGIN_REST, started.getAction());
     }
 
+    @Test public void unsupportedRuntimeDoesNotSendHomeForBlockedTarget() {
+        ServiceController<UnsupportedRuntimeService> unsupportedController =
+                Robolectric.buildService(UnsupportedRuntimeService.class);
+        UnsupportedRuntimeService unsupported = unsupportedController.create().get();
+        unsupported.onServiceConnected();
+        enableBlocked("com.example.video");
+
+        unsupported.onAccessibilityEvent(windowEvent("com.example.video", "com.example.video.MainActivity"));
+
+        assertTrue(shadowA11y(unsupported).getGlobalActionsPerformed().isEmpty());
+        assertFalse(unsupported.isBlockBannerShowing());
+        assertEquals(BlockStateMachine.State.BLOCKED.name(),
+                prefs.getString("blockState", BlockStateMachine.State.IDLE.name()));
+        unsupportedController.destroy();
+    }
+
+    @Test public void unsupportedRuntimeDoesNotShowBannerForBlockedTarget() {
+        ServiceController<UnsupportedRuntimeService> unsupportedController =
+                Robolectric.buildService(UnsupportedRuntimeService.class);
+        UnsupportedRuntimeService unsupported = unsupportedController.create().get();
+        unsupported.onServiceConnected();
+        enableBlocked("com.example.video");
+
+        unsupported.onAccessibilityEvent(windowEvent("com.example.video", "com.example.video.MainActivity"));
+
+        assertFalse(unsupported.isBlockBannerShowing());
+        unsupportedController.destroy();
+    }
+
+    @Test public void unsupportedRuntimePollDismissesExistingBannerAndStops() {
+        ServiceController<ToggleableRuntimeService> toggleController =
+                Robolectric.buildService(ToggleableRuntimeService.class);
+        ToggleableRuntimeService toggle = toggleController.create().get();
+        toggle.onServiceConnected();
+        enableBlocked("com.example.video");
+        toggle.onAccessibilityEvent(windowEvent("com.example.video", "com.example.video.MainActivity"));
+        assertTrue(toggle.isBlockBannerShowing());
+
+        toggle.runtimeAvailable = false;
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(2_500L));
+
+        assertFalse(toggle.isBlockBannerShowing());
+        assertEquals(0, windowViewsFor(toggle).size());
+        toggleController.destroy();
+    }
+
+    @Test public void unsupportedRuntimeRestEntryDoesNotStartService() {
+        ServiceController<ToggleableRuntimeService> toggleController =
+                Robolectric.buildService(ToggleableRuntimeService.class);
+        ToggleableRuntimeService toggle = toggleController.create().get();
+        toggle.onServiceConnected();
+        enableBlocked("com.example.video");
+        toggle.onAccessibilityEvent(windowEvent("com.example.video", "com.example.video.MainActivity"));
+        Button rest = findButton((ViewGroup) windowViewsFor(toggle).get(0));
+        assertNotNull(rest);
+
+        toggle.runtimeAvailable = false;
+        rest.performClick();
+
+        assertFalse(toggle.isBlockBannerShowing());
+        assertNull(Shadows.shadowOf((ContextWrapper) toggle).getNextStartedService());
+        assertEquals(BlockStateMachine.State.BLOCKED.name(),
+                prefs.getString("blockState", BlockStateMachine.State.IDLE.name()));
+        toggleController.destroy();
+    }
+
     @Test public void blockActivityRejectionIsLoggedNotSilent() {
         ThrowingService throwing = Robolectric.buildService(ThrowingService.class).create().get();
         throwing.onServiceConnected();
@@ -200,5 +272,15 @@ public class FlowAccessibilityServiceTest {
         @Override public void startActivity(Intent intent) {
             throw new IllegalStateException("MIUI background start rejected");
         }
+    }
+
+    static class UnsupportedRuntimeService extends FlowAccessibilityService {
+        @Override boolean protectionRuntimeAvailable() { return false; }
+    }
+
+    static class ToggleableRuntimeService extends FlowAccessibilityService {
+        boolean runtimeAvailable = true;
+
+        @Override boolean protectionRuntimeAvailable() { return runtimeAvailable; }
     }
 }
