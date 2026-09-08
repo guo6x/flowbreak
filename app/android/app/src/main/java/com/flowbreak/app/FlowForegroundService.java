@@ -21,6 +21,7 @@ import android.os.SystemClock;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.os.VibratorManager;
+import android.util.Log;
 import androidx.annotation.Nullable;
 import androidx.core.app.ServiceCompat;
 import com.getcapacitor.JSArray;
@@ -195,11 +196,28 @@ public class FlowForegroundService extends Service {
             return START_NOT_STICKY;
         }
 
+        if (NativeFlowPermissionManager.requiresUnsupportedOemFailClosed(Build.MANUFACTURER)) {
+            Log.w("FlowForegroundService",
+                    NativeFlowPermissionManager.UNSUPPORTED_DEVICE_FOR_RELIABLE_MONITORING);
+            rejectUnsupportedRuntime(startId);
+            return START_NOT_STICKY;
+        }
+
         // Foreground promotion stays on the Service/main entry path. The
         // engine command and the monitor loop are serialized on the worker.
         promoteToForeground();
         postMonitorCommand(() -> handleEngineCommand(action));
         return START_STICKY;
+    }
+
+    /** Stop a runtime start attempt without deleting the user's configuration. */
+    private void rejectUnsupportedRuntime(int startId) {
+        if (monitorLoop != null) monitorLoop.stop();
+        postOverlayAction(() -> overlayController.dismissAll());
+        mainHandler.post(() -> {
+            stopForeground(STOP_FOREGROUND_REMOVE);
+            stopSelfResult(startId);
+        });
     }
 
     private void handleEngineCommand(String action) {

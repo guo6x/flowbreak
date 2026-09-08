@@ -37,6 +37,8 @@ const basePermissions = {
   isDomestic: false,
   channel: "base" as const,
   manufacturer: "",
+  unsupportedDevice: false,
+  protectionRuntimeAvailable: true,
 };
 
 function renderPermissions(overrides: Record<string, any> = {}) {
@@ -100,6 +102,22 @@ describe("Permissions", () => {
     });
     const btn = screen.getByText("继续设置保护") as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
+  });
+
+  it("unsupported vivo显示兼容性阻断且不引导继续开权限", () => {
+    renderPermissions({
+      hasUsageStats: true,
+      hasOverlay: true,
+      isNative: true,
+      manufacturer: "vivo",
+      isIgnoringBattery: true,
+      unsupportedDevice: true,
+      protectionRuntimeAvailable: false,
+    });
+    expect(screen.getAllByText("当前版本暂不支持在此设备上开启保护").length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText("提升后台稳定性（可稍后设置）")).toBeNull();
+    const btn = screen.getByRole("button", { name: "当前版本暂不支持在此设备上开启保护" });
+    expect(btn).toBeDisabled();
   });
 
   it("可选区域默认收起", () => {

@@ -59,7 +59,10 @@ public final class NativeFlowDataManager {
         result.put("state", FlowForegroundService.getState().name());
         result.put("sessionSeconds", FlowForegroundService.getSessionSeconds());
         result.put("graceUntil", FlowForegroundService.getGraceUntil());
+        result.put("monitoringConfigured", prefs.getBoolean("serviceConfigured", false));
         result.put("monitoringEnabled", prefs.getBoolean("monitoringEnabled", true));
+        result.put("protectionRuntimeAvailable",
+                new NativeFlowPermissionManager(context).isProtectionRuntimeAvailable());
         result.put("targetCount", PreferenceUtils.getMigratedTargetApps(prefs).size());
         result.put("eventCount", dao.eventCount());
         result.put("usageRowCount", dao.usageRowCount());

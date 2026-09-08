@@ -17,6 +17,8 @@ export interface PermissionState {
   isDomestic: boolean;
   channel: 'play' | 'domestic' | 'base';
   manufacturer?: string;
+  unsupportedDevice: boolean;
+  protectionRuntimeAvailable: boolean;
 }
 
 export interface NativeSettings {
@@ -194,7 +196,9 @@ export interface NativeFlowPlugin {
     state: BlockState;
     sessionSeconds: number;
     graceUntil: number;
+    monitoringConfigured: boolean;
     monitoringEnabled: boolean;
+    protectionRuntimeAvailable: boolean;
     targetCount: number;
     eventCount: number;
     usageRowCount: number;

@@ -4,7 +4,11 @@ import { motion } from 'framer-motion';
 import { Accessibility, ArrowLeft, Battery, Bell, ChevronDown, ChevronUp, Clock, Eye, Power, RefreshCw, Shield } from 'lucide-react';
 import { NativeFlow } from '../backend/nativeFlow';
 import { useNativePermissions } from '../hooks/useNativePermissions';
-import { requiresBackgroundStabilityPermission } from '../utils/backgroundStability';
+import {
+  requiresBackgroundStabilityPermission,
+  UNSUPPORTED_DEVICE_DETAIL,
+  UNSUPPORTED_DEVICE_MESSAGE,
+} from '../utils/backgroundStability';
 
 const AUTO_START_BRANDS = [
   'xiaomi', 'redmi', 'blackshark',
@@ -49,24 +53,28 @@ export default function Permissions() {
 
 
   const manufacturer = state.manufacturer;
+  const unsupportedDevice = isNative && state.unsupportedDevice === true;
   const needsAutoStart = isNative
+    && !unsupportedDevice
     && state.isDomestic
     && AUTO_START_BRANDS.some(b => (manufacturer || '').toLowerCase().includes(b));
-  const needsBackgroundStability = isNative && requiresBackgroundStabilityPermission(manufacturer);
+  const needsBackgroundStability = isNative
+    && !unsupportedDevice
+    && requiresBackgroundStabilityPermission(manufacturer);
 
-  const requiredItems = [
-    { key: 'usage', icon: Clock, title: '使用情况访问', desc: '识别所选应用并计算连续使用时长', granted: state.hasUsageStats },
-    { key: 'overlay', icon: Eye, title: '悬浮窗权限', desc: '在达到阻断条件时显示全屏覆盖页', granted: state.hasOverlay },
-    ...(needsBackgroundStability ? [{
-      key: 'battery',
-      icon: Battery,
-      title: '电池优化豁免',
-      desc: 'vivo / iQOO 未开启时可能冻结后台保护服务，无法持续累计时长',
-      granted: state.isIgnoringBattery,
-    }] : []),
-  ];
+  const requiredItems = unsupportedDevice ? [] : [
+      { key: 'usage', icon: Clock, title: '使用情况访问', desc: '识别所选应用并计算连续使用时长', granted: state.hasUsageStats },
+      { key: 'overlay', icon: Eye, title: '悬浮窗权限', desc: '在达到阻断条件时显示全屏覆盖页', granted: state.hasOverlay },
+      ...(needsBackgroundStability ? [{
+        key: 'battery',
+        icon: Battery,
+        title: '电池优化豁免',
+        desc: 'vivo / iQOO 未开启时可能冻结后台保护服务，无法持续累计时长',
+        granted: state.isIgnoringBattery,
+      }] : []),
+    ];
 
-  const optionalItems = [
+  const optionalItems = unsupportedDevice ? [] : [
     { key: 'notification', icon: Bell, title: '通知权限', desc: '显示前台服务状态与阶段提醒', granted: state.hasNotification },
     ...(!needsBackgroundStability ? [{
       key: 'battery',
@@ -127,11 +135,11 @@ export default function Permissions() {
   const batteryGranted = !needsBackgroundStability || state.isIgnoringBattery;
 
   const canProceed = isNative
-    ? usageGranted && overlayGranted && batteryGranted
+    ? !unsupportedDevice && usageGranted && overlayGranted && batteryGranted
     : true;
 
-  let btnText = '继续设置保护';
-  if (isNative && !canProceed) {
+  let btnText = unsupportedDevice ? UNSUPPORTED_DEVICE_MESSAGE : '继续设置保护';
+  if (isNative && !unsupportedDevice && !canProceed) {
     if (!usageGranted) {
       btnText = '还需开启：使用情况访问';
     } else if (!overlayGranted) {
@@ -168,12 +176,22 @@ export default function Permissions() {
         <div className="w-14 h-14 rounded-2xl bg-secondary/10 flex items-center justify-center mb-5">
           <Shield size={30} className="text-secondary" />
         </div>
-        <h1 className="text-[24px] font-bold mb-2">开始保护前需要{needsBackgroundStability ? '关键权限' : '两项权限'}</h1>
-        <p className="text-[14px] text-gray-500 mb-7">所有数据仅在本机处理。权限可随时在系统设置中撤销。</p>
+        <h1 className="text-[24px] font-bold mb-2">
+          {unsupportedDevice ? UNSUPPORTED_DEVICE_MESSAGE : `开始保护前需要${needsBackgroundStability ? '关键权限' : '两项权限'}`}
+        </h1>
+        <p className="text-[14px] text-gray-500 mb-7">
+          {unsupportedDevice ? UNSUPPORTED_DEVICE_DETAIL : '所有数据仅在本机处理。权限可随时在系统设置中撤销。'}
+        </p>
+
+        {unsupportedDevice && (
+          <div className="mb-6 rounded-2xl border border-error/20 bg-error/5 p-4 text-[12px] text-error" role="alert">
+            为避免显示已保护但实际失效，FlowBreak 不会在此设备上启动保护。你的目标应用、限额和历史数据不会被删除。
+          </div>
+        )}
 
         {/* Required permissions */}
-        <p className="text-[12px] font-medium text-gray-400 mb-3 uppercase tracking-wide">必需权限</p>
-        <div className="flex flex-col gap-3 mb-6">
+        {!unsupportedDevice && <p className="text-[12px] font-medium text-gray-400 mb-3 uppercase tracking-wide">必需权限</p>}
+        {!unsupportedDevice && <div className="flex flex-col gap-3 mb-6">
           {requiredItems.map(item => {
             const Icon = item.icon;
             const isGranted = item.granted;
@@ -204,10 +222,10 @@ export default function Permissions() {
               </div>
             );
           })}
-        </div>
+        </div>}
 
         {/* Optional permissions - collapsible */}
-        <div className="mb-6">
+        {!unsupportedDevice && <div className="mb-6">
           <button
             onClick={() => setOptionalExpanded(!optionalExpanded)}
             className="w-full flex items-center justify-between p-3 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors"
@@ -249,7 +267,7 @@ export default function Permissions() {
               })}
             </div>
           )}
-        </div>
+        </div>}
 
         {(checkError || actionError) && <p className="text-[12px] text-error text-center mb-3">{actionError || checkError}</p>}
 

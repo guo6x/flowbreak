@@ -4,6 +4,7 @@ import { ArrowLeft, CheckCircle2, Download, RefreshCw, ShieldCheck, TriangleAler
 import { useNavigate } from 'react-router';
 import { NativeFlow, PermissionState, RuntimeTrackingDiagnostics } from '../backend/nativeFlow';
 import { getReflectionCounts, getWeekStats } from '../backend/storage';
+import { UNSUPPORTED_DEVICE_DETAIL, UNSUPPORTED_DEVICE_MESSAGE } from '../utils/backgroundStability';
 
 type ValidationSummary = {
   days: number;
@@ -29,7 +30,9 @@ type Diagnostics = {
   state: string;
   sessionSeconds: number;
   graceUntil: number;
+  monitoringConfigured: boolean;
   monitoringEnabled: boolean;
+  protectionRuntimeAvailable: boolean;
   targetCount: number;
   eventCount: number;
   usageRowCount: number;
@@ -92,6 +95,8 @@ const emptyPermissions: PermissionState = {
   hasAccessibility: false,
   isDomestic: false,
   channel: 'base',
+  unsupportedDevice: false,
+  protectionRuntimeAvailable: true,
 };
 
 function formatSeconds(seconds: number) {
@@ -139,8 +144,9 @@ export default function ValidationAndDiagnostics() {
           versionName: 'Web 预览', versionCode: 0, channel: 'web', packageName: '',
           databaseVersion: 0, serviceAlive: false, serviceHeartbeatAt: 0,
           lastUsageEventAt: 0, state: 'IDLE', sessionSeconds: 0, graceUntil: 0,
+          monitoringConfigured: false,
           monitoringEnabled: true, targetCount: 0, eventCount: 0, usageRowCount: 0,
-          latestEventAt: 0, permissions: emptyPermissions,
+          protectionRuntimeAvailable: true, latestEventAt: 0, permissions: emptyPermissions,
           runtimeTracking: emptyRuntimeTracking,
         });
       }
@@ -241,6 +247,8 @@ export default function ValidationAndDiagnostics() {
         {[
           ['保护服务', diagnostics?.serviceAlive, diagnostics?.serviceAlive ? '运行正常' : '未检测到心跳'],
           ['监控线程', monitorThreadHealthy, monitorThreadHealthy ? '独立线程运行中' : '线程状态需检查'],
+          ['保护能力', diagnostics?.protectionRuntimeAvailable, diagnostics?.protectionRuntimeAvailable ? '可用' : '设备暂不支持'],
+          ['监控配置', diagnostics?.monitoringConfigured, diagnostics?.monitoringConfigured ? '已配置' : '未配置'],
           ['关键权限', permissionReady, permissionReady ? '已具备' : '需要检查'],
           ['本地数据库', diagnostics?.databaseVersion === 3, `Room v${diagnostics?.databaseVersion ?? '--'}`],
           ['受限应用', (diagnostics?.targetCount ?? 0) > 0, `${diagnostics?.targetCount ?? 0} 个`],
@@ -252,6 +260,13 @@ export default function ValidationAndDiagnostics() {
           </div>
         ))}
       </div>
+
+      {diagnostics && !diagnostics.protectionRuntimeAvailable && (
+        <div className="card mb-4 border border-error/20 bg-error/5 p-4 text-[12px] text-error">
+          <p className="font-medium">{UNSUPPORTED_DEVICE_MESSAGE}</p>
+          <p className="mt-1 leading-relaxed">{UNSUPPORTED_DEVICE_DETAIL}</p>
+        </div>
+      )}
 
       <div className="card p-4 mb-4 text-[11px] text-gray-500 leading-relaxed">
         <div className="flex items-center gap-2 text-gray-800 font-medium mb-2"><ShieldCheck size={16} className="text-primary" />脱敏诊断内容</div>

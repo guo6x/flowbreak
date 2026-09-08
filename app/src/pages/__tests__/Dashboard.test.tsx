@@ -25,6 +25,7 @@ vi.mock("../../backend/nativeFlow", () => ({
 let mockIsNative = false;
 let mockHasUsage = true;
 let mockHasOverlay = true;
+let mockUnsupported = false;
 
 vi.mock("../../hooks/useNativePermissions", () => ({
   useNativePermissions: () => ({
@@ -38,6 +39,8 @@ vi.mock("../../hooks/useNativePermissions", () => ({
       isDomestic: false,
       channel: "base" as const,
       manufacturer: "",
+      unsupportedDevice: mockUnsupported,
+      protectionRuntimeAvailable: !mockUnsupported,
     },
     checking: false,
     error: "",
@@ -86,6 +89,7 @@ describe("Dashboard", () => {
     mockIsNative = false;
     mockHasUsage = true;
     mockHasOverlay = true;
+    mockUnsupported = false;
   });
 
   it("渲染暂停按钮", () => {
@@ -224,6 +228,16 @@ describe("Dashboard", () => {
     renderDashboard({ isMonitoring: true, blockState: "IDLE" });
     expect(screen.queryByText("使用情况访问权限已失效")).toBeNull();
     expect(screen.queryByText("悬浮窗权限已失效")).toBeNull();
+  });
+
+  it("unsupported OEM显示阻断状态且不能开启保护", () => {
+    mockIsNative = true;
+    mockUnsupported = true;
+    renderDashboard({ isMonitoring: true, blockState: "IDLE" });
+    expect(screen.getAllByText("设备不支持").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("当前版本暂不支持在此设备上开启保护").length).toBeGreaterThanOrEqual(1);
+    const button = screen.getByRole("button", { name: "当前版本暂不支持在此设备上开启保护" });
+    expect(button).toBeDisabled();
   });
 
   it("点击去授权导航到permissions", () => {

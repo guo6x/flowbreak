@@ -3,6 +3,7 @@ package com.flowbreak.app;
 import android.accessibilityservice.AccessibilityService;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
@@ -37,8 +38,8 @@ public class FlowAccessibilityService extends AccessibilityService {
     private final Runnable blockPoll = new Runnable() {
         @Override public void run() {
             if (blockBanner == null || !blockBanner.isShowing()) return;
-            if (!isBlocked(prefs())) {
-                blockBanner.dismiss();
+            if (!protectionRuntimeAvailable() || !isBlocked(prefs())) {
+                cleanupBanner();
                 return;
             }
             handler.postDelayed(this, BLOCKED_POLL_MS);
@@ -56,6 +57,10 @@ public class FlowAccessibilityService extends AccessibilityService {
     }
 
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
+        if (!protectionRuntimeAvailable()) {
+            cleanupBanner();
+            return;
+        }
         int type = event.getEventType();
         if (type != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return;
         CharSequence packageNameValue = event.getPackageName();
@@ -118,6 +123,10 @@ public class FlowAccessibilityService extends AccessibilityService {
 
     /** 横幅"开始休息"：进入休息会话并尝试打开休息页。 */
     private void onStartRestClicked() {
+        if (!protectionRuntimeAvailable()) {
+            cleanupBanner();
+            return;
+        }
         Intent service = new Intent(this, FlowForegroundService.class);
         service.setAction(FlowForegroundService.ACTION_BEGIN_REST);
         try {
@@ -156,6 +165,11 @@ public class FlowAccessibilityService extends AccessibilityService {
 
     boolean isBlockBannerShowing() {
         return blockBanner != null && blockBanner.isShowing();
+    }
+
+    /** Runtime capability gate shared by event, banner polling, and rest entry. */
+    boolean protectionRuntimeAvailable() {
+        return NativeFlowPermissionManager.isProtectionRuntimeAvailable(Build.MANUFACTURER);
     }
 
     private boolean isBlocked(SharedPreferences prefs) {

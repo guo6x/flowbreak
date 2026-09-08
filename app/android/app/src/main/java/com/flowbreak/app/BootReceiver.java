@@ -8,6 +8,18 @@ import android.os.Build;
 import android.util.Log;
 
 public class BootReceiver extends BroadcastReceiver {
+    static boolean shouldStartMonitoring(
+            boolean configured,
+            boolean monitoringEnabled,
+            String manufacturer,
+            boolean backgroundStabilitySatisfied
+    ) {
+        return configured
+                && monitoringEnabled
+                && NativeFlowPermissionManager.isProtectionRuntimeAvailable(manufacturer)
+                && backgroundStabilitySatisfied;
+    }
+
     @Override
     public void onReceive(Context context, Intent intent) {
         String action = intent.getAction();
@@ -21,6 +33,11 @@ public class BootReceiver extends BroadcastReceiver {
             boolean monitoringEnabled = prefs.getBoolean("monitoringEnabled", true);
             if (!configured || !monitoringEnabled) {
                 Log.d("BootReceiver", "Protection is not configured or disabled, restart skipped");
+                return;
+            }
+            if (NativeFlowPermissionManager.requiresUnsupportedOemFailClosed(Build.MANUFACTURER)) {
+                Log.w("BootReceiver",
+                        NativeFlowPermissionManager.UNSUPPORTED_DEVICE_FOR_RELIABLE_MONITORING);
                 return;
             }
             if (!new NativeFlowPermissionManager(context).isBackgroundStabilitySatisfied()) {
