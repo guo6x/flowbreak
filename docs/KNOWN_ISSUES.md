@@ -37,6 +37,8 @@
 - Suspected root cause：仍未判定。本次 v1.1.0 变更只增加设备能力边界与 fail-closed 门禁，不继续扩大 OriginOS tracking 调查。
 - Next action：留待未来专门的 vivo/iQOO 兼容性修复或重新支持决策；v1.1.0 不生成新的 signed iQOO S6 candidate，也不执行 S6–S13。
 - Evidence：External device evidence: `D:\AI_code\flowbreak-device-evidence\iqoo-signed-sanity\2026-09-07-live-disambiguation-retry-2\sanity-report.md`
+- 2026-09-08 v1.1.0 final-scope acceptance：PR #20 已合入 master；最终签名 Domestic APK 通过 `adb install -r` 覆盖安装，未清除数据。iQOO 上 `unsupportedDevice=true`、`protectionRuntimeAvailable=false`，启动保护入口保持禁用并显示不支持原因；诊断未检测到保护服务心跳，未观察到活动保护 FGS。启用 Accessibility 后，B 站 `tv.danmaku.bili` 在短时检查中保持可用，未观察到 HOME、`BlockedTargetBanner` 或 `BlockActivity`。本次按范围未执行 S6–S13，因此不改变该问题的 OPEN 状态。
+- Final-scope evidence：External device evidence: `D:\AI_code\flowbreak-device-evidence\iqoo-signed-sanity\2026-09-08-final-scope-acceptance\`
 
 ### COMPAT-001 HyperOS may reject best-effort BlockActivity background launch
 
