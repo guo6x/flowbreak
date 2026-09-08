@@ -38,6 +38,23 @@ public class NativeFlowPlugin extends Plugin {
         return getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
+    /**
+     * Reject any transition that would activate protection on a known
+     * unsupported OEM. The persisted configuration remains untouched.
+     */
+    private boolean rejectMonitoringActivation(PluginCall call, boolean requested) {
+        if (!requested) return false;
+        if (!permissions.isProtectionRuntimeAvailable()) {
+            call.reject(NativeFlowPermissionManager.UNSUPPORTED_DEVICE_FOR_RELIABLE_MONITORING_MESSAGE);
+            return true;
+        }
+        if (!permissions.isBackgroundStabilitySatisfied()) {
+            call.reject(NativeFlowPermissionManager.BACKGROUND_STABILITY_REQUIRED_MESSAGE);
+            return true;
+        }
+        return false;
+    }
+
     @Override
     public void load() {
         super.load();
@@ -124,10 +141,7 @@ public class NativeFlowPlugin extends Plugin {
     @PluginMethod public void startService(PluginCall call) {
         try {
             boolean monitoringEnabled = call.getBoolean("monitoringEnabled", true);
-            if (monitoringEnabled && !permissions.isBackgroundStabilitySatisfied()) {
-                call.reject(NativeFlowPermissionManager.BACKGROUND_STABILITY_REQUIRED_MESSAGE);
-                return;
-            }
+            if (rejectMonitoringActivation(call, monitoringEnabled)) return;
             SharedPreferences.Editor editor = prefs().edit()
                     .putBoolean("serviceConfigured", true)
                     .putBoolean("monitoringEnabled", monitoringEnabled);
@@ -259,10 +273,7 @@ public class NativeFlowPlugin extends Plugin {
         SharedPreferences current = prefs();
         boolean shouldReload = current.getBoolean("serviceConfigured", false)
                 && current.getBoolean("monitoringEnabled", true);
-        if (shouldReload && !permissions.isBackgroundStabilitySatisfied()) {
-            call.reject(NativeFlowPermissionManager.BACKGROUND_STABILITY_REQUIRED_MESSAGE);
-            return;
-        }
+        if (shouldReload && rejectMonitoringActivation(call, true)) return;
         prefs().edit()
                 .putStringSet(PreferenceUtils.PREF_TARGET_APPS, filtered)
                 .putBoolean("serviceConfigured", true)
@@ -283,10 +294,7 @@ public class NativeFlowPlugin extends Plugin {
         boolean monitoringEnabled = data.has("monitoringEnabled")
                 ? call.getBoolean("monitoringEnabled", true)
                 : current.getBoolean("monitoringEnabled", true);
-        if (monitoringEnabled && !permissions.isBackgroundStabilitySatisfied()) {
-            call.reject(NativeFlowPermissionManager.BACKGROUND_STABILITY_REQUIRED_MESSAGE);
-            return;
-        }
+        if (rejectMonitoringActivation(call, monitoringEnabled)) return;
         boolean wasConfigured = current.getBoolean("serviceConfigured", false);
         SharedPreferences.Editor editor = current.edit().putBoolean("serviceConfigured", true);
         if (data.has("limitMinutes")) editor.putInt(

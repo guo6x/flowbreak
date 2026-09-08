@@ -26,6 +26,13 @@ import java.util.Set;
  * 需要 UI 跳转的 Intent 由调用方在 UI 线程启动。
  */
 public final class NativeFlowPermissionManager {
+    public static final String UNSUPPORTED_DEVICE_FOR_RELIABLE_MONITORING =
+            "UNSUPPORTED_DEVICE_FOR_RELIABLE_MONITORING";
+    public static final String UNSUPPORTED_DEVICE_FOR_RELIABLE_MONITORING_MESSAGE =
+            UNSUPPORTED_DEVICE_FOR_RELIABLE_MONITORING
+                    + "：当前版本暂不支持在此设备上开启保护。"
+                    + "系统后台限制可能导致连续计时停止。"
+                    + "为避免显示已保护但实际失效，FlowBreak 暂时不会在此设备上启动保护。";
     public static final String BACKGROUND_STABILITY_REQUIRED_MESSAGE =
             "请先开启电池优化豁免，否则 vivo/iQOO 可能冻结后台保护服务";
 
@@ -61,7 +68,24 @@ public final class NativeFlowPermissionManager {
         result.put("channel", BuildConfig.CHANNEL);
         result.put("manufacturer", Build.MANUFACTURER == null
                 ? "" : Build.MANUFACTURER.toLowerCase(Locale.ROOT));
+        boolean unsupported = requiresUnsupportedOemFailClosed(Build.MANUFACTURER);
+        result.put("unsupportedDevice", unsupported);
+        result.put("protectionRuntimeAvailable", !unsupported);
         return result;
+    }
+
+    /**
+     * Conservative v1.1.0 support boundary. This list is deliberately limited
+     * to the vivo/iQOO family covered by the real device failure evidence.
+     */
+    public static boolean requiresUnsupportedOemFailClosed(String manufacturer) {
+        String normalized = manufacturer == null ? "" : manufacturer.trim().toLowerCase(Locale.ROOT);
+        return normalized.contains("vivo") || normalized.contains("iqoo");
+    }
+
+    /** Whether the native protection runtime may be activated on this OEM. */
+    public static boolean isProtectionRuntimeAvailable(String manufacturer) {
+        return !requiresUnsupportedOemFailClosed(manufacturer);
     }
 
     /**
@@ -77,6 +101,11 @@ public final class NativeFlowPermissionManager {
     public boolean isBackgroundStabilitySatisfied() {
         if (!requiresBackgroundStability(Build.MANUFACTURER)) return true;
         return permissionState().optBoolean("isIgnoringBattery", false);
+    }
+
+    /** Whether protection may truthfully be presented as runtime-available. */
+    public boolean isProtectionRuntimeAvailable() {
+        return isProtectionRuntimeAvailable(Build.MANUFACTURER);
     }
 
     public Intent usageStatsSettingsIntent() {

@@ -24,18 +24,18 @@
 
 ## Open
 
-> Redmi R1–R4 复测后，原 `FB-P1-01/02/03`、`FB-P2-01` 全部 RESOLVED，当前开放项见下方。
+> Redmi R1–R4 复测后，原 `FB-P1-01/02/03`、`FB-P2-01` 全部 RESOLVED；`FB-P1-05` 仍开放，并在 v1.1.0 被明确纳入 vivo/iQOO fail-closed 支持边界。
 
 ### FB-P1-05 vivo/iQOO native tick path may fail to accumulate foreground usage
 
 - Severity：**P1（核心保护失效）**
-- Status：**OPEN**（仅完成 runtime instrumentation，尚未修复或复测关闭）
+- Status：**OPEN — UNSUPPORTED IN V1.1.0**（本次变更不修复根因，也不将其标记为 RESOLVED）
 - Affected version/SHA：`d61d2439c3cbc7b347b7af483916670e35c08805`
 - Environment：vivo iQOO V2073A / OriginOS 13.5 / Android 13 (SDK 33) / Domestic final-production-signed APK
 - Observed：B站实际包名 `tv.danmaku.bili` 已被选择为目标应用，FlowForegroundService 保持存活且设备当前前台为 B站，但持续实际使用后 `sessionSeconds` 仍为 0，未进入递进状态或 BLOCKED。
-- Expected：连续目标应用前台 tick 应推动 `BlockStateMachine.getSessionMs()` 增长，并按既有阈值进入递进状态。
-- Suspected root cause：尚未判定。下一次 signed-device 复现使用 `runtimeTracking` 区分 detector signal flicker、classifier failure、UsageAccumulator observation 与 BlockStateMachine session path；本 instrumentation PR 不改变行为。
-- Next action：在新 master 生成 signed candidate，在同一 iQOO 上运行约 60 秒并立即读取 runtime counters；根据 counters 再开最小 root-cause fix。
+- Expected：在受支持设备上，连续目标应用前台 tick 应推动 `BlockStateMachine.getSessionMs()` 增长，并按既有阈值进入递进状态。v1.1.0 对 vivo/iQOO 不启动保护，不把“已开启”显示为可用保护。
+- Suspected root cause：仍未判定。本次 v1.1.0 变更只增加设备能力边界与 fail-closed 门禁，不继续扩大 OriginOS tracking 调查。
+- Next action：留待未来专门的 vivo/iQOO 兼容性修复或重新支持决策；v1.1.0 不生成新的 signed iQOO S6 candidate，也不执行 S6–S13。
 - Evidence：External device evidence: `D:\AI_code\flowbreak-device-evidence\iqoo-signed-sanity\2026-09-07-live-disambiguation-retry-2\sanity-report.md`
 
 ### COMPAT-001 HyperOS may reject best-effort BlockActivity background launch

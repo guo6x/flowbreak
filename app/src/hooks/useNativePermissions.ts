@@ -11,6 +11,8 @@ const EMPTY_PERMISSIONS: PermissionState = {
   isDomestic: false,
   channel: 'base',
   manufacturer: '',
+  unsupportedDevice: false,
+  protectionRuntimeAvailable: true,
 };
 
 export function useNativePermissions(poll = false) {

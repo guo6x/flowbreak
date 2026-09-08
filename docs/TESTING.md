@@ -116,9 +116,17 @@ CI（`.github/workflows/android.yml`）在 master push / PR 时执行：
 - force-stop 语义：force-stop 后**不要求** App 自动复活。正确测试：force-stop → 用户手动重新打开 FlowBreak → UI 不得谎称旧保护状态仍完全有效 → 合法恢复保护。
 - 未来 24h 测试：不仅验证「不崩」，还要验证「**无 silent protection drift**」（保护能力无无声漂移）。
 
+### v1.1.0 OEM 支持边界与 fail-closed 验收
+
+- Gate D 的 v1.1.0 定义是「声明明确的支持范围 + 对已知不可靠设备 fail closed」，不是把所有尚未测试的 OEM 宣布为支持。
+- vivo / iQOO（大小写与空白归一化后）属于 v1.1.0 明确不支持的设备族；Play 与 Domestic 必须一致阻断。
+- fail-closed 原因必须是 `UNSUPPORTED_DEVICE_FOR_RELIABLE_MONITORING`，不得退化成电池优化或其他权限提示。
+- 已有 active config、目标应用、限额与历史数据必须保留；诊断必须分别报告 `monitoringConfigured` 与 `protectionRuntimeAvailable`，不能把保存过配置伪装成当前保护可用。
+- 最小回归覆盖：vivo/iQOO 检测、Xiaomi/Redmi/Samsung/OPPO/Honor 不误判、启动/配置重载/BootReceiver/服务入口均阻断，以及两渠道共用该边界。Redmi 参考设备保持支持证据。
+
 ### 尚未完成的设备验证
 
-- 多 OEM 真机矩阵（Xiaomi / Redmi、OPPO / OnePlus、vivo / iQOO、Honor / Huawei：权限、后台限制、重启、24 小时稳定性）。
+- 受支持范围内其他 OEM 的真机矩阵（Xiaomi / Redmi 之外的 OPPO / OnePlus、Honor / Huawei 等：权限、后台限制、重启、24 小时稳定性）；vivo / iQOO 不属于 v1.1.0 支持运行时矩阵，保留为 `FB-P1-05` 开放兼容性问题。
 - 与系统数字健康误差 ≤10% 的多设备对照（UsageStats 精度）。
 - 阻断触发延迟 ≤2s 实测（blocking latency）。
 - 24h stability + Protection Integrity（含上述失效注入）。

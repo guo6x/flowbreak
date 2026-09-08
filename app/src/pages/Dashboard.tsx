@@ -8,7 +8,11 @@ import { Capacitor } from '@capacitor/core';
 import { NativeFlow } from '../backend/nativeFlow';
 import { useNativePermissions } from '../hooks/useNativePermissions';
 import { getProtectionViewModel, formatRemainingTime, formatCountdown } from '../utils/protectionStatus';
-import { requiresBackgroundStabilityPermission } from '../utils/backgroundStability';
+import {
+  requiresBackgroundStabilityPermission,
+  UNSUPPORTED_DEVICE_DETAIL,
+  UNSUPPORTED_DEVICE_MESSAGE,
+} from '../utils/backgroundStability';
 
 function formatMinutes(seconds: number) {
   const h = Math.floor(seconds / 3600);
@@ -35,11 +39,13 @@ function ProtectionStatusCard({
   missingPermissions,
   missingPermissionLabel,
   currentAppName,
+  unsupportedDevice,
 }: {
   now: number;
   missingPermissions: boolean;
   missingPermissionLabel: string;
   currentAppName: string;
+  unsupportedDevice: boolean;
 }) {
   const navigate = useNavigate();
   const isMonitoring = useStore(s => s.isMonitoring);
@@ -53,7 +59,7 @@ function ProtectionStatusCard({
   const handleRetry = () => setMonitoring(true);
 
   const noTargetApps = (profile.targetApps || []).length === 0;
-  const protectionActive = isMonitoring && !noTargetApps;
+  const protectionActive = isMonitoring && !noTargetApps && !unsupportedDevice;
 
   const vm = getProtectionViewModel({
     isMonitoring: protectionActive,
@@ -68,10 +74,12 @@ function ProtectionStatusCard({
     currentAppName,
   });
 
-  const badgeLabel = !isMonitoring ? '已暂停'
+  const badgeLabel = unsupportedDevice ? '设备不支持'
+    : !isMonitoring ? '已暂停'
     : noTargetApps ? '未配置'
     : '已开启';
-  const badgeClass = !isMonitoring ? 'bg-gray-100 text-gray-500'
+  const badgeClass = unsupportedDevice ? 'bg-red-100 text-red-700'
+    : !isMonitoring ? 'bg-gray-100 text-gray-500'
     : noTargetApps ? 'bg-amber-100 text-amber-700'
     : 'bg-green-100 text-green-700';
 
@@ -83,7 +91,13 @@ function ProtectionStatusCard({
           {badgeLabel}
         </span>
       </div>
-      {vm.hasError && (
+      {unsupportedDevice && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-3" role="alert">
+          <p className="text-[13px] text-red-700 font-medium">{UNSUPPORTED_DEVICE_MESSAGE}</p>
+          <p className="text-[12px] text-red-700 mt-1 leading-relaxed">{UNSUPPORTED_DEVICE_DETAIL}</p>
+        </div>
+      )}
+      {vm.hasError && !unsupportedDevice && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-3" role="alert">
           <p className="text-[13px] text-red-700">{vm.errorMessage}</p>
           <div className="flex gap-2 mt-2">
@@ -183,7 +197,8 @@ export default function Dashboard() {
   const [toggling, setToggling] = useState(false);
   const { isNative, permissions } = useNativePermissions();
   const noTargetApps = profile.targetApps.length === 0;
-  const protectionActive = isMonitoring && !noTargetApps;
+  const unsupportedDevice = isNative && permissions.unsupportedDevice === true;
+  const protectionActive = isMonitoring && !noTargetApps && !unsupportedDevice;
   const needsBackgroundStability = isNative && requiresBackgroundStabilityPermission(permissions.manufacturer);
   const missingCritical = isNative && protectionActive && (
     !permissions.hasUsageStats
@@ -255,7 +270,7 @@ export default function Dashboard() {
 
   const handleToggleMonitoring = async () => {
     if (toggling) return;
-    if (noTargetApps) return;
+    if (noTargetApps || unsupportedDevice) return;
     setToggling(true);
     try {
       setMonitoring(!isMonitoring);
@@ -303,7 +318,7 @@ export default function Dashboard() {
             <div className="flex items-center gap-1.5 bg-primary/10 px-3 py-1.5 rounded-full">
               <div className={`w-2 h-2 rounded-full ${protectionActive ? 'bg-primary animate-pulse' : 'bg-gray-400'}`} />
               <span className="text-[11px] text-primary font-medium">
-                {noTargetApps ? '未配置' : isMonitoring ? '监控中' : '已暂停'}
+                {unsupportedDevice ? '设备不支持' : noTargetApps ? '未配置' : isMonitoring ? '监控中' : '已暂停'}
               </span>
             </div>
             {protectionActive && currentAppName && (
@@ -312,17 +327,23 @@ export default function Dashboard() {
           </motion.div>
         </div>
       </div>
-      <ProtectionStatusCard now={now} missingPermissions={missingCritical} missingPermissionLabel={missingCriticalLabel} currentAppName={currentAppName} />
+      <ProtectionStatusCard
+        now={now}
+        missingPermissions={missingCritical}
+        missingPermissionLabel={missingCriticalLabel}
+        currentAppName={currentAppName}
+        unsupportedDevice={unsupportedDevice}
+      />
 
       <button
         onClick={handleToggleMonitoring}
-        disabled={toggling || noTargetApps}
+        disabled={toggling || noTargetApps || unsupportedDevice}
         className={`w-full h-12 rounded-xl text-[14px] font-medium transition-colors mb-5 ${
-          isMonitoring ? 'bg-gray-200 text-gray-700' : noTargetApps ? 'bg-gray-200 text-gray-500' : 'bg-primary text-white'
+          unsupportedDevice ? 'bg-gray-200 text-gray-500' : isMonitoring ? 'bg-gray-200 text-gray-700' : noTargetApps ? 'bg-gray-200 text-gray-500' : 'bg-primary text-white'
         }`}
-        aria-label={noTargetApps ? '请先选择受限应用' : isMonitoring ? '暂停保护' : '开启保护'}
+        aria-label={unsupportedDevice ? UNSUPPORTED_DEVICE_MESSAGE : noTargetApps ? '请先选择受限应用' : isMonitoring ? '暂停保护' : '开启保护'}
       >
-        {noTargetApps ? '请先选择受限应用' : toggling ? (isMonitoring ? '正在暂停...' : '正在开启...') : (isMonitoring ? '暂停保护' : '开启保护')}
+        {unsupportedDevice ? UNSUPPORTED_DEVICE_MESSAGE : noTargetApps ? '请先选择受限应用' : toggling ? (isMonitoring ? '正在暂停...' : '正在开启...') : (isMonitoring ? '暂停保护' : '开启保护')}
       </button>
 
       <motion.div
