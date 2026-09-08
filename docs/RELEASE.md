@@ -20,7 +20,7 @@
 | GATE D | Supported OEM scope + fail-closed boundary | **PASS_SUPPORTED_SCOPE** |
 | GATE E | Usage accounting accuracy / blocking latency | **PENDING** |
 | GATE F | 24h stability + Protection Integrity | **PENDING** |
-| GATE G | Signing / Versioning / Publishable Build | **PENDING** |
+| GATE G | Signing / Versioning / Publishable Build | **PENDING_CROSS_MACHINE_RECOVERY** |
 | GATE H | Store / Compliance Readiness | **PENDING** |
 | GATE I | Small-scale Beta | **PENDING** |
 

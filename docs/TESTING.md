@@ -153,6 +153,6 @@ CI（`.github/workflows/android.yml`）在 master push / PR 时执行：
 | RecoveryIntegration | **23**（@Test；仍是 23，不是 26） |
 | Room migrations | **6 / 6** |
 | CI | Run `31577669420` / verify Job `94053353542` **SUCCESS**（HEAD = `99fdcc2`） |
-| 真机结论 | **PASSED**（R1–R4，2026-08-14；P0 = 0、P1 = 0） |
+| 真机结论 | **PASSED**（R1–R4，2026-08-14；P0 = 0、supported-scope release-blocking P1 = 0；不包含后续 `FB-P1-05`） |
 
 > 历史快照（`a06a772`，2026-08-12）：Frontend 148 / Play JVM 220 / Domestic JVM 220 / RecoveryIntegration 23 / Room 6，真机结论 FAILED。仅作历史对比，不得当作当前数字。
