@@ -29,6 +29,67 @@ export interface NativeSettings {
   channel: string;
 }
 
+export interface RecentRuntimeTick {
+  sequence: number;
+  startDeltaMs: number;
+  executionMs: number;
+  postDelayGapMs: number;
+  monitoringEnabled: boolean;
+  targetSetEmpty: boolean;
+  interactionAvailable: boolean;
+  foregroundPresent: boolean;
+  foregroundInRuntimeTargets: boolean;
+  classifierEvaluated: boolean;
+  classifierIsTarget: boolean;
+  machineSessionBeforeMs: number;
+  machineSessionAfterMs: number;
+  machineSessionDeltaMs: number;
+}
+
+export interface RuntimeTrackingDiagnostics {
+  tickCount: number;
+  detectorNonEmptyTickCount: number;
+  targetTrueTickCount: number;
+  targetFalseTickCount: number;
+  consecutiveTargetTicks: number;
+  maxConsecutiveTargetTicks: number;
+  lastClassifierIsTarget: boolean;
+  lastObservedTargetMs: number;
+  positiveObservedTargetTickCount: number;
+  machineSessionBeforeMs: number;
+  machineSessionAfterMs: number;
+  machineSessionIncreaseCount: number;
+  lastTickDeltaMs: number;
+  foregroundChangedCount: number;
+  lastForegroundPresent: boolean;
+  accumulatorLastTargetPresent: boolean;
+  runtimeTargetCount: number;
+  persistedTargetCount: number;
+  runtimeTargetsMatchPersisted: boolean;
+  timing: {
+    lastTickExecutionMs: number;
+    maxTickExecutionMs: number;
+    averageTickExecutionMs: number;
+    lastPostDelayGapMs: number;
+    maxPostDelayGapMs: number;
+    averagePostDelayGapMs: number;
+    postDelayGapOver3000Count: number;
+    postDelayGapOver5000Count: number;
+  };
+  reasonCounters: {
+    foregroundInRuntimeTargetTickCount: number;
+    foregroundNotInRuntimeTargetTickCount: number;
+    classifierFalseForegroundInRuntimeTargetCount: number;
+    classifierFalseForegroundNotInRuntimeTargetCount: number;
+    foregroundIsSelfPackageTickCount: number;
+    foregroundIsOtherNonTargetTickCount: number;
+    monitoringDisabledTickCount: number;
+    targetSetEmptyTickCount: number;
+    interactionUnavailableTickCount: number;
+  };
+  recentTicks: RecentRuntimeTick[];
+}
+
 export interface NativeFlowPlugin {
   checkPermissions(): Promise<PermissionState>;
   requestUsageStatsPermission(): Promise<void>;
@@ -137,6 +198,7 @@ export interface NativeFlowPlugin {
     usageRowCount: number;
     latestEventAt: number;
     permissions: PermissionState;
+    runtimeTracking: RuntimeTrackingDiagnostics;
   }>;
   exportDiagnostics(): Promise<{ json: string }>;
   shareDiagnostics(): Promise<void>;
