@@ -48,6 +48,16 @@ CI（`.github/workflows/android.yml`）在 master push / PR 时执行：
 - Smoke：IDLE→PERCEPTION→COGNITION→BLOCKED→RESTING→GRACE 全链路走通；force-stop 后 20s 无自动重启（语义正确）；覆盖安装保留 prefs/DB/目标应用/权限数据。
 - 遗留观察（非阻塞）：`tryStartBlockActivity` 仍可能产生 `MIUILOG Permission Denied Activity` 系统日志（R3 轮次 4 条），横幅兜底使其不影响功能（`KNOWN_ISSUES.md#COMPAT-001`）。
 
+### 2026-09-08 v1.1.0 PR #20 final-scope acceptance（GATE D）
+
+- Merge / master：PR #20 已合并，master SHA = `2af5e93e88687cdb8b7903f270ae67380773a200`；合并后的 master verify Run `34227077948` **SUCCESS**。
+- Signed candidate：workflow dispatch Run `34227560491` 的 verify 与 release 均 **SUCCESS**；artifact = `flowbreak-signed-dry-run-v1.1.0-2af5e93e88687cdb8b7903f270ae67380773a200`；Domestic APK SHA-256 = `2ee7d2147b8d19a4f83e45dd85bc5eb3ea61504ab87e875260fedcdc1b0b1875`；Domestic fingerprint = `8d69d1786ea63b05ff3b8d1f5a78266a2fa1eda7b823af0c295cbfdc10e77f20`。
+- iQOO 设备：vivo `V2073A` / OriginOS 13.5 / Android 13 / SDK 33；对 `com.flowbreak.app.cn` 执行 `adb install -r` 成功，未清除或卸载数据。已有目标应用（5 个）、限额（15 分钟）及 Room v3 数据仍可见。
+- Fail-closed 结果：`unsupportedDevice=true`、`protectionRuntimeAvailable=false`；Dashboard 与 Diagnostics 均如实显示设备不支持，启动保护控件不可用；Diagnostics 显示保护服务未检测到心跳，未观察到活动保护 FGS。`IQOO_FAIL_CLOSED=PASS`，`IQOO_SUPPORTED=NO`。
+- Accessibility sanity：已启用 FlowBreak Accessibility；`tv.danmaku.bili` 在短时前台检查中保持可用，未观察到 HOME 动作、`BlockedTargetBanner` 或 `BlockActivity`。本阶段没有执行计时，因此 `S6–S13=NOT_RUN`，也没有重新调查 `FB-P1-05` 根因。
+- Redmi：当前未连接 Redmi，未执行新 signed build smoke；既有 Redmi R1–R4 外部证据仍为 **PASS**，因此 `REDMI_SUPPORTED_REFERENCE=PASS`、`REDMI_NEW_BUILD_SMOKE=NOT_EXECUTED`。
+- 安全边界：production keys、GitHub signing secrets、age vault、USB backup、signing policy 均未修改。原始设备证据仍保存在仓库外：`D:\AI_code\flowbreak-device-evidence\iqoo-signed-sanity\2026-09-08-final-scope-acceptance\`。
+
 ### 2026-08-12 首轮验收记录（历史快照，不再代表当前状态）
 
 - 设备：Redmi Note 13 Pro 5G（`2312DRA50C` / garnet）/ Android 16 / SDK 36 / HyperOS 3.0（`OS3.0.306.0.WNRCNXM`）
@@ -89,17 +99,17 @@ CI（`.github/workflows/android.yml`）在 master push / PR 时执行：
 - 独立复核流程（验收标准）：下载 artifact ZIP → 解压 → `sha256sum -c SHA256SUMS.txt`（或 Get-FileHash）→ manifest sourceGitSha = 期望 SHA → 从 APK/AAB 内读取 `build-provenance.json` 的 sourceGitSha 与版本一致性。
 - 实测记录：PR #1 CI Run `31900444404` verify SUCCESS；artifact `flowbreak-unsigned-ea53a22136dd58663291581763eb3614c4b10ba6` 下载后 5/5 校验一致，APK/AAB 内部 provenance sourceGitSha 均 = PR head SHA。
 
-### 版本与签名验证（GATE G，2026-08-16）
+### 版本与签名验证（GATE G，更新至 2026-09-08）
 
 - **版本策略（VERSION_POLICY）**：versionName 唯一 Source of Truth = `app/package.json` version（stable SemVer，无 prerelease/build）；versionCode = `MAJOR*1_000_000 + MINOR*1_000 + PATCH`（1.1.0 → 1001000；MINOR/PATCH < 1000，总量 ≤ 2100000000），确定性、单调、与 CI run_number 无关；正式 tag 必须精确 = `v<versionName>`（`vfoo`/`v1`/`v1.1.0-test` 一律 FAIL）。`scripts/release-version.mjs` 输出 `VERSION_NAME`/`VERSION_CODE` 供 GITHUB_ENV；release job 构建前还校验 tag 指向的 SHA 是 origin/master 的 ancestor（`TAG_ON_MASTER_LINE=PASS`）。
 - **签名身份（SIGNING_IDENTITY_DECISION = SEPARATE）**：Play = upload key（`FLOWBREAK_PLAY_*`），Domestic = app-signing key（`FLOWBREAK_DOMESTIC_*`）；build.gradle 按 flavor 条件启用，env 缺失时保持 unsigned（CI verify 不受影响）。
 - **签名验证（CI release job）**：在 decode/build signing 前读取 `app/release-signing-policy.json`；`provisioningStatus != PROVISIONED` 输出 `SIGNING_POLICY_NOT_PROVISIONED` 并立即 fail closed，两个 certificate fingerprint 还必须是合法的 64 位 lowercase SHA-256。之后才执行 Domestic APK `apksigner verify --verbose --print-certs`、Play AAB `jarsigner -verify` + `keytool -printcert -jarfile` 与 allowlist 对照；不允许 debug key、旧 fingerprint 或自动生成 key fallback。
 - **signed artifact provenance**：signed AAB/APK + mappings + build-provenance + artifact-manifest（含 signed/signingRole/certificateSha256）+ SHA256SUMS 一并上传；命名 `flowbreak-signed-v<version>-<sha>`（dry-run 前缀 `flowbreak-signed-dry-run-`）；`if: always()` 清理 `$RUNNER_TEMP` keystore。
 - **TEST ONLY 密钥纪律**：Stage A 的本地机制验证曾使用临时 TEST ONLY 密钥（keytool 生成于临时目录、不进仓库、不作为正式 fingerprint）；CI signed dry-run 在 secrets 缺失时清晰失败，**不**降级用 debug key 冒充 production signing。
-- **生产身份当前状态**：首轮 technical dry-run（Run `31934183213`）仅证明签名工程链路可用，身份已标记 **SUPERSEDED_PRE_PRODUCTION**，禁止用于正式发行。最终身份明确 `DEFERRED_TO_PRIMARY_LAPTOP`；当前 policy 为 `PENDING_FINAL_HUMAN_GENERATION`，旧 identity 不再作为 active allowlist。
-- **CI signing credentials**：旧 `production-signing` Environment 中的 8 个 superseded secrets 已删除；当前只保留环境边界，不保留旧 signing material。
+- **生产身份当前状态**：首轮 technical dry-run（Run `31934183213`）仅证明签名工程链路可用，身份已标记 **SUPERSEDED_PRE_PRODUCTION**，禁止用于正式发行。最终身份已在 primary workstation 生成；当前 policy 为 `PROVISIONED`，两个最终 public certificate fingerprint 已写入 allowlist。
+- **CI signing credentials**：旧 identity 的 8 个 secrets 已清理；最终 identity 对应的 8 个 production signing secrets 已由 owner provision。secret values 未读取、未写入仓库，也未进入 artifact 或日志。
 - **Portable vault 工具**：`tools/New-PortableSigningVault.ps1` 只接受 policy=`PROVISIONED` 且两张 public certificate 与 policy 指纹完全匹配的最终身份；使用系统 CSPRNG，recovery secret 只经一次性剪贴板交接，不输出 stdout、不落盘。`tools/Test-PortableSigningVault.ps1` 在原笔记本/独立环境执行 decrypt、keytool metadata 读取和 policy 指纹核对。
-- **尚未执行（冻结期）**：不生成 final key、不创建 v1.1.0 tag、不创建 vault；`PORTABLE_VAULT=PENDING_FINAL_IDENTITY`、`CROSS_MACHINE_SIGNING_RECOVERY=NOT_YET_TESTED`。GATE G 暂停期间转向 GATE E/F/D。
+- **当前剩余项**：`v1.1.0` 正式 tag / store release 尚未执行；portable vault 本地恢复与 off-machine backup 已 PASS，但 `CROSS_MACHINE_SIGNING_RECOVERY=NOT_YET_TESTED`，因此 GATE G 仍保持 `PENDING_CROSS_MACHINE_RECOVERY`。
 
 ### Protection Integrity（UI promise ≤ 实际保护能力）
 
@@ -143,6 +153,6 @@ CI（`.github/workflows/android.yml`）在 master push / PR 时执行：
 | RecoveryIntegration | **23**（@Test；仍是 23，不是 26） |
 | Room migrations | **6 / 6** |
 | CI | Run `31577669420` / verify Job `94053353542` **SUCCESS**（HEAD = `99fdcc2`） |
-| 真机结论 | **PASSED**（R1–R4，2026-08-14；P0 = 0、P1 = 0） |
+| 真机结论 | **PASSED**（R1–R4，2026-08-14；P0 = 0、supported-scope release-blocking P1 = 0；不包含后续 `FB-P1-05`） |
 
 > 历史快照（`a06a772`，2026-08-12）：Frontend 148 / Play JVM 220 / Domestic JVM 220 / RecoveryIntegration 23 / Room 6，真机结论 FAILED。仅作历史对比，不得当作当前数字。
