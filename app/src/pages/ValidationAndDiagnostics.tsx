@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { ArrowLeft, CheckCircle2, Download, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react';
 import { useNavigate } from 'react-router';
-import { NativeFlow, PermissionState } from '../backend/nativeFlow';
+import { NativeFlow, PermissionState, RuntimeTrackingDiagnostics } from '../backend/nativeFlow';
 import { getReflectionCounts, getWeekStats } from '../backend/storage';
 
 type ValidationSummary = {
@@ -35,6 +35,51 @@ type Diagnostics = {
   usageRowCount: number;
   latestEventAt: number;
   permissions: PermissionState;
+  runtimeTracking: RuntimeTrackingDiagnostics;
+};
+
+const emptyRuntimeTracking: RuntimeTrackingDiagnostics = {
+  tickCount: 0,
+  detectorNonEmptyTickCount: 0,
+  targetTrueTickCount: 0,
+  targetFalseTickCount: 0,
+  consecutiveTargetTicks: 0,
+  maxConsecutiveTargetTicks: 0,
+  lastClassifierIsTarget: false,
+  lastObservedTargetMs: 0,
+  positiveObservedTargetTickCount: 0,
+  machineSessionBeforeMs: 0,
+  machineSessionAfterMs: 0,
+  machineSessionIncreaseCount: 0,
+  lastTickDeltaMs: 0,
+  foregroundChangedCount: 0,
+  lastForegroundPresent: false,
+  accumulatorLastTargetPresent: false,
+  runtimeTargetCount: 0,
+  persistedTargetCount: 0,
+  runtimeTargetsMatchPersisted: false,
+  timing: {
+    lastTickExecutionMs: 0,
+    maxTickExecutionMs: 0,
+    averageTickExecutionMs: 0,
+    lastPostDelayGapMs: 0,
+    maxPostDelayGapMs: 0,
+    averagePostDelayGapMs: 0,
+    postDelayGapOver3000Count: 0,
+    postDelayGapOver5000Count: 0,
+  },
+  reasonCounters: {
+    foregroundInRuntimeTargetTickCount: 0,
+    foregroundNotInRuntimeTargetTickCount: 0,
+    classifierFalseForegroundInRuntimeTargetCount: 0,
+    classifierFalseForegroundNotInRuntimeTargetCount: 0,
+    foregroundIsSelfPackageTickCount: 0,
+    foregroundIsOtherNonTargetTickCount: 0,
+    monitoringDisabledTickCount: 0,
+    targetSetEmptyTickCount: 0,
+    interactionUnavailableTickCount: 0,
+  },
+  recentTicks: [],
 };
 
 const emptyPermissions: PermissionState = {
@@ -94,6 +139,7 @@ export default function ValidationAndDiagnostics() {
           lastUsageEventAt: 0, state: 'IDLE', sessionSeconds: 0, graceUntil: 0,
           monitoringEnabled: true, targetCount: 0, eventCount: 0, usageRowCount: 0,
           latestEventAt: 0, permissions: emptyPermissions,
+          runtimeTracking: emptyRuntimeTracking,
         });
       }
     } catch {

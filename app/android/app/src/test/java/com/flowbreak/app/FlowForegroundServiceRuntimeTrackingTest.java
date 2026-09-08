@@ -4,6 +4,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import java.util.Arrays;
+import java.util.HashSet;
 import org.junit.Test;
 
 public class FlowForegroundServiceRuntimeTrackingTest {
@@ -102,6 +104,118 @@ public class FlowForegroundServiceRuntimeTrackingTest {
         assertEquals(3L, snapshot.foregroundChangedCount);
         assertTrue(snapshot.lastForegroundPresent);
         assertTrue(snapshot.accumulatorLastTargetPresent);
+    }
+
+    @Test public void recentTickRingBufferHasMaximum64Entries() {
+        FlowForegroundService.RuntimeTrackingCounters counters =
+                new FlowForegroundService.RuntimeTrackingCounters();
+
+        for (int i = 0; i < 64; i++) {
+            long start = 1_000L + i * 2_000L;
+            counters.recordMonitorStart(start);
+            counters.recordTick(start, true, false, true);
+            counters.recordMonitorEnd(start + 10L);
+        }
+
+        FlowForegroundService.RuntimeTrackingSnapshot snapshot = counters.snapshot();
+        assertEquals(64, snapshot.recentTicks.length);
+        assertEquals(1L, snapshot.recentTicks[0].sequence);
+        assertEquals(64L, snapshot.recentTicks[63].sequence);
+    }
+
+    @Test public void recentTickRingBufferKeepsLatest64AfterOverflow() {
+        FlowForegroundService.RuntimeTrackingCounters counters =
+                new FlowForegroundService.RuntimeTrackingCounters();
+
+        for (int i = 0; i < 70; i++) {
+            long start = 1_000L + i * 2_000L;
+            counters.recordMonitorStart(start);
+            counters.recordTick(start, true, false, true);
+            counters.recordMonitorEnd(start + 10L);
+        }
+
+        FlowForegroundService.RuntimeTrackingSnapshot snapshot = counters.snapshot();
+        assertEquals(64, snapshot.recentTicks.length);
+        assertEquals(7L, snapshot.recentTicks[0].sequence);
+        assertEquals(70L, snapshot.recentTicks[63].sequence);
+    }
+
+    @Test public void executionAndPostDelayGapAreMeasuredSeparately() {
+        FlowForegroundService.RuntimeTrackingCounters counters =
+                new FlowForegroundService.RuntimeTrackingCounters();
+
+        counters.recordMonitorStart(1_000L);
+        counters.recordTick(1_000L, true, false, true);
+        counters.recordMonitorEnd(1_100L);
+        counters.recordMonitorStart(3_100L);
+        counters.recordTick(3_100L, true, false, true);
+        counters.recordMonitorEnd(3_300L);
+
+        FlowForegroundService.RuntimeTrackingSnapshot snapshot = counters.snapshot();
+        assertEquals(200L, snapshot.lastTickExecutionMs);
+        assertEquals(200L, snapshot.maxTickExecutionMs);
+        assertEquals(150D, snapshot.averageTickExecutionMs, 0.001D);
+        assertEquals(2_000L, snapshot.lastPostDelayGapMs);
+        assertEquals(2_000L, snapshot.maxPostDelayGapMs);
+        assertEquals(2_000D, snapshot.averagePostDelayGapMs, 0.001D);
+        assertEquals(2_100L, snapshot.recentTicks[1].startDeltaMs);
+        assertEquals(2_000L, snapshot.recentTicks[1].postDelayGapMs);
+    }
+
+    @Test public void classifierFalseReasonCountersRemainDistinct() {
+        FlowForegroundService.RuntimeTrackingCounters counters =
+                new FlowForegroundService.RuntimeTrackingCounters();
+
+        counters.recordTick(1_000L, true, false, true);
+        counters.recordClassifierSignals(true, true, false, false, false);
+        counters.recordTick(3_000L, true, false, true);
+        counters.recordClassifierSignals(true, false, false, false, true);
+
+        FlowForegroundService.RuntimeTrackingSnapshot snapshot = counters.snapshot();
+        assertEquals(1L, snapshot.foregroundInRuntimeTargetTickCount);
+        assertEquals(1L, snapshot.foregroundNotInRuntimeTargetTickCount);
+        assertEquals(1L, snapshot.classifierFalseForegroundInRuntimeTargetCount);
+        assertEquals(1L, snapshot.classifierFalseForegroundNotInRuntimeTargetCount);
+        assertEquals(0L, snapshot.foregroundIsSelfPackageTickCount);
+        assertEquals(1L, snapshot.foregroundIsOtherNonTargetTickCount);
+    }
+
+    @Test public void runtimeAndPersistedTargetSetEqualityIsExact() {
+        assertTrue(FlowForegroundService.targetSetsMatch(
+                new HashSet<>(Arrays.asList("com.example.video", "tv.danmaku.bili")),
+                new HashSet<>(Arrays.asList("tv.danmaku.bili", "com.example.video"))
+        ));
+        assertFalse(FlowForegroundService.targetSetsMatch(
+                new HashSet<>(Arrays.asList("com.example.video")),
+                new HashSet<>(Arrays.asList("tv.danmaku.bili"))
+        ));
+        assertFalse(FlowForegroundService.targetSetsMatch(null, new HashSet<String>()));
+    }
+
+    @Test public void earlyReturnCountersDoNotBecomeClassifierFalse() {
+        FlowForegroundService.RuntimeTrackingCounters counters =
+                new FlowForegroundService.RuntimeTrackingCounters();
+
+        counters.recordMonitorStart(1_000L);
+        counters.recordTick(1_000L, false, false, true);
+        counters.recordMonitoringDisabledReturn();
+        counters.recordMonitorEnd(1_001L);
+        counters.recordMonitorStart(3_000L);
+        counters.recordTick(3_000L, true, true, true);
+        counters.recordTargetSetEmptyReturn();
+        counters.recordMonitorEnd(3_001L);
+        counters.recordMonitorStart(5_000L);
+        counters.recordTick(5_000L, true, false, false);
+        counters.recordInteractionUnavailableReturn();
+        counters.recordMonitorEnd(5_001L);
+
+        FlowForegroundService.RuntimeTrackingSnapshot snapshot = counters.snapshot();
+        assertEquals(1L, snapshot.monitoringDisabledTickCount);
+        assertEquals(1L, snapshot.targetSetEmptyTickCount);
+        assertEquals(1L, snapshot.interactionUnavailableTickCount);
+        assertEquals(0L, snapshot.targetTrueTickCount);
+        assertEquals(0L, snapshot.targetFalseTickCount);
+        assertEquals(3, snapshot.recentTicks.length);
     }
 
     private BlockStateMachine freshMachine() {

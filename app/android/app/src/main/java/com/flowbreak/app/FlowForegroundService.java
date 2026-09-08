@@ -15,12 +15,16 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.os.SystemClock;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.os.VibratorManager;
 import androidx.annotation.Nullable;
 import androidx.core.app.ServiceCompat;
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.Set;
 
 public class FlowForegroundService extends Service {
@@ -55,6 +59,10 @@ public class FlowForegroundService extends Service {
     private static volatile String staticForegroundPackage = "";
     private static volatile long staticLastTickAt;
     private static volatile long staticLastUsageEventAt;
+    private static volatile int staticRuntimeTargetCount;
+    private static volatile int staticPersistedTargetCount;
+    private static volatile boolean staticRuntimeTargetsMatchPersisted;
+    private static volatile Set<String> staticRuntimeTargetSnapshot = Collections.emptySet();
     private static final RuntimeTrackingCounters runtimeTracking = new RuntimeTrackingCounters();
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -82,7 +90,11 @@ public class FlowForegroundService extends Service {
 
     private final Runnable monitor = new Runnable() {
         @Override public void run() {
+            long startElapsed = SystemClock.elapsedRealtime();
+            runtimeTracking.recordMonitorStart(startElapsed);
             tick();
+            long endElapsed = SystemClock.elapsedRealtime();
+            runtimeTracking.recordMonitorEnd(endElapsed);
             handler.postDelayed(this, 2_000L);
         }
     };
@@ -261,6 +273,11 @@ public class FlowForegroundService extends Service {
         FlowServiceRecoveryCoordinator.Result result =
                 FlowServiceRecoveryCoordinator.restore(stateStore, System.currentTimeMillis());
         targetApps = result.config.targetApps;
+        Set<String> runtimeTargets = targetApps == null
+                ? Collections.emptySet()
+                : new HashSet<>(targetApps);
+        staticRuntimeTargetSnapshot = Collections.unmodifiableSet(runtimeTargets);
+        staticRuntimeTargetCount = runtimeTargets.size();
         limitMinutes = result.config.limitMinutes;
         monitoringEnabled = result.config.monitoringEnabled;
         machine = result.machine;
@@ -291,15 +308,32 @@ public class FlowForegroundService extends Service {
 
     private void tick() {
         long now = System.currentTimeMillis();
-        runtimeTracking.recordTick(now);
+        boolean targetSetEmpty = targetApps == null || targetApps.isEmpty();
+        boolean interactionAvailableNow = monitoringEnabled
+                && !targetSetEmpty
+                && isInteractionAvailable();
+        runtimeTracking.recordTick(
+                now,
+                monitoringEnabled,
+                targetSetEmpty,
+                interactionAvailableNow
+        );
         staticLastTickAt = now;
         stateStore.writeHeartbeatIfDue(now);
-        if (!monitoringEnabled || targetApps.isEmpty()) {
+        if (!monitoringEnabled) {
+            runtimeTracking.recordMonitoringDisabledReturn();
             usageAccumulator.resetObservation(now);
             overlayController.dismissBlocker();
             return;
         }
-        if (!isInteractionAvailable()) {
+        if (targetSetEmpty) {
+            runtimeTracking.recordTargetSetEmptyReturn();
+            usageAccumulator.resetObservation(now);
+            overlayController.dismissBlocker();
+            return;
+        }
+        if (!interactionAvailableNow) {
+            runtimeTracking.recordInteractionUnavailableReturn();
             trackPullbackOutcome(false, 0L, now);
             if (interactionAvailable && machine != null) {
                 machine.onScreenOff(now);
@@ -328,6 +362,11 @@ public class FlowForegroundService extends Service {
         String previousForeground = staticForegroundPackage;
         String foreground = foregroundDetector.detect(now);
         boolean foregroundPresent = foreground != null && !foreground.isEmpty();
+        boolean foregroundInRuntimeTargets = foregroundPresent && targetApps.contains(foreground);
+        boolean foregroundIsSelfPackage = getPackageName().equals(foreground);
+        boolean foregroundIsOtherNonTarget = foregroundPresent
+                && !foregroundInRuntimeTargets
+                && !foregroundIsSelfPackage;
         boolean foregroundChanged = previousForeground == null
                 ? foreground != null
                 : !previousForeground.equals(foreground);
@@ -341,7 +380,13 @@ public class FlowForegroundService extends Service {
                 stateStore.wechatInVideoChannelAt(),
                 now
         );
-        runtimeTracking.recordClassifier(isTarget);
+        runtimeTracking.recordClassifierSignals(
+                foregroundPresent,
+                foregroundInRuntimeTargets,
+                isTarget,
+                foregroundIsSelfPackage,
+                foregroundIsOtherNonTarget
+        );
 
         long prevObservedAt = usageAccumulator.getLastObservedAt();
         long observedTargetMs = usageAccumulator.observe(isTarget, foreground, now);
@@ -511,6 +556,29 @@ public class FlowForegroundService extends Service {
     public static long getLastUsageEventAt() { return staticLastUsageEventAt; }
     public static String getForegroundPackage() { return staticForegroundPackage; }
     public static JSObject getRuntimeTrackingDiagnostics() {
+        return getRuntimeTrackingDiagnostics(null);
+    }
+
+    static boolean targetSetsMatch(Set<String> runtimeTargets, Set<String> persistedTargets) {
+        return runtimeTargets != null && persistedTargets != null
+                && runtimeTargets.equals(persistedTargets);
+    }
+
+    public static JSObject getRuntimeTrackingDiagnostics(SharedPreferences persistedPreferences) {
+        if (persistedPreferences != null) {
+            Set<String> persistedTargets = PreferenceUtils.getMigratedTargetApps(persistedPreferences);
+            staticPersistedTargetCount = persistedTargets.size();
+            staticRuntimeTargetsMatchPersisted = targetSetsMatch(
+                    staticRuntimeTargetSnapshot,
+                    persistedTargets
+            );
+            runtimeTracking.recordTargetSetIntegrity(
+                    staticRuntimeTargetCount,
+                    staticPersistedTargetCount,
+                    staticRuntimeTargetsMatchPersisted
+            );
+        }
+
         RuntimeTrackingSnapshot snapshot = runtimeTracking.snapshot();
         JSObject result = new JSObject();
         result.put("tickCount", snapshot.tickCount);
@@ -529,6 +597,53 @@ public class FlowForegroundService extends Service {
         result.put("foregroundChangedCount", snapshot.foregroundChangedCount);
         result.put("lastForegroundPresent", snapshot.lastForegroundPresent);
         result.put("accumulatorLastTargetPresent", snapshot.accumulatorLastTargetPresent);
+        result.put("runtimeTargetCount", snapshot.runtimeTargetCount);
+        result.put("persistedTargetCount", snapshot.persistedTargetCount);
+        result.put("runtimeTargetsMatchPersisted", snapshot.runtimeTargetsMatchPersisted);
+
+        JSObject timing = new JSObject();
+        timing.put("lastTickExecutionMs", snapshot.lastTickExecutionMs);
+        timing.put("maxTickExecutionMs", snapshot.maxTickExecutionMs);
+        timing.put("averageTickExecutionMs", snapshot.averageTickExecutionMs);
+        timing.put("lastPostDelayGapMs", snapshot.lastPostDelayGapMs);
+        timing.put("maxPostDelayGapMs", snapshot.maxPostDelayGapMs);
+        timing.put("averagePostDelayGapMs", snapshot.averagePostDelayGapMs);
+        timing.put("postDelayGapOver3000Count", snapshot.postDelayGapOver3000Count);
+        timing.put("postDelayGapOver5000Count", snapshot.postDelayGapOver5000Count);
+        result.put("timing", timing);
+
+        JSObject reasons = new JSObject();
+        reasons.put("foregroundInRuntimeTargetTickCount", snapshot.foregroundInRuntimeTargetTickCount);
+        reasons.put("foregroundNotInRuntimeTargetTickCount", snapshot.foregroundNotInRuntimeTargetTickCount);
+        reasons.put("classifierFalseForegroundInRuntimeTargetCount", snapshot.classifierFalseForegroundInRuntimeTargetCount);
+        reasons.put("classifierFalseForegroundNotInRuntimeTargetCount", snapshot.classifierFalseForegroundNotInRuntimeTargetCount);
+        reasons.put("foregroundIsSelfPackageTickCount", snapshot.foregroundIsSelfPackageTickCount);
+        reasons.put("foregroundIsOtherNonTargetTickCount", snapshot.foregroundIsOtherNonTargetTickCount);
+        reasons.put("monitoringDisabledTickCount", snapshot.monitoringDisabledTickCount);
+        reasons.put("targetSetEmptyTickCount", snapshot.targetSetEmptyTickCount);
+        reasons.put("interactionUnavailableTickCount", snapshot.interactionUnavailableTickCount);
+        result.put("reasonCounters", reasons);
+
+        JSArray recent = new JSArray();
+        for (RecentTickSnapshot tick : snapshot.recentTicks) {
+            JSObject row = new JSObject();
+            row.put("sequence", tick.sequence);
+            row.put("startDeltaMs", tick.startDeltaMs);
+            row.put("executionMs", tick.executionMs);
+            row.put("postDelayGapMs", tick.postDelayGapMs);
+            row.put("monitoringEnabled", tick.monitoringEnabled);
+            row.put("targetSetEmpty", tick.targetSetEmpty);
+            row.put("interactionAvailable", tick.interactionAvailable);
+            row.put("foregroundPresent", tick.foregroundPresent);
+            row.put("foregroundInRuntimeTargets", tick.foregroundInRuntimeTargets);
+            row.put("classifierEvaluated", tick.classifierEvaluated);
+            row.put("classifierIsTarget", tick.classifierIsTarget);
+            row.put("machineSessionBeforeMs", tick.machineSessionBeforeMs);
+            row.put("machineSessionAfterMs", tick.machineSessionAfterMs);
+            row.put("machineSessionDeltaMs", tick.machineSessionDeltaMs);
+            recent.put(row);
+        }
+        result.put("recentTicks", recent);
         return result;
     }
     public static int getCurrentLevel() {
@@ -544,6 +659,8 @@ public class FlowForegroundService extends Service {
      * intentionally not persisted and contains no foreground package history.
      */
     static final class RuntimeTrackingCounters {
+        private static final int RECENT_TICK_CAPACITY = 64;
+
         private long tickCount;
         private long detectorNonEmptyTickCount;
         private long targetTrueTickCount;
@@ -562,21 +679,134 @@ public class FlowForegroundService extends Service {
         private boolean accumulatorLastTargetPresent;
         private long lastTickAt;
 
+        private int runtimeTargetCount;
+        private int persistedTargetCount;
+        private boolean runtimeTargetsMatchPersisted;
+
+        private long lastTickExecutionMs;
+        private long maxTickExecutionMs;
+        private long sumTickExecutionMs;
+        private long tickExecutionSampleCount;
+        private long lastPostDelayGapMs;
+        private long maxPostDelayGapMs;
+        private long sumPostDelayGapMs;
+        private long postDelayGapSampleCount;
+        private long postDelayGapOver3000Count;
+        private long postDelayGapOver5000Count;
+        private long lastMonitorStartElapsed;
+        private long previousMonitorEndElapsed;
+        private long nextSequence;
+
+        private long foregroundInRuntimeTargetTickCount;
+        private long foregroundNotInRuntimeTargetTickCount;
+        private long classifierFalseForegroundInRuntimeTargetCount;
+        private long classifierFalseForegroundNotInRuntimeTargetCount;
+        private long foregroundIsSelfPackageTickCount;
+        private long foregroundIsOtherNonTargetTickCount;
+        private long monitoringDisabledTickCount;
+        private long targetSetEmptyTickCount;
+        private long interactionUnavailableTickCount;
+
+        private final RecentTick[] recentTickRing = new RecentTick[RECENT_TICK_CAPACITY];
+        private int recentTickSize;
+        private int recentTickWriteIndex;
+        private RecentTick currentTick;
+
+        synchronized void recordMonitorStart(long startElapsed) {
+            long startDeltaMs = lastMonitorStartElapsed <= 0L
+                    ? 0L
+                    : Math.max(0L, startElapsed - lastMonitorStartElapsed);
+            long postDelayGapMs = previousMonitorEndElapsed <= 0L
+                    ? 0L
+                    : Math.max(0L, startElapsed - previousMonitorEndElapsed);
+            lastMonitorStartElapsed = startElapsed;
+            lastPostDelayGapMs = postDelayGapMs;
+            if (previousMonitorEndElapsed > 0L) {
+                sumPostDelayGapMs += postDelayGapMs;
+                postDelayGapSampleCount++;
+                maxPostDelayGapMs = Math.max(maxPostDelayGapMs, postDelayGapMs);
+                if (postDelayGapMs > 3_000L) postDelayGapOver3000Count++;
+                if (postDelayGapMs > 5_000L) postDelayGapOver5000Count++;
+            }
+            currentTick = appendRecentTick(startDeltaMs, 0L, postDelayGapMs, startElapsed);
+        }
+
+        synchronized void recordMonitorEnd(long endElapsed) {
+            if (currentTick == null || currentTick.startElapsed <= 0L) return;
+            long executionMs = Math.max(0L, endElapsed - currentTick.startElapsed);
+            currentTick.executionMs = executionMs;
+            lastTickExecutionMs = executionMs;
+            maxTickExecutionMs = Math.max(maxTickExecutionMs, executionMs);
+            sumTickExecutionMs += executionMs;
+            tickExecutionSampleCount++;
+            previousMonitorEndElapsed = endElapsed;
+            currentTick = null;
+        }
+
         synchronized void recordTick(long now) {
+            recordTick(now, false, false, false);
+        }
+
+        synchronized void recordTick(
+                long now,
+                boolean monitoringEnabled,
+                boolean targetSetEmpty,
+                boolean interactionAvailable
+        ) {
+            ensureCurrentTick();
             lastTickDeltaMs = lastTickAt <= 0L ? 0L : Math.max(0L, now - lastTickAt);
             lastTickAt = now;
             tickCount++;
+            currentTick.monitoringEnabled = monitoringEnabled;
+            currentTick.targetSetEmpty = targetSetEmpty;
+            currentTick.interactionAvailable = interactionAvailable;
         }
 
         synchronized void recordDetector(boolean foregroundPresent, boolean foregroundChanged) {
+            ensureCurrentTick();
             if (foregroundPresent) detectorNonEmptyTickCount++;
             if (foregroundChanged) foregroundChangedCount++;
             lastForegroundPresent = foregroundPresent;
+            currentTick.foregroundPresent = foregroundPresent;
         }
 
         synchronized void recordForegroundCleared(boolean wasPresent) {
+            ensureCurrentTick();
             if (wasPresent) foregroundChangedCount++;
             lastForegroundPresent = false;
+            currentTick.foregroundPresent = false;
+            currentTick.foregroundInRuntimeTargets = false;
+            currentTick.classifierEvaluated = false;
+            currentTick.classifierIsTarget = false;
+        }
+
+        synchronized void recordClassifierSignals(
+                boolean foregroundPresent,
+                boolean foregroundInRuntimeTargets,
+                boolean isTarget,
+                boolean foregroundIsSelfPackage,
+                boolean foregroundIsOtherNonTarget
+        ) {
+            ensureCurrentTick();
+            recordClassifier(isTarget);
+            currentTick.foregroundPresent = foregroundPresent;
+            currentTick.foregroundInRuntimeTargets = foregroundInRuntimeTargets;
+            currentTick.classifierEvaluated = true;
+            currentTick.classifierIsTarget = isTarget;
+            if (foregroundInRuntimeTargets) {
+                foregroundInRuntimeTargetTickCount++;
+            } else {
+                foregroundNotInRuntimeTargetTickCount++;
+            }
+            if (!isTarget) {
+                if (foregroundInRuntimeTargets) {
+                    classifierFalseForegroundInRuntimeTargetCount++;
+                } else {
+                    classifierFalseForegroundNotInRuntimeTargetCount++;
+                }
+            }
+            if (foregroundIsSelfPackage) foregroundIsSelfPackageTickCount++;
+            if (foregroundIsOtherNonTarget) foregroundIsOtherNonTargetTickCount++;
         }
 
         synchronized void recordClassifier(boolean isTarget) {
@@ -592,21 +822,81 @@ public class FlowForegroundService extends Service {
                 targetFalseTickCount++;
                 consecutiveTargetTicks = 0L;
             }
+            if (currentTick != null) {
+                currentTick.classifierEvaluated = true;
+                currentTick.classifierIsTarget = isTarget;
+            }
+        }
+
+        synchronized void recordMonitoringDisabledReturn() {
+            monitoringDisabledTickCount++;
+        }
+
+        synchronized void recordTargetSetEmptyReturn() {
+            targetSetEmptyTickCount++;
+        }
+
+        synchronized void recordInteractionUnavailableReturn() {
+            interactionUnavailableTickCount++;
+        }
+
+        synchronized void recordTargetSetIntegrity(
+                int runtimeCount,
+                int persistedCount,
+                boolean matches
+        ) {
+            runtimeTargetCount = runtimeCount;
+            persistedTargetCount = persistedCount;
+            runtimeTargetsMatchPersisted = matches;
         }
 
         synchronized void recordAccumulator(long observedTargetMs, boolean targetPresent) {
+            ensureCurrentTick();
             lastObservedTargetMs = observedTargetMs;
             if (observedTargetMs > 0L) positiveObservedTargetTickCount++;
             accumulatorLastTargetPresent = targetPresent;
         }
 
         synchronized void recordMachineSession(long beforeMs, long afterMs) {
+            ensureCurrentTick();
             machineSessionBeforeMs = beforeMs;
             machineSessionAfterMs = afterMs;
             if (afterMs > beforeMs) machineSessionIncreaseCount++;
+            currentTick.machineSessionBeforeMs = beforeMs;
+            currentTick.machineSessionAfterMs = afterMs;
+            currentTick.machineSessionDeltaMs = afterMs - beforeMs;
+        }
+
+        private void ensureCurrentTick() {
+            if (currentTick == null) currentTick = appendRecentTick(0L, 0L, 0L, 0L);
+        }
+
+        private RecentTick appendRecentTick(
+                long startDeltaMs,
+                long executionMs,
+                long postDelayGapMs,
+                long startElapsed
+        ) {
+            RecentTick tick = new RecentTick(
+                    ++nextSequence,
+                    startDeltaMs,
+                    executionMs,
+                    postDelayGapMs,
+                    startElapsed
+            );
+            recentTickRing[recentTickWriteIndex] = tick;
+            recentTickWriteIndex = (recentTickWriteIndex + 1) % RECENT_TICK_CAPACITY;
+            recentTickSize = Math.min(RECENT_TICK_CAPACITY, recentTickSize + 1);
+            return tick;
         }
 
         synchronized RuntimeTrackingSnapshot snapshot() {
+            RecentTickSnapshot[] recent = new RecentTickSnapshot[recentTickSize];
+            int firstIndex = recentTickSize == RECENT_TICK_CAPACITY ? recentTickWriteIndex : 0;
+            for (int i = 0; i < recentTickSize; i++) {
+                RecentTick tick = recentTickRing[(firstIndex + i) % RECENT_TICK_CAPACITY];
+                recent[i] = tick.snapshot();
+            }
             return new RuntimeTrackingSnapshot(
                     tickCount,
                     detectorNonEmptyTickCount,
@@ -623,8 +913,133 @@ public class FlowForegroundService extends Service {
                     lastTickDeltaMs,
                     foregroundChangedCount,
                     lastForegroundPresent,
-                    accumulatorLastTargetPresent
+                    accumulatorLastTargetPresent,
+                    runtimeTargetCount,
+                    persistedTargetCount,
+                    runtimeTargetsMatchPersisted,
+                    lastTickExecutionMs,
+                    maxTickExecutionMs,
+                    tickExecutionSampleCount == 0L
+                            ? 0D
+                            : (double) sumTickExecutionMs / tickExecutionSampleCount,
+                    lastPostDelayGapMs,
+                    maxPostDelayGapMs,
+                    postDelayGapSampleCount == 0L
+                            ? 0D
+                            : (double) sumPostDelayGapMs / postDelayGapSampleCount,
+                    postDelayGapOver3000Count,
+                    postDelayGapOver5000Count,
+                    foregroundInRuntimeTargetTickCount,
+                    foregroundNotInRuntimeTargetTickCount,
+                    classifierFalseForegroundInRuntimeTargetCount,
+                    classifierFalseForegroundNotInRuntimeTargetCount,
+                    foregroundIsSelfPackageTickCount,
+                    foregroundIsOtherNonTargetTickCount,
+                    monitoringDisabledTickCount,
+                    targetSetEmptyTickCount,
+                    interactionUnavailableTickCount,
+                    recent
             );
+        }
+    }
+
+    static final class RecentTick {
+        final long sequence;
+        final long startDeltaMs;
+        final long postDelayGapMs;
+        final long startElapsed;
+        long executionMs;
+        boolean monitoringEnabled;
+        boolean targetSetEmpty;
+        boolean interactionAvailable;
+        boolean foregroundPresent;
+        boolean foregroundInRuntimeTargets;
+        boolean classifierEvaluated;
+        boolean classifierIsTarget;
+        long machineSessionBeforeMs;
+        long machineSessionAfterMs;
+        long machineSessionDeltaMs;
+
+        RecentTick(
+                long sequence,
+                long startDeltaMs,
+                long executionMs,
+                long postDelayGapMs,
+                long startElapsed
+        ) {
+            this.sequence = sequence;
+            this.startDeltaMs = startDeltaMs;
+            this.executionMs = executionMs;
+            this.postDelayGapMs = postDelayGapMs;
+            this.startElapsed = startElapsed;
+        }
+
+        RecentTickSnapshot snapshot() {
+            return new RecentTickSnapshot(
+                    sequence,
+                    startDeltaMs,
+                    executionMs,
+                    postDelayGapMs,
+                    monitoringEnabled,
+                    targetSetEmpty,
+                    interactionAvailable,
+                    foregroundPresent,
+                    foregroundInRuntimeTargets,
+                    classifierEvaluated,
+                    classifierIsTarget,
+                    machineSessionBeforeMs,
+                    machineSessionAfterMs,
+                    machineSessionDeltaMs
+            );
+        }
+    }
+
+    static final class RecentTickSnapshot {
+        final long sequence;
+        final long startDeltaMs;
+        final long executionMs;
+        final long postDelayGapMs;
+        final boolean monitoringEnabled;
+        final boolean targetSetEmpty;
+        final boolean interactionAvailable;
+        final boolean foregroundPresent;
+        final boolean foregroundInRuntimeTargets;
+        final boolean classifierEvaluated;
+        final boolean classifierIsTarget;
+        final long machineSessionBeforeMs;
+        final long machineSessionAfterMs;
+        final long machineSessionDeltaMs;
+
+        RecentTickSnapshot(
+                long sequence,
+                long startDeltaMs,
+                long executionMs,
+                long postDelayGapMs,
+                boolean monitoringEnabled,
+                boolean targetSetEmpty,
+                boolean interactionAvailable,
+                boolean foregroundPresent,
+                boolean foregroundInRuntimeTargets,
+                boolean classifierEvaluated,
+                boolean classifierIsTarget,
+                long machineSessionBeforeMs,
+                long machineSessionAfterMs,
+                long machineSessionDeltaMs
+        ) {
+            this.sequence = sequence;
+            this.startDeltaMs = startDeltaMs;
+            this.executionMs = executionMs;
+            this.postDelayGapMs = postDelayGapMs;
+            this.monitoringEnabled = monitoringEnabled;
+            this.targetSetEmpty = targetSetEmpty;
+            this.interactionAvailable = interactionAvailable;
+            this.foregroundPresent = foregroundPresent;
+            this.foregroundInRuntimeTargets = foregroundInRuntimeTargets;
+            this.classifierEvaluated = classifierEvaluated;
+            this.classifierIsTarget = classifierIsTarget;
+            this.machineSessionBeforeMs = machineSessionBeforeMs;
+            this.machineSessionAfterMs = machineSessionAfterMs;
+            this.machineSessionDeltaMs = machineSessionDeltaMs;
         }
     }
 
@@ -645,6 +1060,27 @@ public class FlowForegroundService extends Service {
         final long foregroundChangedCount;
         final boolean lastForegroundPresent;
         final boolean accumulatorLastTargetPresent;
+        final int runtimeTargetCount;
+        final int persistedTargetCount;
+        final boolean runtimeTargetsMatchPersisted;
+        final long lastTickExecutionMs;
+        final long maxTickExecutionMs;
+        final double averageTickExecutionMs;
+        final long lastPostDelayGapMs;
+        final long maxPostDelayGapMs;
+        final double averagePostDelayGapMs;
+        final long postDelayGapOver3000Count;
+        final long postDelayGapOver5000Count;
+        final long foregroundInRuntimeTargetTickCount;
+        final long foregroundNotInRuntimeTargetTickCount;
+        final long classifierFalseForegroundInRuntimeTargetCount;
+        final long classifierFalseForegroundNotInRuntimeTargetCount;
+        final long foregroundIsSelfPackageTickCount;
+        final long foregroundIsOtherNonTargetTickCount;
+        final long monitoringDisabledTickCount;
+        final long targetSetEmptyTickCount;
+        final long interactionUnavailableTickCount;
+        final RecentTickSnapshot[] recentTicks;
 
         RuntimeTrackingSnapshot(
                 long tickCount,
@@ -662,7 +1098,28 @@ public class FlowForegroundService extends Service {
                 long lastTickDeltaMs,
                 long foregroundChangedCount,
                 boolean lastForegroundPresent,
-                boolean accumulatorLastTargetPresent
+                boolean accumulatorLastTargetPresent,
+                int runtimeTargetCount,
+                int persistedTargetCount,
+                boolean runtimeTargetsMatchPersisted,
+                long lastTickExecutionMs,
+                long maxTickExecutionMs,
+                double averageTickExecutionMs,
+                long lastPostDelayGapMs,
+                long maxPostDelayGapMs,
+                double averagePostDelayGapMs,
+                long postDelayGapOver3000Count,
+                long postDelayGapOver5000Count,
+                long foregroundInRuntimeTargetTickCount,
+                long foregroundNotInRuntimeTargetTickCount,
+                long classifierFalseForegroundInRuntimeTargetCount,
+                long classifierFalseForegroundNotInRuntimeTargetCount,
+                long foregroundIsSelfPackageTickCount,
+                long foregroundIsOtherNonTargetTickCount,
+                long monitoringDisabledTickCount,
+                long targetSetEmptyTickCount,
+                long interactionUnavailableTickCount,
+                RecentTickSnapshot[] recentTicks
         ) {
             this.tickCount = tickCount;
             this.detectorNonEmptyTickCount = detectorNonEmptyTickCount;
@@ -680,6 +1137,27 @@ public class FlowForegroundService extends Service {
             this.foregroundChangedCount = foregroundChangedCount;
             this.lastForegroundPresent = lastForegroundPresent;
             this.accumulatorLastTargetPresent = accumulatorLastTargetPresent;
+            this.runtimeTargetCount = runtimeTargetCount;
+            this.persistedTargetCount = persistedTargetCount;
+            this.runtimeTargetsMatchPersisted = runtimeTargetsMatchPersisted;
+            this.lastTickExecutionMs = lastTickExecutionMs;
+            this.maxTickExecutionMs = maxTickExecutionMs;
+            this.averageTickExecutionMs = averageTickExecutionMs;
+            this.lastPostDelayGapMs = lastPostDelayGapMs;
+            this.maxPostDelayGapMs = maxPostDelayGapMs;
+            this.averagePostDelayGapMs = averagePostDelayGapMs;
+            this.postDelayGapOver3000Count = postDelayGapOver3000Count;
+            this.postDelayGapOver5000Count = postDelayGapOver5000Count;
+            this.foregroundInRuntimeTargetTickCount = foregroundInRuntimeTargetTickCount;
+            this.foregroundNotInRuntimeTargetTickCount = foregroundNotInRuntimeTargetTickCount;
+            this.classifierFalseForegroundInRuntimeTargetCount = classifierFalseForegroundInRuntimeTargetCount;
+            this.classifierFalseForegroundNotInRuntimeTargetCount = classifierFalseForegroundNotInRuntimeTargetCount;
+            this.foregroundIsSelfPackageTickCount = foregroundIsSelfPackageTickCount;
+            this.foregroundIsOtherNonTargetTickCount = foregroundIsOtherNonTargetTickCount;
+            this.monitoringDisabledTickCount = monitoringDisabledTickCount;
+            this.targetSetEmptyTickCount = targetSetEmptyTickCount;
+            this.interactionUnavailableTickCount = interactionUnavailableTickCount;
+            this.recentTicks = recentTicks;
         }
     }
 
