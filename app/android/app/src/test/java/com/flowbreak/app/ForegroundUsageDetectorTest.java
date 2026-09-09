@@ -116,4 +116,86 @@ public class ForegroundUsageDetectorTest {
         assertEquals(NOW - 30_000L, detector.getLastUsageEventAt());
         assertEquals(true, detector.getCursor() >= NOW);
     }
+
+    @Test public void lateVisibleForegroundEventBeforeCursorIsRecovered() {
+        event("com.flowbreak.app.cn", "MainActivity", UsageEvents.Event.ACTIVITY_RESUMED, NOW + 100L);
+        ForegroundUsageDetector detector = detector();
+        assertEquals("com.flowbreak.app.cn", detector.detect(NOW + 500L));
+
+        event("tv.danmaku.bili", "MainActivity", UsageEvents.Event.ACTIVITY_RESUMED, NOW + 300L);
+        assertEquals("tv.danmaku.bili", detector.detect(NOW + 2_500L));
+    }
+
+    @Test public void targetEventAfterCursorIsObserved() {
+        event("com.flowbreak.app.cn", "MainActivity", UsageEvents.Event.ACTIVITY_RESUMED, NOW + 100L);
+        ForegroundUsageDetector detector = detector();
+        assertEquals("com.flowbreak.app.cn", detector.detect(NOW + 500L));
+
+        event("tv.danmaku.bili", "MainActivity", UsageEvents.Event.ACTIVITY_RESUMED, NOW + 700L);
+        assertEquals("tv.danmaku.bili", detector.detect(NOW + 2_500L));
+    }
+
+    @Test public void lateEventAfterLaterStaleSelfStopTriggersOrderedRebuild() {
+        event("com.flowbreak.app.cn", "MainActivity", UsageEvents.Event.ACTIVITY_RESUMED, NOW + 100L);
+        event("com.flowbreak.app.cn", "OtherActivity", UsageEvents.Event.ACTIVITY_STOPPED, NOW + 350L);
+        ForegroundUsageDetector detector = detector();
+        assertEquals("com.flowbreak.app.cn", detector.detect(NOW + 500L));
+
+        event("tv.danmaku.bili", "MainActivity", UsageEvents.Event.ACTIVITY_RESUMED, NOW + 300L);
+        assertEquals("tv.danmaku.bili", detector.detect(NOW + 2_500L));
+    }
+
+    @Test public void duplicateOverlapEventsAreIdempotent() {
+        event("tv.danmaku.bili", "MainActivity", UsageEvents.Event.ACTIVITY_RESUMED, NOW + 100L);
+        ForegroundUsageDetector detector = detector();
+        assertEquals("tv.danmaku.bili", detector.detect(NOW + 500L));
+        assertEquals("tv.danmaku.bili", detector.detect(NOW + 2_500L));
+        assertEquals("tv.danmaku.bili", detector.detect(NOW + 4_500L));
+        assertEquals(NOW + 100L, detector.getLastUsageEventAt());
+    }
+
+    @Test public void stableTargetForegroundSurvivesRoundsWithoutNewEvents() {
+        event("tv.danmaku.bili", "MainActivity", UsageEvents.Event.ACTIVITY_RESUMED, NOW + 100L);
+        ForegroundUsageDetector detector = detector();
+        assertEquals("tv.danmaku.bili", detector.detect(NOW + 500L));
+        assertEquals("tv.danmaku.bili", detector.detect(NOW + 2_500L));
+        assertEquals("tv.danmaku.bili", detector.detect(NOW + 4_500L));
+        assertEquals("tv.danmaku.bili", detector.detect(NOW + 6_500L));
+        assertEquals("tv.danmaku.bili", detector.detect(NOW + 12_500L));
+    }
+
+    @Test public void realSwitchAwayClearsTargetBeforeLauncherResumes() {
+        event("tv.danmaku.bili", "MainActivity", UsageEvents.Event.ACTIVITY_RESUMED, NOW + 100L);
+        ForegroundUsageDetector detector = detector();
+        assertEquals("tv.danmaku.bili", detector.detect(NOW + 500L));
+
+        event("tv.danmaku.bili", "MainActivity", UsageEvents.Event.ACTIVITY_PAUSED, NOW + 700L);
+        event("com.android.launcher3", "Launcher", UsageEvents.Event.ACTIVITY_RESUMED, NOW + 800L);
+        assertEquals("com.android.launcher3", detector.detect(NOW + 2_500L));
+    }
+
+    @Test public void targetToOtherAppSwitchIsObserved() {
+        event("tv.danmaku.bili", "MainActivity", UsageEvents.Event.ACTIVITY_RESUMED, NOW + 100L);
+        ForegroundUsageDetector detector = detector();
+        assertEquals("tv.danmaku.bili", detector.detect(NOW + 500L));
+
+        event("com.example.reader", "MainActivity", UsageEvents.Event.ACTIVITY_RESUMED, NOW + 700L);
+        assertEquals("com.example.reader", detector.detect(NOW + 2_500L));
+    }
+
+    @Test public void recentEventCacheIsBounded() {
+        ForegroundUsageDetector detector = detector();
+        for (int index = 0; index < 5_000; index++) {
+            event(
+                    "com.example.app" + index,
+                    "MainActivity",
+                    UsageEvents.Event.ACTIVITY_RESUMED,
+                    NOW + 100L + index
+            );
+        }
+
+        assertEquals("com.example.app4999", detector.detect(NOW + 6_000L));
+        assertEquals(true, detector.recentEventCacheSizeForTest()
+                <= ForegroundUsageDetector.MAX_RECENT_EVENT_CACHE_SIZE);
+    }
 }
