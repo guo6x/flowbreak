@@ -161,14 +161,12 @@ public final class ForegroundUsageDetector {
     private void applyUnseenEvents(List<ObservedEvent> events, long now) {
         for (ObservedEvent event : events) {
             if (!recentSeenEvents.add(event)) continue;
-            if (event.timestamp > tracker.getLastEventAt()) {
-                tracker.accept(
-                        event.packageName,
-                        event.className,
-                        event.eventType,
-                        event.timestamp
-                );
-            }
+            tracker.accept(
+                    event.packageName,
+                    event.className,
+                    event.eventType,
+                    event.timestamp
+            );
         }
         pruneRecentSeen(now);
     }

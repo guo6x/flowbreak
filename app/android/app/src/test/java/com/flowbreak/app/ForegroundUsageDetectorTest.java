@@ -135,6 +135,26 @@ public class ForegroundUsageDetectorTest {
         assertEquals("tv.danmaku.bili", detector.detect(NOW + 2_500L));
     }
 
+    @Test public void sameTimestampNewForegroundEventsPreserveQueryOrder() {
+        event("com.flowbreak.app.cn", "MainActivity", UsageEvents.Event.ACTIVITY_RESUMED, NOW + 100L);
+        ForegroundUsageDetector detector = detector();
+        assertEquals("com.flowbreak.app.cn", detector.detect(NOW + 500L));
+
+        event("tv.danmaku.bili", "MainActivity", UsageEvents.Event.ACTIVITY_RESUMED, NOW + 700L);
+        event("com.example.reader", "MainActivity", UsageEvents.Event.ACTIVITY_RESUMED, NOW + 700L);
+        assertEquals("com.example.reader", detector.detect(NOW + 2_500L));
+    }
+
+    @Test public void sameTimestampPauseThenOtherResumePreservesOrder() {
+        event("tv.danmaku.bili", "MainActivity", UsageEvents.Event.ACTIVITY_RESUMED, NOW + 100L);
+        ForegroundUsageDetector detector = detector();
+        assertEquals("tv.danmaku.bili", detector.detect(NOW + 500L));
+
+        event("tv.danmaku.bili", "MainActivity", UsageEvents.Event.ACTIVITY_PAUSED, NOW + 700L);
+        event("com.android.launcher3", "Launcher", UsageEvents.Event.ACTIVITY_RESUMED, NOW + 700L);
+        assertEquals("com.android.launcher3", detector.detect(NOW + 2_500L));
+    }
+
     @Test public void lateEventAfterLaterStaleSelfStopTriggersOrderedRebuild() {
         event("com.flowbreak.app.cn", "MainActivity", UsageEvents.Event.ACTIVITY_RESUMED, NOW + 100L);
         event("com.flowbreak.app.cn", "OtherActivity", UsageEvents.Event.ACTIVITY_STOPPED, NOW + 350L);
