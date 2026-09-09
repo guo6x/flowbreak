@@ -151,6 +151,7 @@ public final class ForegroundUsageDetector {
     private boolean containsLateEvent(List<ObservedEvent> events) {
         long trackerLastEventAt = tracker.getLastEventAt();
         for (ObservedEvent event : events) {
+            if (!affectsForegroundState(event)) continue;
             if (!recentSeenEvents.contains(event) && event.timestamp <= trackerLastEventAt) {
                 return true;
             }
@@ -160,6 +161,7 @@ public final class ForegroundUsageDetector {
 
     private void applyUnseenEvents(List<ObservedEvent> events, long now) {
         for (ObservedEvent event : events) {
+            if (!affectsForegroundState(event)) continue;
             if (!recentSeenEvents.add(event)) continue;
             tracker.accept(
                     event.packageName,
@@ -173,6 +175,7 @@ public final class ForegroundUsageDetector {
 
     private void applyOrderedEvents(List<ObservedEvent> events) {
         for (ObservedEvent event : events) {
+            if (!affectsForegroundState(event)) continue;
             tracker.accept(
                     event.packageName,
                     event.className,
@@ -198,11 +201,18 @@ public final class ForegroundUsageDetector {
         recentSeenEvents.clear();
         long cutoff = now - RECENT_EVENT_RETENTION_MS;
         for (ObservedEvent event : events) {
-            if (event.timestamp >= cutoff && event.timestamp <= now) {
+            if (affectsForegroundState(event)
+                    && event.timestamp >= cutoff
+                    && event.timestamp <= now) {
                 recentSeenEvents.add(event);
             }
         }
         pruneRecentSeen(now);
+    }
+
+    private static boolean affectsForegroundState(ObservedEvent event) {
+        return ForegroundAppTracker.isForegroundEvent(event.eventType)
+                || ForegroundAppTracker.isBackgroundEvent(event.eventType);
     }
 
     private void pruneRecentSeen(long now) {

@@ -155,6 +155,19 @@ public class ForegroundUsageDetectorTest {
         assertEquals("com.android.launcher3", detector.detect(NOW + 2_500L));
     }
 
+    @Test public void lateIrrelevantEventDoesNotEnterForegroundRecoveryCache() {
+        event("com.flowbreak.app.cn", "MainActivity", UsageEvents.Event.ACTIVITY_RESUMED, NOW + 100L);
+        ForegroundUsageDetector detector = detector();
+        assertEquals("com.flowbreak.app.cn", detector.detect(NOW + 500L));
+        assertEquals(1, detector.recentEventCacheSizeForTest());
+
+        shadow.addEvent("com.example.anything", NOW + 300L, UsageEvents.Event.USER_INTERACTION);
+        shadow.addEvent("com.example.anything", NOW + 400L, UsageEvents.Event.CONFIGURATION_CHANGE);
+        assertEquals("com.flowbreak.app.cn", detector.detect(NOW + 2_500L));
+        assertEquals(1, detector.recentEventCacheSizeForTest());
+        assertEquals(NOW + 400L, detector.getLastUsageEventAt());
+    }
+
     @Test public void lateEventAfterLaterStaleSelfStopTriggersOrderedRebuild() {
         event("com.flowbreak.app.cn", "MainActivity", UsageEvents.Event.ACTIVITY_RESUMED, NOW + 100L);
         event("com.flowbreak.app.cn", "OtherActivity", UsageEvents.Event.ACTIVITY_STOPPED, NOW + 350L);
