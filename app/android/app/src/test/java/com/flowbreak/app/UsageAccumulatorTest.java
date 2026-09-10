@@ -90,6 +90,14 @@ public class UsageAccumulatorTest {
         assertEquals(2_000L, acc.observe(true, PKG_A, 14_000L));
     }
 
+    @Test public void restoredObservationAnchorCountsOnlyPostReplayTail() {
+        UsageAccumulator acc = new UsageAccumulator();
+        acc.restoreObservationAnchor(100_000L, PKG_A, true);
+
+        assertEquals(5_000L, acc.observe(true, PKG_A, 105_000L));
+        assertEquals(0L, acc.observe(false, "com.other", 110_000L));
+    }
+
     @Test public void nullPackageOnTargetBehavesConsistently() {
         // isTarget=true 但 packageName=null：lastObservedTargetPackage 设为空字符串，
         // 与原实现一致（acc.isTarget && packageName != null ? packageName : ""）

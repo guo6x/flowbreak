@@ -18,9 +18,7 @@ import android.app.usage.UsageEvents;
  * STOPPED event is reported late.
  */
 public final class ForegroundAppTracker {
-    private String foregroundPackage = "";
-    private String foregroundInstance = "";
-    private long lastEventAt;
+    private final ForegroundEventState state = new ForegroundEventState();
 
     /** Package-level convenience overload used by legacy callers. */
     public void accept(String packageName, int eventType, long timestamp) {
@@ -28,59 +26,29 @@ public final class ForegroundAppTracker {
     }
 
     public void accept(String packageName, String className, int eventType, long timestamp) {
-        if (packageName == null || packageName.isEmpty()) return;
-        if (timestamp < lastEventAt) return;
-
-        if (isForegroundEvent(eventType)) {
-            foregroundPackage = packageName;
-            foregroundInstance = instanceKey(packageName, className);
-            lastEventAt = timestamp;
-            return;
-        }
-
-        if (!isBackgroundEvent(eventType) || !packageName.equals(foregroundPackage)) return;
-
-        // ACTIVITY_PAUSED and MOVE_TO_BACKGROUND share the same event type
-        // value (2), and ACTIVITY_RESUMED shares value 1 with
-        // MOVE_TO_FOREGROUND. The class name is the only reliable signal:
-        // activity events always carry it, package-level events never do.
-        if (className == null) {
-            // Package-level MOVE_TO_BACKGROUND: the whole package left.
-            foregroundPackage = "";
-            foregroundInstance = "";
-        } else if (!instanceKey(packageName, className).equals(foregroundInstance)) {
-            // Stale background event for an activity that is not the current
-            // foreground instance: the package may still be on screen.
-            return;
-        } else {
-            foregroundPackage = "";
-            foregroundInstance = "";
-        }
-        lastEventAt = timestamp;
+        state.accept(
+                packageName,
+                className,
+                isForegroundEvent(eventType),
+                isBackgroundEvent(eventType),
+                timestamp
+        );
     }
 
     public void clear(long timestamp) {
-        foregroundPackage = "";
-        foregroundInstance = "";
-        lastEventAt = Math.max(lastEventAt, timestamp);
+        state.clear(timestamp);
     }
 
     public void reset() {
-        foregroundPackage = "";
-        foregroundInstance = "";
-        lastEventAt = 0;
+        state.reset();
     }
 
     public String getForegroundPackage() {
-        return foregroundPackage;
+        return state.getForegroundPackage();
     }
 
     public long getLastEventAt() {
-        return lastEventAt;
-    }
-
-    private static String instanceKey(String packageName, String className) {
-        return packageName + "/" + (className == null ? "" : className);
+        return state.getLastEventAt();
     }
 
     public static boolean isForegroundEvent(int eventType) {

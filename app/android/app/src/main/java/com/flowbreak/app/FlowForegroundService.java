@@ -59,6 +59,8 @@ public class FlowForegroundService extends Service {
     public static final String PREF_PULLBACK_SUCCESS = "pullbackSuccess";
 
     private static final long EMERGENCY_GRACE_MS = FlowServiceStateStore.EMERGENCY_GRACE_MS;
+    private static final long GAP_RECONCILIATION_THRESHOLD_MS = 5_000L;
+    private static final long MAX_CLOCK_SKEW_MS = 60_000L;
 
     private static volatile BlockStateMachine.State staticState = BlockStateMachine.State.IDLE;
     private static volatile long staticSessionMs;
@@ -78,6 +80,14 @@ public class FlowForegroundService extends Service {
     private static volatile HandlerThread staticMonitorThreadRef;
     private static volatile Context staticServiceContext;
     private static volatile Set<String> staticRuntimeTargetSnapshot = Collections.emptySet();
+    private static volatile long staticGapDetectedCount;
+    private static volatile long staticGapReconciliationCount;
+    private static volatile long staticLastGapMs;
+    private static volatile long staticLastReconciledMs;
+    private static volatile long staticLastReconciliationCoverageMs;
+    private static volatile String staticLastReconciliationResult = "SKIPPED";
+    private static volatile String staticLastGapQueryFailureClass = "";
+    private static volatile long staticHistoricalTargetMsRecovered;
     private static final RuntimeTrackingCounters runtimeTracking = new RuntimeTrackingCounters();
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -110,13 +120,22 @@ public class FlowForegroundService extends Service {
     private PullbackSessionCoordinator pullbackCoordinator;
     private RestCheatTracker restCheatTracker;
 
+    // Persisted monitor checkpoint. It is a small observation anchor, not a
+    // history buffer; the UsageEvents window is the source of replay evidence.
+    private long checkpointWallMs;
+    private long checkpointElapsedMs;
+    private boolean checkpointTargetActive;
+    private boolean checkpointInteractionAvailable;
+    private String checkpointForegroundPackage = "";
+    private boolean checkpointInitialized;
+
     private final Runnable monitor = new Runnable() {
         @Override public void run() {
             if (monitorShutdownRequested) return;
             long startElapsed = SystemClock.elapsedRealtime();
             long startWall = System.currentTimeMillis();
             runtimeTracking.recordMonitorStart(livenessServiceGeneration, startElapsed, startWall);
-            tick();
+            tick(startWall, startElapsed);
             long endElapsed = SystemClock.elapsedRealtime();
             long endWall = System.currentTimeMillis();
             runtimeTracking.recordMonitorEnd(livenessServiceGeneration, endElapsed, endWall);
@@ -261,11 +280,17 @@ public class FlowForegroundService extends Service {
         } else if (ACTION_CANCEL_REST.equals(action)) {
             machine.cancelRest(limitMinutes * 60_000L);
             stateStore.clearActiveRestSession();
+            anchorCheckpointToNow(
+                    checkpointTargetActive,
+                    checkpointInteractionAvailable,
+                    checkpointForegroundPackage
+            );
             persistState();
         } else if (ACTION_EMERGENCY.equals(action)) {
             machine.emergencyUnlock(System.currentTimeMillis(), EMERGENCY_GRACE_MS);
             stateStore.clearActiveRestSession();
             clearPullbackTracker();
+            anchorCheckpointToNow(false, false, "");
             persistState();
             postOverlayAction(() -> overlayController.dismissBlocker());
         } else {
@@ -343,9 +368,43 @@ public class FlowForegroundService extends Service {
         staticTargetAppsEmpty = runtimeTargets.isEmpty();
         staticAllowEmergencyUnlock = result.config.allowEmergencyUnlock;
         machine = result.machine;
+        FlowServiceStateStore.MachineSnapshot machineSnapshot = result.machineSnapshot;
+        checkpointWallMs = machineSnapshot.checkpointWallMs;
+        checkpointElapsedMs = machineSnapshot.checkpointElapsedMs;
+        checkpointTargetActive = machineSnapshot.checkpointTargetActive;
+        checkpointInteractionAvailable = machineSnapshot.checkpointInteractionAvailable;
+        checkpointForegroundPackage = machineSnapshot.checkpointForegroundPackage;
+        checkpointInitialized = isUsableCheckpoint(machineSnapshot, targetApps);
+        if (checkpointInitialized) {
+            machine.seedCheckpoint(checkpointWallMs, checkpointTargetActive);
+            usageAccumulator.restoreObservationAnchor(
+                    checkpointWallMs,
+                    checkpointForegroundPackage,
+                    checkpointTargetActive && checkpointInteractionAvailable
+            );
+        } else {
+            usageAccumulator.resetObservation(System.currentTimeMillis());
+        }
         restorePullbackTrackerFromSnapshot(result.pullbackSnapshot);
         lastAnnouncedState = machine.getState();
         publishState();
+    }
+
+    private static boolean isUsableCheckpoint(
+            FlowServiceStateStore.MachineSnapshot snapshot,
+            Set<String> targets
+    ) {
+        if (snapshot == null
+                || snapshot.checkpointWallMs <= 0L
+                || snapshot.checkpointElapsedMs <= 0L
+                || snapshot.checkpointForegroundPackage == null) {
+            return false;
+        }
+        if (!snapshot.checkpointTargetActive) return true;
+        return snapshot.checkpointInteractionAvailable
+                && !snapshot.checkpointForegroundPackage.isEmpty()
+                && targets != null
+                && targets.contains(snapshot.checkpointForegroundPackage);
     }
 
     private void beginRestSession() {
@@ -365,11 +424,11 @@ public class FlowForegroundService extends Service {
         }
         stateStore.persistBeginRest(decision.startedAt, decision.requiredMs, decision.sessionId);
         machine.beginRest();
+        anchorCheckpointToNow(false, false, "");
         persistState();
     }
 
-    private void tick() {
-        long now = System.currentTimeMillis();
+    private void tick(long now, long nowElapsed) {
         boolean targetSetEmpty = targetApps == null || targetApps.isEmpty();
         boolean interactionAvailableNow = monitoringEnabled
                 && !targetSetEmpty
@@ -382,15 +441,26 @@ public class FlowForegroundService extends Service {
         );
         staticLastTickAt = now;
         stateStore.writeHeartbeatIfDue(now);
+        if (!checkpointInitialized) {
+            machine.seedCheckpoint(now, false);
+            usageAccumulator.restoreObservationAnchor(now, "", false);
+            recordCheckpoint(now, nowElapsed, false, false, "");
+        }
         if (!monitoringEnabled) {
             runtimeTracking.recordMonitoringDisabledReturn();
             usageAccumulator.resetObservation(now);
+            machine.seedCheckpoint(now, false);
+            recordCheckpoint(now, nowElapsed, false, false, "");
+            persistState();
             postOverlayAction(() -> overlayController.dismissBlocker());
             return;
         }
         if (targetSetEmpty) {
             runtimeTracking.recordTargetSetEmptyReturn();
             usageAccumulator.resetObservation(now);
+            machine.seedCheckpoint(now, false);
+            recordCheckpoint(now, nowElapsed, false, false, "");
+            persistState();
             postOverlayAction(() -> overlayController.dismissBlocker());
             return;
         }
@@ -399,7 +469,6 @@ public class FlowForegroundService extends Service {
             trackPullbackOutcome(false, 0L, now);
             if (interactionAvailable && machine != null) {
                 machine.onScreenOff(now);
-                persistState();
             }
             interactionAvailable = false;
             foregroundDetector.reset();
@@ -407,6 +476,9 @@ public class FlowForegroundService extends Service {
             boolean hadForeground = staticForegroundPackage != null && !staticForegroundPackage.isEmpty();
             staticForegroundPackage = "";
             runtimeTracking.recordForegroundCleared(hadForeground);
+            machine.seedCheckpoint(now, false);
+            recordCheckpoint(now, nowElapsed, false, false, "");
+            persistState();
             postOverlayAction(() -> {
                 overlayController.dismissBlocker();
                 overlayController.dismissWarningBar();
@@ -421,8 +493,10 @@ public class FlowForegroundService extends Service {
             usageAccumulator.resetObservation(now);
             foregroundDetector.resetCursor(Math.max(0, now - 60_000L));
             machine.onScreenOn(now);
+            recordCheckpoint(now, nowElapsed, false, false, "");
             persistState();
         }
+        reconcileHistoricalGap(now, nowElapsed);
         String previousForeground = staticForegroundPackage;
         String foreground = foregroundDetector.detect(now);
         boolean foregroundPresent = foreground != null && !foreground.isEmpty();
@@ -476,6 +550,8 @@ public class FlowForegroundService extends Service {
             machine.cancelRest(limitMinutes * 60_000L);
             repository.log("rest_cheat", foreground, "", cheatAccumulated / 1000L, "");
             alert("休息已取消", "检测到在休息期间使用目标应用，未完成本次休息。");
+            machine.seedCheckpoint(now, isTarget);
+            recordCheckpoint(now, nowElapsed, isTarget, interactionAvailableNow, foreground);
             persistState();
             flushPendingUsage(false);
             restCheatTracker.reset();
@@ -538,7 +614,193 @@ public class FlowForegroundService extends Service {
             handleGraceCountdown();
         }
         notificationController.updateServiceNotification(snapshot());
+        recordCheckpoint(
+                System.currentTimeMillis(),
+                SystemClock.elapsedRealtime(),
+                isTarget,
+                interactionAvailableNow,
+                foreground
+        );
         persistState();
+    }
+
+    private void reconcileHistoricalGap(long nowWallMs, long nowElapsedMs) {
+        if (!checkpointInitialized) return;
+
+        long gapMs = nowElapsedMs - checkpointElapsedMs;
+        if (gapMs <= GAP_RECONCILIATION_THRESHOLD_MS) return;
+        staticGapDetectedCount++;
+        staticLastGapMs = gapMs;
+
+        long wallGapMs = nowWallMs - checkpointWallMs;
+        if (checkpointWallMs <= 0L
+                || checkpointElapsedMs <= 0L
+                || gapMs < 0L
+                || wallGapMs <= 0L
+                || Math.abs(wallGapMs - gapMs) > MAX_CLOCK_SKEW_MS) {
+            markGapIncomplete(gapMs);
+            discardUnreconciledGap(nowWallMs, nowElapsedMs);
+            return;
+        }
+
+        long safeEndWallMs = nowWallMs - TargetSessionGapReconciler.LIVE_TAIL_MS;
+        if (safeEndWallMs <= checkpointWallMs) {
+            markGapResult("SKIPPED", 0L, 0L);
+            discardUnreconciledGap(nowWallMs, nowElapsedMs);
+            return;
+        }
+
+        staticGapReconciliationCount++;
+        ForegroundUsageDetector.GapQuery query = foregroundDetector.queryEventsForReconciliation(
+                Math.max(0L, checkpointWallMs - ForegroundUsageDetector.LATE_EVENT_OVERLAP_MS),
+                nowWallMs
+        );
+        if (!query.succeeded) {
+            staticLastGapQueryFailureClass = query.failureClass;
+            markGapIncomplete(gapMs);
+            discardUnreconciledGap(nowWallMs, nowElapsedMs);
+            return;
+        }
+
+        TargetSessionGapReconciler.Result result = TargetSessionGapReconciler.reconcile(
+                new TargetSessionGapReconciler.Input(
+                        checkpointWallMs,
+                        safeEndWallMs,
+                        checkpointForegroundPackage,
+                        checkpointTargetActive,
+                        checkpointInteractionAvailable,
+                        targetApps,
+                        query.events
+                )
+        );
+        if (result.status != TargetSessionGapReconciler.Status.SUCCESS) {
+            markGapIncomplete(gapMs);
+            discardUnreconciledGap(nowWallMs, nowElapsedMs);
+            return;
+        }
+
+        // Align the machine clock to the exact persisted checkpoint before
+        // applying the verified segments. The normal live update remains the
+        // authority for the final ten-second tail.
+        machine.seedCheckpoint(checkpointWallMs, checkpointTargetActive);
+        applyVerifiedGap(result);
+        for (java.util.Map.Entry<String, Long> entry : result.usageMsByTargetPackage.entrySet()) {
+            usageAccumulator.queue(entry.getKey(), entry.getValue());
+        }
+        usageAccumulator.restoreObservationAnchor(
+                safeEndWallMs,
+                result.finalForegroundPackage,
+                result.finalTargetActive && result.finalInteractionAvailable
+        );
+
+        long safeEndElapsedMs = Math.max(
+                checkpointElapsedMs,
+                nowElapsedMs - TargetSessionGapReconciler.LIVE_TAIL_MS
+        );
+        checkpointWallMs = safeEndWallMs;
+        checkpointElapsedMs = safeEndElapsedMs;
+        checkpointTargetActive = result.finalTargetActive;
+        checkpointInteractionAvailable = result.finalInteractionAvailable;
+        checkpointForegroundPackage = result.finalForegroundPackage;
+        checkpointInitialized = true;
+        markGapResult(
+                "SUCCESS",
+                result.historicalTargetMsRecovered,
+                result.coverageMs
+        );
+        // Commit the recovered usage and the new checkpoint before the live
+        // tail is sampled. If the process dies after reconciliation, the next
+        // instance must not replay the same closed interval again.
+        flushPendingUsage(true);
+        persistState();
+    }
+
+    private void applyVerifiedGap(TargetSessionGapReconciler.Result result) {
+        long limitMs = limitMinutes * 60_000L;
+        for (TargetSessionGapReconciler.TimelineSegment segment : result.segments) {
+            boolean segmentTarget = segment.targetActive && segment.interactionAvailable;
+            BlockStateMachine.State before = machine.getState();
+            BlockStateMachine.State atStart = machine.updateVerifiedHistory(
+                    segmentTarget,
+                    segment.foregroundPackage,
+                    segment.startWallMs,
+                    limitMs
+            );
+            announceHistoricalStateChange(before, atStart, segment.foregroundPackage);
+            before = machine.getState();
+            BlockStateMachine.State after = machine.updateVerifiedHistory(
+                    segmentTarget,
+                    segment.foregroundPackage,
+                    segment.endWallMs,
+                    limitMs
+            );
+            announceHistoricalStateChange(before, after, segment.foregroundPackage);
+        }
+
+        BlockStateMachine.State before = machine.getState();
+        long replayEnd = result.segments.isEmpty()
+                ? machine.getLastCheckAt()
+                : result.segments.get(result.segments.size() - 1).endWallMs;
+        BlockStateMachine.State after = machine.updateVerifiedHistory(
+                result.finalTargetActive && result.finalInteractionAvailable,
+                result.finalForegroundPackage,
+                replayEnd,
+                limitMs
+        );
+        announceHistoricalStateChange(before, after, result.finalForegroundPackage);
+    }
+
+    private void announceHistoricalStateChange(
+            BlockStateMachine.State before,
+            BlockStateMachine.State after,
+            String foregroundPackage
+    ) {
+        if (after == before) return;
+        onStateChanged(after, foregroundPackage);
+        lastAnnouncedState = after;
+    }
+
+    private void markGapIncomplete(long gapMs) {
+        markGapResult("INCOMPLETE", 0L, 0L);
+        staticLastGapMs = gapMs;
+    }
+
+    private void markGapResult(String result, long reconciledMs, long coverageMs) {
+        staticLastReconciliationResult = result;
+        staticLastReconciledMs = reconciledMs;
+        staticLastReconciliationCoverageMs = coverageMs;
+        if ("SUCCESS".equals(result)) {
+            staticHistoricalTargetMsRecovered += reconciledMs;
+        }
+    }
+
+    private void discardUnreconciledGap(long nowWallMs, long nowElapsedMs) {
+        machine.seedCheckpoint(nowWallMs, false);
+        usageAccumulator.restoreObservationAnchor(nowWallMs, "", false);
+        recordCheckpoint(nowWallMs, nowElapsedMs, false, false, "");
+    }
+
+    private void recordCheckpoint(
+            long wallMs,
+            long elapsedMs,
+            boolean targetActive,
+            boolean interactionAvailable,
+            String foregroundPackage
+    ) {
+        checkpointWallMs = Math.max(0L, wallMs);
+        checkpointElapsedMs = Math.max(0L, elapsedMs);
+        checkpointTargetActive = targetActive;
+        checkpointInteractionAvailable = interactionAvailable;
+        checkpointForegroundPackage = foregroundPackage == null ? "" : foregroundPackage;
+        checkpointInitialized = checkpointWallMs > 0L && checkpointElapsedMs > 0L;
+    }
+
+    private void anchorCheckpointToNow(boolean targetActive, boolean interactionAvailable, String pkg) {
+        long wallMs = System.currentTimeMillis();
+        long elapsedMs = SystemClock.elapsedRealtime();
+        machine.seedCheckpoint(wallMs, targetActive);
+        usageAccumulator.restoreObservationAnchor(wallMs, pkg, targetActive && interactionAvailable);
+        recordCheckpoint(wallMs, elapsedMs, targetActive, interactionAvailable, pkg);
     }
 
     private void handleScreenOff(long now) {
@@ -550,6 +812,7 @@ public class FlowForegroundService extends Service {
         staticForegroundPackage = "";
         if (machine != null) {
             machine.onScreenOff(now);
+            recordCheckpoint(now, SystemClock.elapsedRealtime(), false, false, "");
             persistState();
         }
         flushPendingUsage(true);
@@ -564,6 +827,11 @@ public class FlowForegroundService extends Service {
         interactionAvailable = false;
         foregroundDetector.reset();
         foregroundDetector.resetCursor(Math.max(0, now - ForegroundUsageDetector.INITIAL_EVENT_LOOKBACK_MS));
+        if (machine != null) {
+            machine.onScreenOn(now);
+            recordCheckpoint(now, SystemClock.elapsedRealtime(), false, false, "");
+            persistState();
+        }
     }
 
     /** All service commands and lifecycle transitions enter the engine owner. */
@@ -619,6 +887,7 @@ public class FlowForegroundService extends Service {
                 ""
         );
         machine.emergencyUnlock(System.currentTimeMillis(), EMERGENCY_GRACE_MS);
+        anchorCheckpointToNow(false, false, "");
         persistState();
         return true;
     }
@@ -765,7 +1034,17 @@ public class FlowForegroundService extends Service {
     }
 
     private void persistState() {
-        stateStore.persist(machine, pullbackCoordinator.snapshot());
+        stateStore.persist(
+                machine,
+                pullbackCoordinator.snapshot(),
+                new FlowServiceStateStore.Checkpoint(
+                        checkpointWallMs,
+                        checkpointElapsedMs,
+                        checkpointTargetActive,
+                        checkpointInteractionAvailable,
+                        checkpointForegroundPackage
+                )
+        );
         publishState();
     }
 
@@ -854,6 +1133,14 @@ public class FlowForegroundService extends Service {
         reasons.put("targetSetEmptyTickCount", snapshot.targetSetEmptyTickCount);
         reasons.put("interactionUnavailableTickCount", snapshot.interactionUnavailableTickCount);
         result.put("reasonCounters", reasons);
+        result.put("gapDetectedCount", staticGapDetectedCount);
+        result.put("gapReconciliationCount", staticGapReconciliationCount);
+        result.put("lastGapMs", staticLastGapMs);
+        result.put("lastReconciledMs", staticLastReconciledMs);
+        result.put("lastReconciliationCoverageMs", staticLastReconciliationCoverageMs);
+        result.put("lastReconciliationResult", staticLastReconciliationResult);
+        result.put("lastGapQueryFailureClass", staticLastGapQueryFailureClass);
+        result.put("historicalTargetMsRecovered", staticHistoricalTargetMsRecovered);
         result.put("monitorThreadAlive", staticMonitorThreadAlive);
         result.put("monitorLooperIsMain", staticMonitorLooperIsMain);
 

@@ -39,6 +39,43 @@ public final class BlockStateMachine {
         long delta = lastCheckAt <= 0 ? 0 : Math.max(0, Math.min(10_000L, now - lastCheckAt));
         lastCheckAt = now;
 
+        return updateWithDelta(targetInForeground, foregroundPackage, now, limitMs, delta);
+    }
+
+    /**
+     * Applies an ordered, independently verified historical interval.
+     *
+     * <p>The ordinary live path keeps its ten-second clamp.  Only this replay
+     * API may use the full elapsed interval, and only callers that have
+     * reconstructed an ordered timeline may invoke it.</p>
+     */
+    public State updateVerifiedHistory(
+            boolean targetInForeground,
+            String foregroundPackage,
+            long now,
+            long limitMs
+    ) {
+        limitMs = Math.max(1_000L, limitMs);
+        if (lastCheckAt > 0L && now < lastCheckAt) return state;
+        long delta = lastCheckAt <= 0L ? 0L : Math.max(0L, now - lastCheckAt);
+        lastCheckAt = now;
+        return updateWithDelta(targetInForeground, foregroundPackage, now, limitMs, delta);
+    }
+
+    /** Seeds the state-machine clock at a persisted monitor checkpoint. */
+    public void seedCheckpoint(long checkpointWallMs, boolean targetActive) {
+        lastCheckAt = Math.max(0L, checkpointWallMs);
+        this.targetActive = targetActive;
+    }
+
+    private State updateWithDelta(
+            boolean targetInForeground,
+            String foregroundPackage,
+            long now,
+            long limitMs,
+            long delta
+    ) {
+
         if (graceUntil > now) {
             state = State.GRACE;
             leftTargetsAt = 0;
@@ -151,4 +188,6 @@ public final class BlockStateMachine {
     public long getGraceUntil() { return graceUntil; }
     public long getLeftTargetsAt() { return leftTargetsAt; }
     public String getBlockedPackage() { return blockedPackage; }
+    public boolean getTargetActive() { return targetActive; }
+    public long getLastCheckAt() { return lastCheckAt; }
 }

@@ -6,6 +6,7 @@ import android.content.Context;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -118,12 +119,69 @@ public final class ForegroundUsageDetector {
         return usageEventsCursor;
     }
 
+    /**
+     * Reads an explicit historical window for gap reconciliation.  This path
+     * reports query failures to the caller instead of silently falling back to
+     * the live tracker.
+     */
+    GapQuery queryEventsForReconciliation(long begin, long end) {
+        UsageStatsManager manager = (UsageStatsManager) context.getSystemService(
+                Context.USAGE_STATS_SERVICE
+        );
+        if (manager == null) {
+            return GapQuery.failure("USAGE_STATS_MANAGER_UNAVAILABLE");
+        }
+        try {
+            UsageEvents usageEvents = manager.queryEvents(begin, end);
+            if (usageEvents == null) {
+                return GapQuery.failure("USAGE_EVENTS_NULL");
+            }
+            List<ObservedEvent> observedEvents = readEventsFromCursor(usageEvents);
+            updateLastUsageEventAt(observedEvents);
+            List<TargetSessionGapReconciler.Event> result = new ArrayList<>();
+            for (ObservedEvent event : observedEvents) {
+                TargetSessionGapReconciler.Event mapped = toReconciliationEvent(event);
+                if (mapped != null) result.add(mapped);
+            }
+            return GapQuery.success(result);
+        } catch (Exception exception) {
+            return GapQuery.failure(exception.getClass().getName());
+        }
+    }
+
     int recentEventCacheSizeForTest() {
         return recentSeenEvents.size();
     }
 
+    static final class GapQuery {
+        final boolean succeeded;
+        final String failureClass;
+        final List<TargetSessionGapReconciler.Event> events;
+
+        private GapQuery(
+                boolean succeeded,
+                String failureClass,
+                List<TargetSessionGapReconciler.Event> events
+        ) {
+            this.succeeded = succeeded;
+            this.failureClass = failureClass;
+            this.events = Collections.unmodifiableList(new ArrayList<>(events));
+        }
+
+        static GapQuery success(List<TargetSessionGapReconciler.Event> events) {
+            return new GapQuery(true, "", events);
+        }
+
+        static GapQuery failure(String failureClass) {
+            return new GapQuery(false, failureClass, Collections.emptyList());
+        }
+    }
+
     private List<ObservedEvent> readEvents(UsageStatsManager manager, long begin, long end) {
-        UsageEvents events = manager.queryEvents(begin, end);
+        return readEventsFromCursor(manager.queryEvents(begin, end));
+    }
+
+    private List<ObservedEvent> readEventsFromCursor(UsageEvents events) {
         List<ObservedEvent> result = new ArrayList<>();
         if (events == null) return result;
 
@@ -140,6 +198,36 @@ public final class ForegroundUsageDetector {
         // List.sort is stable, so query order is retained for equal timestamps.
         result.sort(Comparator.comparingLong(observed -> observed.timestamp));
         return result;
+    }
+
+    private static TargetSessionGapReconciler.Event toReconciliationEvent(ObservedEvent event) {
+        if (ForegroundAppTracker.isForegroundEvent(event.eventType)) {
+            return TargetSessionGapReconciler.Event.foreground(
+                    event.packageName,
+                    event.className,
+                    event.timestamp
+            );
+        }
+        if (ForegroundAppTracker.isBackgroundEvent(event.eventType)) {
+            return TargetSessionGapReconciler.Event.background(
+                    event.packageName,
+                    event.className,
+                    event.timestamp
+            );
+        }
+        if (event.eventType == UsageEvents.Event.SCREEN_INTERACTIVE) {
+            return TargetSessionGapReconciler.Event.screenInteractive(event.timestamp);
+        }
+        if (event.eventType == UsageEvents.Event.SCREEN_NON_INTERACTIVE) {
+            return TargetSessionGapReconciler.Event.screenNonInteractive(event.timestamp);
+        }
+        if (event.eventType == UsageEvents.Event.KEYGUARD_SHOWN) {
+            return TargetSessionGapReconciler.Event.keyguardShown(event.timestamp);
+        }
+        if (event.eventType == UsageEvents.Event.KEYGUARD_HIDDEN) {
+            return TargetSessionGapReconciler.Event.keyguardHidden(event.timestamp);
+        }
+        return null;
     }
 
     private void updateLastUsageEventAt(List<ObservedEvent> events) {

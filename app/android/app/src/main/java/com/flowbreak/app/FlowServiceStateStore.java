@@ -24,6 +24,29 @@ public final class FlowServiceStateStore {
     public static final long GRACE_MS = 10 * 60_000L;
     public static final long EMERGENCY_GRACE_MS = 5 * 60_000L;
 
+    /** Minimal persisted monitor checkpoint used to reconcile long callbacks. */
+    public static final class Checkpoint {
+        public final long wallMs;
+        public final long elapsedMs;
+        public final boolean targetActive;
+        public final boolean interactionAvailable;
+        public final String foregroundPackage;
+
+        public Checkpoint(
+                long wallMs,
+                long elapsedMs,
+                boolean targetActive,
+                boolean interactionAvailable,
+                String foregroundPackage
+        ) {
+            this.wallMs = wallMs;
+            this.elapsedMs = elapsedMs;
+            this.targetActive = targetActive;
+            this.interactionAvailable = interactionAvailable;
+            this.foregroundPackage = foregroundPackage == null ? "" : foregroundPackage;
+        }
+    }
+
     /** 应用配置快照。 */
     public static final class Config {
         public final Set<String> targetApps;
@@ -57,6 +80,11 @@ public final class FlowServiceStateStore {
         public final long restStartedAt;
         public final long restRequiredMs;
         public final long restSessionId;
+        public final long checkpointWallMs;
+        public final long checkpointElapsedMs;
+        public final boolean checkpointTargetActive;
+        public final boolean checkpointInteractionAvailable;
+        public final String checkpointForegroundPackage;
 
         public MachineSnapshot(
                 BlockStateMachine.State persistedState,
@@ -68,6 +96,38 @@ public final class FlowServiceStateStore {
                 long restRequiredMs,
                 long restSessionId
         ) {
+            this(
+                    persistedState,
+                    sessionMs,
+                    graceUntil,
+                    leftTargetsAt,
+                    blockedPackage,
+                    restStartedAt,
+                    restRequiredMs,
+                    restSessionId,
+                    0L,
+                    0L,
+                    false,
+                    false,
+                    ""
+            );
+        }
+
+        public MachineSnapshot(
+                BlockStateMachine.State persistedState,
+                long sessionMs,
+                long graceUntil,
+                long leftTargetsAt,
+                String blockedPackage,
+                long restStartedAt,
+                long restRequiredMs,
+                long restSessionId,
+                long checkpointWallMs,
+                long checkpointElapsedMs,
+                boolean checkpointTargetActive,
+                boolean checkpointInteractionAvailable,
+                String checkpointForegroundPackage
+        ) {
             this.persistedState = persistedState;
             this.sessionMs = sessionMs;
             this.graceUntil = graceUntil;
@@ -76,6 +136,13 @@ public final class FlowServiceStateStore {
             this.restStartedAt = restStartedAt;
             this.restRequiredMs = restRequiredMs;
             this.restSessionId = restSessionId;
+            this.checkpointWallMs = checkpointWallMs;
+            this.checkpointElapsedMs = checkpointElapsedMs;
+            this.checkpointTargetActive = checkpointTargetActive;
+            this.checkpointInteractionAvailable = checkpointInteractionAvailable;
+            this.checkpointForegroundPackage = checkpointForegroundPackage == null
+                    ? ""
+                    : checkpointForegroundPackage;
         }
     }
 
@@ -124,7 +191,12 @@ public final class FlowServiceStateStore {
                 prefs.getString("blockedPackage", ""),
                 prefs.getLong(FlowForegroundService.PREF_REST_STARTED_AT, 0L),
                 prefs.getLong(FlowForegroundService.PREF_REST_REQUIRED_MS, 0L),
-                prefs.getLong(FlowForegroundService.PREF_REST_SESSION_ID, 0L)
+                prefs.getLong(FlowForegroundService.PREF_REST_SESSION_ID, 0L),
+                prefs.getLong("checkpointWallMs", 0L),
+                prefs.getLong("checkpointElapsedMs", 0L),
+                prefs.getBoolean("checkpointTargetActive", false),
+                prefs.getBoolean("checkpointInteractionAvailable", false),
+                prefs.getString("checkpointForegroundPackage", "")
         );
     }
 
@@ -137,12 +209,28 @@ public final class FlowServiceStateStore {
             BlockStateMachine machine,
             PullbackSessionCoordinator.Snapshot pullback
     ) {
+        persist(machine, pullback, null);
+    }
+
+    /** Persists machine, pullback and the latest monitor checkpoint together. */
+    public void persist(
+            BlockStateMachine machine,
+            PullbackSessionCoordinator.Snapshot pullback,
+            Checkpoint checkpoint
+    ) {
         SharedPreferences.Editor editor = prefs.edit()
                 .putString("blockState", machine.getState().name())
                 .putLong("sessionMs", machine.getSessionMs())
                 .putLong("graceUntil", machine.getGraceUntil())
                 .putLong("leftTargetsAt", machine.getLeftTargetsAt())
                 .putString("blockedPackage", machine.getBlockedPackage());
+        if (checkpoint != null) {
+            editor.putLong("checkpointWallMs", checkpoint.wallMs)
+                    .putLong("checkpointElapsedMs", checkpoint.elapsedMs)
+                    .putBoolean("checkpointTargetActive", checkpoint.targetActive)
+                    .putBoolean("checkpointInteractionAvailable", checkpoint.interactionAvailable)
+                    .putString("checkpointForegroundPackage", checkpoint.foregroundPackage);
+        }
         if (pullback != null && pullback.present) {
             editor.putLong(FlowForegroundService.PREF_PULLBACK_SESSION_ID, pullback.sessionId)
                     .putLong(FlowForegroundService.PREF_PULLBACK_STARTED_AT, pullback.startedAt)

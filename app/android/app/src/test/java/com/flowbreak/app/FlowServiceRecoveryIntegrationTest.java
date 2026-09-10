@@ -728,6 +728,41 @@ public class FlowServiceRecoveryIntegrationTest {
         assertFalse(result.pullbackSnapshot.success);
     }
 
+    @Test
+    public void monitorCheckpointRoundTripsWithoutPersistingHistory() {
+        prefs.edit()
+                .putInt("limitMinutes", 25)
+                .putStringSet(PreferenceUtils.PREF_TARGET_APPS, setOf("a"))
+                .putBoolean("monitoringEnabled", true)
+                .putInt("restDuration", 180)
+                .putBoolean("allowEmergencyUnlock", true)
+                .commit();
+
+        BlockStateMachine machine = new BlockStateMachine(
+                BlockStateMachine.State.COGNITION,
+                100_000L,
+                0L,
+                0L,
+                "a"
+        );
+        FlowServiceStateStore.Checkpoint checkpoint = new FlowServiceStateStore.Checkpoint(
+                NOW - 2_000L,
+                8_000L,
+                true,
+                true,
+                "a"
+        );
+
+        newStore().persist(machine, PullbackSessionCoordinator.Snapshot.empty(), checkpoint);
+        FlowServiceStateStore.MachineSnapshot snapshot = newStore().loadMachineSnapshot();
+
+        assertEquals(NOW - 2_000L, snapshot.checkpointWallMs);
+        assertEquals(8_000L, snapshot.checkpointElapsedMs);
+        assertTrue(snapshot.checkpointTargetActive);
+        assertTrue(snapshot.checkpointInteractionAvailable);
+        assertEquals("a", snapshot.checkpointForegroundPackage);
+    }
+
     // ==================== 辅助 ====================
 
     private FlowServiceStateStore newStore() {
