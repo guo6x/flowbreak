@@ -112,9 +112,9 @@ public class FlowForegroundServiceRuntimeTrackingTest {
 
         for (int i = 0; i < 64; i++) {
             long start = 1_000L + i * 2_000L;
-            counters.recordMonitorStart(start);
+            counters.recordMonitorStart(0L, start, 0L);
             counters.recordTick(start, true, false, true);
-            counters.recordMonitorEnd(start + 10L);
+            counters.recordMonitorEnd(0L, start + 10L, 0L);
         }
 
         FlowForegroundService.RuntimeTrackingSnapshot snapshot = counters.snapshot();
@@ -129,9 +129,9 @@ public class FlowForegroundServiceRuntimeTrackingTest {
 
         for (int i = 0; i < 70; i++) {
             long start = 1_000L + i * 2_000L;
-            counters.recordMonitorStart(start);
+            counters.recordMonitorStart(0L, start, 0L);
             counters.recordTick(start, true, false, true);
-            counters.recordMonitorEnd(start + 10L);
+            counters.recordMonitorEnd(0L, start + 10L, 0L);
         }
 
         FlowForegroundService.RuntimeTrackingSnapshot snapshot = counters.snapshot();
@@ -144,12 +144,12 @@ public class FlowForegroundServiceRuntimeTrackingTest {
         FlowForegroundService.RuntimeTrackingCounters counters =
                 new FlowForegroundService.RuntimeTrackingCounters();
 
-        counters.recordMonitorStart(1_000L);
+        counters.recordMonitorStart(0L, 1_000L, 0L);
         counters.recordTick(1_000L, true, false, true);
-        counters.recordMonitorEnd(1_100L);
-        counters.recordMonitorStart(3_100L);
+        counters.recordMonitorEnd(0L, 1_100L, 0L);
+        counters.recordMonitorStart(0L, 3_100L, 0L);
         counters.recordTick(3_100L, true, false, true);
-        counters.recordMonitorEnd(3_300L);
+        counters.recordMonitorEnd(0L, 3_300L, 0L);
 
         FlowForegroundService.RuntimeTrackingSnapshot snapshot = counters.snapshot();
         assertEquals(200L, snapshot.lastTickExecutionMs);
@@ -196,18 +196,18 @@ public class FlowForegroundServiceRuntimeTrackingTest {
         FlowForegroundService.RuntimeTrackingCounters counters =
                 new FlowForegroundService.RuntimeTrackingCounters();
 
-        counters.recordMonitorStart(1_000L);
+        counters.recordMonitorStart(0L, 1_000L, 0L);
         counters.recordTick(1_000L, false, false, true);
         counters.recordMonitoringDisabledReturn();
-        counters.recordMonitorEnd(1_001L);
-        counters.recordMonitorStart(3_000L);
+        counters.recordMonitorEnd(0L, 1_001L, 0L);
+        counters.recordMonitorStart(0L, 3_000L, 0L);
         counters.recordTick(3_000L, true, true, true);
         counters.recordTargetSetEmptyReturn();
-        counters.recordMonitorEnd(3_001L);
-        counters.recordMonitorStart(5_000L);
+        counters.recordMonitorEnd(0L, 3_001L, 0L);
+        counters.recordMonitorStart(0L, 5_000L, 0L);
         counters.recordTick(5_000L, true, false, false);
         counters.recordInteractionUnavailableReturn();
-        counters.recordMonitorEnd(5_001L);
+        counters.recordMonitorEnd(0L, 5_001L, 0L);
 
         FlowForegroundService.RuntimeTrackingSnapshot snapshot = counters.snapshot();
         assertEquals(1L, snapshot.monitoringDisabledTickCount);

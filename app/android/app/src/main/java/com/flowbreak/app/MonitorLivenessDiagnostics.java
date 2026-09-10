@@ -28,6 +28,7 @@ final class MonitorLivenessDiagnostics {
     private boolean processIdentityInitialized;
 
     private String serviceInstanceId = "";
+    private long currentServiceGeneration;
     private long serviceCreateCount;
     private long serviceStartCommandCount;
     private long serviceDestroyCount;
@@ -37,10 +38,16 @@ final class MonitorLivenessDiagnostics {
     private long lastStartCommandElapsedMs;
     private long lastStartCommandWallMs;
     private String lastStartCommandAction = ACTION_UNKNOWN;
+    private String lastStartCommandServiceInstanceId = "";
+    private long lastStartCommandServiceGeneration;
     private long lastServiceDestroyElapsedMs;
     private long lastServiceDestroyWallMs;
+    private String lastDestroyedServiceInstanceId = "";
+    private long lastDestroyedServiceGeneration;
     private long lastTaskRemovedElapsedMs;
     private long lastTaskRemovedWallMs;
+    private String lastTaskRemovedServiceInstanceId = "";
+    private long lastTaskRemovedServiceGeneration;
 
     private boolean monitorLoopActive;
     private boolean monitorLoopShutdown;
@@ -85,34 +92,52 @@ final class MonitorLivenessDiagnostics {
         processIdentityInitialized = true;
     }
 
-    synchronized void recordServiceCreate(long wallMs, long elapsedMs) {
+    synchronized long recordServiceCreate(long wallMs, long elapsedMs) {
         serviceCreateCount++;
-        serviceInstanceId = processPid + "-" + serviceCreateCount;
+        currentServiceGeneration = serviceCreateCount;
+        serviceInstanceId = serviceInstanceIdFor(currentServiceGeneration);
         serviceInstanceStartedWallMs = wallMs;
         serviceInstanceStartedElapsedMs = elapsedMs;
+        resetCurrentServiceState();
+        return currentServiceGeneration;
     }
 
-    synchronized void recordServiceStartCommand(String action, long wallMs, long elapsedMs) {
+    synchronized long currentServiceGeneration() {
+        return currentServiceGeneration;
+    }
+
+    synchronized boolean isCurrentServiceGeneration(long serviceGeneration) {
+        return currentServiceGeneration == serviceGeneration;
+    }
+
+    synchronized void recordServiceStartCommand(long serviceGeneration, String action,
+            long wallMs, long elapsedMs) {
         serviceStartCommandCount++;
         lastStartCommandAction = normalizeAction(action);
         lastStartCommandWallMs = wallMs;
         lastStartCommandElapsedMs = elapsedMs;
+        lastStartCommandServiceGeneration = serviceGeneration;
+        lastStartCommandServiceInstanceId = serviceInstanceIdFor(serviceGeneration);
     }
 
-    synchronized void recordServiceDestroy(long wallMs, long elapsedMs) {
+    synchronized void recordServiceDestroy(long serviceGeneration, long wallMs, long elapsedMs) {
         serviceDestroyCount++;
         lastServiceDestroyWallMs = wallMs;
         lastServiceDestroyElapsedMs = elapsedMs;
+        lastDestroyedServiceGeneration = serviceGeneration;
+        lastDestroyedServiceInstanceId = serviceInstanceIdFor(serviceGeneration);
     }
 
-    synchronized void recordTaskRemoved(long wallMs, long elapsedMs) {
+    synchronized void recordTaskRemoved(long serviceGeneration, long wallMs, long elapsedMs) {
         serviceTaskRemovedCount++;
         lastTaskRemovedWallMs = wallMs;
         lastTaskRemovedElapsedMs = elapsedMs;
+        lastTaskRemovedServiceGeneration = serviceGeneration;
+        lastTaskRemovedServiceInstanceId = serviceInstanceIdFor(serviceGeneration);
     }
 
-    synchronized void recordMonitorLoopStart(String reason) {
-        if (monitorLoopShutdown) {
+    synchronized void recordMonitorLoopStart(long serviceGeneration, String reason) {
+        if (!isCurrentServiceGeneration(serviceGeneration) || monitorLoopShutdown) {
             return;
         }
         monitorLoopStartCount++;
@@ -120,8 +145,8 @@ final class MonitorLivenessDiagnostics {
         lastMonitorLoopStartReason = normalizeLoopReason(reason);
     }
 
-    synchronized void recordMonitorLoopStop(String reason) {
-        if (monitorLoopShutdown) {
+    synchronized void recordMonitorLoopStop(long serviceGeneration, String reason) {
+        if (!isCurrentServiceGeneration(serviceGeneration) || monitorLoopShutdown) {
             return;
         }
         monitorLoopStopCount++;
@@ -129,8 +154,8 @@ final class MonitorLivenessDiagnostics {
         lastMonitorLoopStopReason = normalizeLoopReason(reason);
     }
 
-    synchronized void recordMonitorLoopShutdown(String reason) {
-        if (monitorLoopShutdown) {
+    synchronized void recordMonitorLoopShutdown(long serviceGeneration, String reason) {
+        if (!isCurrentServiceGeneration(serviceGeneration) || monitorLoopShutdown) {
             return;
         }
         monitorLoopShutdownCount++;
@@ -139,25 +164,35 @@ final class MonitorLivenessDiagnostics {
         lastMonitorLoopShutdownReason = normalizeLoopReason(reason);
     }
 
-    synchronized void recordCallbackScheduled(long scheduledElapsedMs, long dueElapsedMs) {
+    synchronized void recordCallbackScheduled(long serviceGeneration, long scheduledElapsedMs,
+            long dueElapsedMs) {
+        if (!isCurrentServiceGeneration(serviceGeneration)) {
+            return;
+        }
         lastCallbackScheduledElapsedMs = scheduledElapsedMs;
         scheduledCallbackDueElapsedMs = dueElapsedMs;
         pendingCallbackDueElapsedMs = dueElapsedMs;
         callbackDeadlinePending = true;
     }
 
-    synchronized void cancelPendingCallbackDeadline() {
+    synchronized void cancelPendingCallbackDeadline(long serviceGeneration) {
+        if (!isCurrentServiceGeneration(serviceGeneration)) {
+            return;
+        }
         pendingCallbackDueElapsedMs = 0L;
         callbackDeadlinePending = false;
     }
 
-    synchronized void recordMonitorStart(long elapsedMs, long wallMs) {
+    synchronized boolean recordMonitorStart(long serviceGeneration, long elapsedMs, long wallMs) {
+        if (!isCurrentServiceGeneration(serviceGeneration)) {
+            return false;
+        }
         actualMonitorStartElapsedMs = elapsedMs;
         lastMonitorStartElapsedMs = elapsedMs;
         lastMonitorStartWallMs = wallMs;
 
         if (!callbackDeadlinePending) {
-            return;
+            return true;
         }
 
         callbackLatenessMs = Math.max(0L, elapsedMs - pendingCallbackDueElapsedMs);
@@ -170,11 +205,45 @@ final class MonitorLivenessDiagnostics {
         }
         pendingCallbackDueElapsedMs = 0L;
         callbackDeadlinePending = false;
+        return true;
     }
 
-    synchronized void recordMonitorEnd(long elapsedMs, long wallMs) {
+    synchronized boolean recordMonitorEnd(long serviceGeneration, long elapsedMs, long wallMs) {
+        if (!isCurrentServiceGeneration(serviceGeneration)) {
+            return false;
+        }
         lastMonitorEndElapsedMs = elapsedMs;
         lastMonitorEndWallMs = wallMs;
+        return true;
+    }
+
+    private void resetCurrentServiceState() {
+        monitorLoopActive = false;
+        monitorLoopShutdown = false;
+        monitorLoopStartCount = 0L;
+        monitorLoopStopCount = 0L;
+        monitorLoopShutdownCount = 0L;
+        lastMonitorLoopStartReason = LOOP_REASON_OTHER;
+        lastMonitorLoopStopReason = LOOP_REASON_OTHER;
+        lastMonitorLoopShutdownReason = LOOP_REASON_OTHER;
+
+        lastMonitorStartElapsedMs = 0L;
+        lastMonitorStartWallMs = 0L;
+        lastMonitorEndElapsedMs = 0L;
+        lastMonitorEndWallMs = 0L;
+        lastCallbackScheduledElapsedMs = 0L;
+        scheduledCallbackDueElapsedMs = 0L;
+        pendingCallbackDueElapsedMs = 0L;
+        callbackDeadlinePending = false;
+        actualMonitorStartElapsedMs = 0L;
+        callbackLatenessMs = 0L;
+        maxCallbackLatenessMs = 0L;
+        callbackLatenessOver3000Count = 0L;
+        callbackLatenessOver5000Count = 0L;
+    }
+
+    private String serviceInstanceIdFor(long serviceGeneration) {
+        return processPid + "-" + serviceGeneration;
     }
 
     synchronized Snapshot snapshot() {
@@ -183,6 +252,7 @@ final class MonitorLivenessDiagnostics {
                 processInstanceStartedElapsedMs,
                 processInstanceStartedWallMs,
                 serviceInstanceId,
+                currentServiceGeneration,
                 serviceCreateCount,
                 serviceStartCommandCount,
                 serviceDestroyCount,
@@ -192,10 +262,16 @@ final class MonitorLivenessDiagnostics {
                 lastStartCommandElapsedMs,
                 lastStartCommandWallMs,
                 lastStartCommandAction,
+                lastStartCommandServiceInstanceId,
+                lastStartCommandServiceGeneration,
                 lastServiceDestroyElapsedMs,
                 lastServiceDestroyWallMs,
+                lastDestroyedServiceInstanceId,
+                lastDestroyedServiceGeneration,
                 lastTaskRemovedElapsedMs,
                 lastTaskRemovedWallMs,
+                lastTaskRemovedServiceInstanceId,
+                lastTaskRemovedServiceGeneration,
                 monitorLoopActive,
                 monitorLoopShutdown,
                 monitorLoopStartCount,
@@ -246,6 +322,7 @@ final class MonitorLivenessDiagnostics {
         final long processInstanceStartedElapsedMs;
         final long processInstanceStartedWallMs;
         final String serviceInstanceId;
+        final long currentServiceGeneration;
         final long serviceCreateCount;
         final long serviceStartCommandCount;
         final long serviceDestroyCount;
@@ -255,10 +332,16 @@ final class MonitorLivenessDiagnostics {
         final long lastStartCommandElapsedMs;
         final long lastStartCommandWallMs;
         final String lastStartCommandAction;
+        final String lastStartCommandServiceInstanceId;
+        final long lastStartCommandServiceGeneration;
         final long lastServiceDestroyElapsedMs;
         final long lastServiceDestroyWallMs;
+        final String lastDestroyedServiceInstanceId;
+        final long lastDestroyedServiceGeneration;
         final long lastTaskRemovedElapsedMs;
         final long lastTaskRemovedWallMs;
+        final String lastTaskRemovedServiceInstanceId;
+        final long lastTaskRemovedServiceGeneration;
         final boolean monitorLoopActive;
         final boolean monitorLoopShutdown;
         final long monitorLoopStartCount;
@@ -282,13 +365,17 @@ final class MonitorLivenessDiagnostics {
 
         Snapshot(int processPid, long processInstanceStartedElapsedMs,
                 long processInstanceStartedWallMs, String serviceInstanceId,
-                long serviceCreateCount, long serviceStartCommandCount,
+                long currentServiceGeneration, long serviceCreateCount,
+                long serviceStartCommandCount,
                 long serviceDestroyCount, long serviceTaskRemovedCount,
                 long serviceInstanceStartedElapsedMs, long serviceInstanceStartedWallMs,
                 long lastStartCommandElapsedMs, long lastStartCommandWallMs,
-                String lastStartCommandAction, long lastServiceDestroyElapsedMs,
-                long lastServiceDestroyWallMs, long lastTaskRemovedElapsedMs,
-                long lastTaskRemovedWallMs, boolean monitorLoopActive,
+                String lastStartCommandAction, String lastStartCommandServiceInstanceId,
+                long lastStartCommandServiceGeneration, long lastServiceDestroyElapsedMs,
+                long lastServiceDestroyWallMs, String lastDestroyedServiceInstanceId,
+                long lastDestroyedServiceGeneration, long lastTaskRemovedElapsedMs,
+                long lastTaskRemovedWallMs, String lastTaskRemovedServiceInstanceId,
+                long lastTaskRemovedServiceGeneration, boolean monitorLoopActive,
                 boolean monitorLoopShutdown, long monitorLoopStartCount,
                 long monitorLoopStopCount, long monitorLoopShutdownCount,
                 String lastMonitorLoopStartReason, String lastMonitorLoopStopReason,
@@ -303,6 +390,7 @@ final class MonitorLivenessDiagnostics {
             this.processInstanceStartedElapsedMs = processInstanceStartedElapsedMs;
             this.processInstanceStartedWallMs = processInstanceStartedWallMs;
             this.serviceInstanceId = serviceInstanceId;
+            this.currentServiceGeneration = currentServiceGeneration;
             this.serviceCreateCount = serviceCreateCount;
             this.serviceStartCommandCount = serviceStartCommandCount;
             this.serviceDestroyCount = serviceDestroyCount;
@@ -312,10 +400,16 @@ final class MonitorLivenessDiagnostics {
             this.lastStartCommandElapsedMs = lastStartCommandElapsedMs;
             this.lastStartCommandWallMs = lastStartCommandWallMs;
             this.lastStartCommandAction = lastStartCommandAction;
+            this.lastStartCommandServiceInstanceId = lastStartCommandServiceInstanceId;
+            this.lastStartCommandServiceGeneration = lastStartCommandServiceGeneration;
             this.lastServiceDestroyElapsedMs = lastServiceDestroyElapsedMs;
             this.lastServiceDestroyWallMs = lastServiceDestroyWallMs;
+            this.lastDestroyedServiceInstanceId = lastDestroyedServiceInstanceId;
+            this.lastDestroyedServiceGeneration = lastDestroyedServiceGeneration;
             this.lastTaskRemovedElapsedMs = lastTaskRemovedElapsedMs;
             this.lastTaskRemovedWallMs = lastTaskRemovedWallMs;
+            this.lastTaskRemovedServiceInstanceId = lastTaskRemovedServiceInstanceId;
+            this.lastTaskRemovedServiceGeneration = lastTaskRemovedServiceGeneration;
             this.monitorLoopActive = monitorLoopActive;
             this.monitorLoopShutdown = monitorLoopShutdown;
             this.monitorLoopStartCount = monitorLoopStartCount;

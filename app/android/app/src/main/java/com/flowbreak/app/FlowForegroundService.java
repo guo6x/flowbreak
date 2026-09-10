@@ -84,6 +84,7 @@ public class FlowForegroundService extends Service {
     private HandlerThread monitorThread;
     private Handler monitorHandler;
     private FlowMonitorLoop monitorLoop;
+    private long livenessServiceGeneration;
     private volatile boolean monitorShutdownRequested;
     private boolean monitorShutdownComplete;
     private boolean serviceDestroyRecorded;
@@ -114,11 +115,11 @@ public class FlowForegroundService extends Service {
             if (monitorShutdownRequested) return;
             long startElapsed = SystemClock.elapsedRealtime();
             long startWall = System.currentTimeMillis();
-            runtimeTracking.recordMonitorStart(startElapsed, startWall);
+            runtimeTracking.recordMonitorStart(livenessServiceGeneration, startElapsed, startWall);
             tick();
             long endElapsed = SystemClock.elapsedRealtime();
             long endWall = System.currentTimeMillis();
-            runtimeTracking.recordMonitorEnd(endElapsed, endWall);
+            runtimeTracking.recordMonitorEnd(livenessServiceGeneration, endElapsed, endWall);
             if (monitorLoop != null) monitorLoop.scheduleNext();
         }
     };
@@ -144,12 +145,18 @@ public class FlowForegroundService extends Service {
         );
         Context applicationContext = getApplicationContext();
         staticServiceContext = applicationContext == null ? this : applicationContext;
-        runtimeTracking.recordServiceCreate(System.currentTimeMillis(), SystemClock.elapsedRealtime());
+        livenessServiceGeneration = runtimeTracking.recordServiceCreate(
+                System.currentTimeMillis(),
+                SystemClock.elapsedRealtime()
+        );
         monitorThread = new HandlerThread("FlowBreakMonitor", Process.THREAD_PRIORITY_DEFAULT);
         monitorThread.start();
         monitorHandler = new Handler(monitorThread.getLooper());
         staticMonitorThreadRef = monitorThread;
-        monitorLoop = new FlowMonitorLoop(new HandlerScheduler(monitorHandler), monitor);
+        monitorLoop = new FlowMonitorLoop(
+                new HandlerScheduler(monitorHandler, livenessServiceGeneration),
+                monitor
+        );
         staticMonitorThreadAlive = monitorThread.isAlive();
         staticMonitorLooperIsMain = monitorHandler.getLooper() == Looper.getMainLooper();
         stateStore = new FlowServiceStateStore(this);
@@ -208,6 +215,7 @@ public class FlowForegroundService extends Service {
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent == null ? ACTION_START : intent.getAction();
         runtimeTracking.recordServiceStartCommand(
+                livenessServiceGeneration,
                 toSafeStartAction(action),
                 System.currentTimeMillis(),
                 SystemClock.elapsedRealtime()
@@ -655,13 +663,13 @@ public class FlowForegroundService extends Service {
 
     private void startMonitorLoop(String reason) {
         if (monitorLoop == null || monitorLoop.isShutdown()) return;
-        runtimeTracking.recordMonitorLoopStart(reason);
+        runtimeTracking.recordMonitorLoopStart(livenessServiceGeneration, reason);
         monitorLoop.start();
     }
 
     private void stopMonitorLoop(String reason) {
         if (monitorLoop == null || monitorLoop.isShutdown()) return;
-        runtimeTracking.recordMonitorLoopStop(reason);
+        runtimeTracking.recordMonitorLoopStop(livenessServiceGeneration, reason);
         monitorLoop.stop();
     }
 
@@ -692,14 +700,16 @@ public class FlowForegroundService extends Service {
 
     private static final class HandlerScheduler implements FlowMonitorLoop.Scheduler {
         private final Handler handler;
+        private final long serviceGeneration;
 
-        HandlerScheduler(Handler handler) {
+        HandlerScheduler(Handler handler, long serviceGeneration) {
             this.handler = handler;
+            this.serviceGeneration = serviceGeneration;
         }
 
         @Override public void removeCallbacks(Runnable runnable) {
             handler.removeCallbacks(runnable);
-            runtimeTracking.cancelPendingCallbackDeadline();
+            runtimeTracking.cancelPendingCallbackDeadline(serviceGeneration);
         }
 
         @Override public void post(Runnable runnable) {
@@ -711,6 +721,7 @@ public class FlowForegroundService extends Service {
             boolean armed = handler.postDelayed(runnable, delayMs);
             if (armed) {
                 runtimeTracking.recordCallbackScheduled(
+                        serviceGeneration,
                         scheduledElapsedMs,
                         scheduledElapsedMs + delayMs
                 );
@@ -852,6 +863,7 @@ public class FlowForegroundService extends Service {
         lifecycle.put("processInstanceStartedElapsedMs", liveness.processInstanceStartedElapsedMs);
         lifecycle.put("processInstanceStartedWallMs", liveness.processInstanceStartedWallMs);
         lifecycle.put("serviceInstanceId", liveness.serviceInstanceId);
+        lifecycle.put("currentServiceGeneration", liveness.currentServiceGeneration);
         lifecycle.put("serviceCreateCount", liveness.serviceCreateCount);
         lifecycle.put("serviceInstanceStartedElapsedMs", liveness.serviceInstanceStartedElapsedMs);
         lifecycle.put("serviceInstanceStartedWallMs", liveness.serviceInstanceStartedWallMs);
@@ -859,12 +871,18 @@ public class FlowForegroundService extends Service {
         lifecycle.put("lastStartCommandElapsedMs", liveness.lastStartCommandElapsedMs);
         lifecycle.put("lastStartCommandWallMs", liveness.lastStartCommandWallMs);
         lifecycle.put("lastStartCommandAction", liveness.lastStartCommandAction);
+        lifecycle.put("lastStartCommandServiceInstanceId", liveness.lastStartCommandServiceInstanceId);
+        lifecycle.put("lastStartCommandServiceGeneration", liveness.lastStartCommandServiceGeneration);
         lifecycle.put("serviceDestroyCount", liveness.serviceDestroyCount);
         lifecycle.put("lastServiceDestroyElapsedMs", liveness.lastServiceDestroyElapsedMs);
         lifecycle.put("lastServiceDestroyWallMs", liveness.lastServiceDestroyWallMs);
+        lifecycle.put("lastDestroyedServiceInstanceId", liveness.lastDestroyedServiceInstanceId);
+        lifecycle.put("lastDestroyedServiceGeneration", liveness.lastDestroyedServiceGeneration);
         lifecycle.put("serviceTaskRemovedCount", liveness.serviceTaskRemovedCount);
         lifecycle.put("lastTaskRemovedElapsedMs", liveness.lastTaskRemovedElapsedMs);
         lifecycle.put("lastTaskRemovedWallMs", liveness.lastTaskRemovedWallMs);
+        lifecycle.put("lastTaskRemovedServiceInstanceId", liveness.lastTaskRemovedServiceInstanceId);
+        lifecycle.put("lastTaskRemovedServiceGeneration", liveness.lastTaskRemovedServiceGeneration);
         lifecycle.put("monitorLoopActive", liveness.monitorLoopActive);
         lifecycle.put("monitorLoopShutdown", liveness.monitorLoopShutdown);
         lifecycle.put("monitorLoopStartCount", liveness.monitorLoopStartCount);
@@ -1063,52 +1081,55 @@ public class FlowForegroundService extends Service {
             liveness.initializeProcessIdentity(pid, elapsedMs, wallMs);
         }
 
-        void recordServiceCreate(long wallMs, long elapsedMs) {
-            liveness.recordServiceCreate(wallMs, elapsedMs);
+        synchronized long recordServiceCreate(long wallMs, long elapsedMs) {
+            return liveness.recordServiceCreate(wallMs, elapsedMs);
         }
 
-        void recordServiceStartCommand(String action, long wallMs, long elapsedMs) {
-            liveness.recordServiceStartCommand(action, wallMs, elapsedMs);
+        void recordServiceStartCommand(long serviceGeneration, String action, long wallMs,
+                long elapsedMs) {
+            liveness.recordServiceStartCommand(serviceGeneration, action, wallMs, elapsedMs);
         }
 
-        void recordServiceDestroy(long wallMs, long elapsedMs) {
-            liveness.recordServiceDestroy(wallMs, elapsedMs);
+        void recordServiceDestroy(long serviceGeneration, long wallMs, long elapsedMs) {
+            liveness.recordServiceDestroy(serviceGeneration, wallMs, elapsedMs);
         }
 
-        void recordTaskRemoved(long wallMs, long elapsedMs) {
-            liveness.recordTaskRemoved(wallMs, elapsedMs);
+        void recordTaskRemoved(long serviceGeneration, long wallMs, long elapsedMs) {
+            liveness.recordTaskRemoved(serviceGeneration, wallMs, elapsedMs);
         }
 
-        void recordMonitorLoopStart(String reason) {
-            liveness.recordMonitorLoopStart(reason);
+        void recordMonitorLoopStart(long serviceGeneration, String reason) {
+            liveness.recordMonitorLoopStart(serviceGeneration, reason);
         }
 
-        void recordMonitorLoopStop(String reason) {
-            liveness.recordMonitorLoopStop(reason);
+        void recordMonitorLoopStop(long serviceGeneration, String reason) {
+            liveness.recordMonitorLoopStop(serviceGeneration, reason);
         }
 
-        void recordMonitorLoopShutdown(String reason) {
-            liveness.recordMonitorLoopShutdown(reason);
+        void recordMonitorLoopShutdown(long serviceGeneration, String reason) {
+            liveness.recordMonitorLoopShutdown(serviceGeneration, reason);
         }
 
-        void recordCallbackScheduled(long scheduledElapsedMs, long dueElapsedMs) {
-            liveness.recordCallbackScheduled(scheduledElapsedMs, dueElapsedMs);
+        void recordCallbackScheduled(long serviceGeneration, long scheduledElapsedMs,
+                long dueElapsedMs) {
+            liveness.recordCallbackScheduled(serviceGeneration, scheduledElapsedMs, dueElapsedMs);
         }
 
-        void cancelPendingCallbackDeadline() {
-            liveness.cancelPendingCallbackDeadline();
+        void cancelPendingCallbackDeadline(long serviceGeneration) {
+            liveness.cancelPendingCallbackDeadline(serviceGeneration);
         }
 
         synchronized MonitorLivenessDiagnostics.Snapshot livenessSnapshot() {
             return liveness.snapshot();
         }
 
-        synchronized void recordMonitorStart(long startElapsed) {
-            recordMonitorStart(startElapsed, 0L);
+        synchronized boolean isCurrentServiceGeneration(long serviceGeneration) {
+            return liveness.isCurrentServiceGeneration(serviceGeneration);
         }
 
-        synchronized void recordMonitorStart(long startElapsed, long startWall) {
-            liveness.recordMonitorStart(startElapsed, startWall);
+        synchronized void recordMonitorStart(long serviceGeneration, long startElapsed,
+                long startWall) {
+            if (!liveness.recordMonitorStart(serviceGeneration, startElapsed, startWall)) return;
             long startDeltaMs = lastMonitorStartElapsed <= 0L
                     ? 0L
                     : Math.max(0L, startElapsed - lastMonitorStartElapsed);
@@ -1127,12 +1148,8 @@ public class FlowForegroundService extends Service {
             currentTick = appendRecentTick(startDeltaMs, 0L, postDelayGapMs, startElapsed);
         }
 
-        synchronized void recordMonitorEnd(long endElapsed) {
-            recordMonitorEnd(endElapsed, 0L);
-        }
-
-        synchronized void recordMonitorEnd(long endElapsed, long endWall) {
-            liveness.recordMonitorEnd(endElapsed, endWall);
+        synchronized void recordMonitorEnd(long serviceGeneration, long endElapsed, long endWall) {
+            if (!liveness.recordMonitorEnd(serviceGeneration, endElapsed, endWall)) return;
             if (currentTick == null || currentTick.startElapsed <= 0L) return;
             long executionMs = Math.max(0L, endElapsed - currentTick.startElapsed);
             currentTick.executionMs = executionMs;
@@ -1594,7 +1611,11 @@ public class FlowForegroundService extends Service {
     @Nullable @Override public IBinder onBind(Intent intent) { return null; }
 
     @Override public void onTaskRemoved(Intent rootIntent) {
-        runtimeTracking.recordTaskRemoved(System.currentTimeMillis(), SystemClock.elapsedRealtime());
+        runtimeTracking.recordTaskRemoved(
+                livenessServiceGeneration,
+                System.currentTimeMillis(),
+                SystemClock.elapsedRealtime()
+        );
         // START_STICKY is the supported recovery path. Scheduling an exact
         // alarm to resurrect a background foreground-service is both brittle
         // on Android 15+ and unsuitable for a user-trust product.
@@ -1605,6 +1626,7 @@ public class FlowForegroundService extends Service {
         if (!serviceDestroyRecorded) {
             serviceDestroyRecorded = true;
             runtimeTracking.recordServiceDestroy(
+                    livenessServiceGeneration,
                     System.currentTimeMillis(),
                     SystemClock.elapsedRealtime()
             );
@@ -1621,22 +1643,27 @@ public class FlowForegroundService extends Service {
         Handler worker = monitorHandler;
         HandlerThread thread = monitorThread;
         if (worker == null || thread == null) return;
-        runtimeTracking.cancelPendingCallbackDeadline();
+        long serviceGeneration = livenessServiceGeneration;
+        runtimeTracking.cancelPendingCallbackDeadline(serviceGeneration);
         worker.removeCallbacksAndMessages(null);
         worker.postAtFrontOfQueue(() -> {
             if (monitorShutdownComplete) return;
             monitorShutdownComplete = true;
             if (monitorLoop != null && !monitorLoop.isShutdown()) {
                 runtimeTracking.recordMonitorLoopStop(
+                        serviceGeneration,
                         MonitorLivenessDiagnostics.LOOP_REASON_SERVICE_DESTROY
                 );
                 runtimeTracking.recordMonitorLoopShutdown(
+                        serviceGeneration,
                         MonitorLivenessDiagnostics.LOOP_REASON_SERVICE_DESTROY
                 );
                 monitorLoop.shutdown();
             }
             flushPendingUsage(true);
-            staticMonitorThreadAlive = false;
+            if (runtimeTracking.isCurrentServiceGeneration(serviceGeneration)) {
+                staticMonitorThreadAlive = false;
+            }
             thread.quitSafely();
         });
     }
