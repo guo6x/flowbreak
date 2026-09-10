@@ -1,9 +1,11 @@
 package com.flowbreak.app;
 
 import android.annotation.SuppressLint;
+import android.app.ActivityManager;
 import android.app.Notification;
 import android.app.KeyguardManager;
 import android.app.Service;
+import android.app.usage.UsageStatsManager;
 import android.content.pm.ServiceInfo;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -73,6 +75,8 @@ public class FlowForegroundService extends Service {
     private static volatile boolean staticAllowEmergencyUnlock = true;
     private static volatile boolean staticMonitorThreadAlive;
     private static volatile boolean staticMonitorLooperIsMain;
+    private static volatile HandlerThread staticMonitorThreadRef;
+    private static volatile Context staticServiceContext;
     private static volatile Set<String> staticRuntimeTargetSnapshot = Collections.emptySet();
     private static final RuntimeTrackingCounters runtimeTracking = new RuntimeTrackingCounters();
 
@@ -82,6 +86,7 @@ public class FlowForegroundService extends Service {
     private FlowMonitorLoop monitorLoop;
     private volatile boolean monitorShutdownRequested;
     private boolean monitorShutdownComplete;
+    private boolean serviceDestroyRecorded;
     private FlowRepository repository;
     private BlockStateMachine machine;
     private Set<String> targetApps;
@@ -108,10 +113,12 @@ public class FlowForegroundService extends Service {
         @Override public void run() {
             if (monitorShutdownRequested) return;
             long startElapsed = SystemClock.elapsedRealtime();
-            runtimeTracking.recordMonitorStart(startElapsed);
+            long startWall = System.currentTimeMillis();
+            runtimeTracking.recordMonitorStart(startElapsed, startWall);
             tick();
             long endElapsed = SystemClock.elapsedRealtime();
-            runtimeTracking.recordMonitorEnd(endElapsed);
+            long endWall = System.currentTimeMillis();
+            runtimeTracking.recordMonitorEnd(endElapsed, endWall);
             if (monitorLoop != null) monitorLoop.scheduleNext();
         }
     };
@@ -130,9 +137,18 @@ public class FlowForegroundService extends Service {
 
     @Override public void onCreate() {
         super.onCreate();
+        runtimeTracking.initializeProcessIdentity(
+                Process.myPid(),
+                SystemClock.elapsedRealtime(),
+                System.currentTimeMillis()
+        );
+        Context applicationContext = getApplicationContext();
+        staticServiceContext = applicationContext == null ? this : applicationContext;
+        runtimeTracking.recordServiceCreate(System.currentTimeMillis(), SystemClock.elapsedRealtime());
         monitorThread = new HandlerThread("FlowBreakMonitor", Process.THREAD_PRIORITY_DEFAULT);
         monitorThread.start();
         monitorHandler = new Handler(monitorThread.getLooper());
+        staticMonitorThreadRef = monitorThread;
         monitorLoop = new FlowMonitorLoop(new HandlerScheduler(monitorHandler), monitor);
         staticMonitorThreadAlive = monitorThread.isAlive();
         staticMonitorLooperIsMain = monitorHandler.getLooper() == Looper.getMainLooper();
@@ -191,6 +207,11 @@ public class FlowForegroundService extends Service {
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent == null ? ACTION_START : intent.getAction();
+        runtimeTracking.recordServiceStartCommand(
+                toSafeStartAction(action),
+                System.currentTimeMillis(),
+                SystemClock.elapsedRealtime()
+        );
         if (ACTION_STOP.equals(action)) {
             postMonitorCommand(() -> stopMonitoring(startId));
             return START_NOT_STICKY;
@@ -212,7 +233,7 @@ public class FlowForegroundService extends Service {
 
     /** Stop a runtime start attempt without deleting the user's configuration. */
     private void rejectUnsupportedRuntime(int startId) {
-        if (monitorLoop != null) monitorLoop.stop();
+        stopMonitorLoop(MonitorLivenessDiagnostics.LOOP_REASON_UNSUPPORTED_RUNTIME);
         postOverlayAction(() -> overlayController.dismissAll());
         mainHandler.post(() -> {
             stopForeground(STOP_FOREGROUND_REMOVE);
@@ -244,11 +265,11 @@ public class FlowForegroundService extends Service {
         }
 
         notificationController.updateServiceNotification(snapshot());
-        if (monitorLoop != null) monitorLoop.start();
+        startMonitorLoop(MonitorLivenessDiagnostics.LOOP_REASON_ENGINE_COMMAND_START);
     }
 
     private void stopMonitoring(int startId) {
-        if (monitorLoop != null) monitorLoop.stop();
+        stopMonitorLoop(MonitorLivenessDiagnostics.LOOP_REASON_USER_STOP);
         monitoringEnabled = false;
         flushPendingUsage(true);
         stateStore.setMonitoringEnabled(false);
@@ -632,6 +653,43 @@ public class FlowForegroundService extends Service {
         return screenOn && (keyguardManager == null || !keyguardManager.isKeyguardLocked());
     }
 
+    private void startMonitorLoop(String reason) {
+        if (monitorLoop == null || monitorLoop.isShutdown()) return;
+        runtimeTracking.recordMonitorLoopStart(reason);
+        monitorLoop.start();
+    }
+
+    private void stopMonitorLoop(String reason) {
+        if (monitorLoop == null || monitorLoop.isShutdown()) return;
+        runtimeTracking.recordMonitorLoopStop(reason);
+        monitorLoop.stop();
+    }
+
+    private static String toSafeStartAction(String action) {
+        if (action == null || ACTION_START.equals(action)) {
+            return MonitorLivenessDiagnostics.ACTION_START;
+        }
+        if (ACTION_RELOAD.equals(action)) {
+            return MonitorLivenessDiagnostics.ACTION_RELOAD;
+        }
+        if (ACTION_STOP.equals(action)) {
+            return MonitorLivenessDiagnostics.ACTION_STOP;
+        }
+        if (ACTION_BEGIN_REST.equals(action)) {
+            return MonitorLivenessDiagnostics.ACTION_BEGIN_REST;
+        }
+        if (ACTION_COMPLETE_REST.equals(action)) {
+            return MonitorLivenessDiagnostics.ACTION_COMPLETE_REST;
+        }
+        if (ACTION_CANCEL_REST.equals(action)) {
+            return MonitorLivenessDiagnostics.ACTION_CANCEL_REST;
+        }
+        if (ACTION_EMERGENCY.equals(action)) {
+            return MonitorLivenessDiagnostics.ACTION_EMERGENCY;
+        }
+        return MonitorLivenessDiagnostics.ACTION_UNKNOWN;
+    }
+
     private static final class HandlerScheduler implements FlowMonitorLoop.Scheduler {
         private final Handler handler;
 
@@ -641,6 +699,7 @@ public class FlowForegroundService extends Service {
 
         @Override public void removeCallbacks(Runnable runnable) {
             handler.removeCallbacks(runnable);
+            runtimeTracking.cancelPendingCallbackDeadline();
         }
 
         @Override public void post(Runnable runnable) {
@@ -648,7 +707,14 @@ public class FlowForegroundService extends Service {
         }
 
         @Override public void postDelayed(Runnable runnable, long delayMs) {
-            handler.postDelayed(runnable, delayMs);
+            long scheduledElapsedMs = SystemClock.elapsedRealtime();
+            boolean armed = handler.postDelayed(runnable, delayMs);
+            if (armed) {
+                runtimeTracking.recordCallbackScheduled(
+                        scheduledElapsedMs,
+                        scheduledElapsedMs + delayMs
+                );
+            }
         }
     }
 
@@ -780,6 +846,66 @@ public class FlowForegroundService extends Service {
         result.put("monitorThreadAlive", staticMonitorThreadAlive);
         result.put("monitorLooperIsMain", staticMonitorLooperIsMain);
 
+        MonitorLivenessDiagnostics.Snapshot liveness = runtimeTracking.livenessSnapshot();
+        JSObject lifecycle = new JSObject();
+        lifecycle.put("processPid", liveness.processPid);
+        lifecycle.put("processInstanceStartedElapsedMs", liveness.processInstanceStartedElapsedMs);
+        lifecycle.put("processInstanceStartedWallMs", liveness.processInstanceStartedWallMs);
+        lifecycle.put("serviceInstanceId", liveness.serviceInstanceId);
+        lifecycle.put("serviceCreateCount", liveness.serviceCreateCount);
+        lifecycle.put("serviceInstanceStartedElapsedMs", liveness.serviceInstanceStartedElapsedMs);
+        lifecycle.put("serviceInstanceStartedWallMs", liveness.serviceInstanceStartedWallMs);
+        lifecycle.put("serviceStartCommandCount", liveness.serviceStartCommandCount);
+        lifecycle.put("lastStartCommandElapsedMs", liveness.lastStartCommandElapsedMs);
+        lifecycle.put("lastStartCommandWallMs", liveness.lastStartCommandWallMs);
+        lifecycle.put("lastStartCommandAction", liveness.lastStartCommandAction);
+        lifecycle.put("serviceDestroyCount", liveness.serviceDestroyCount);
+        lifecycle.put("lastServiceDestroyElapsedMs", liveness.lastServiceDestroyElapsedMs);
+        lifecycle.put("lastServiceDestroyWallMs", liveness.lastServiceDestroyWallMs);
+        lifecycle.put("serviceTaskRemovedCount", liveness.serviceTaskRemovedCount);
+        lifecycle.put("lastTaskRemovedElapsedMs", liveness.lastTaskRemovedElapsedMs);
+        lifecycle.put("lastTaskRemovedWallMs", liveness.lastTaskRemovedWallMs);
+        lifecycle.put("monitorLoopActive", liveness.monitorLoopActive);
+        lifecycle.put("monitorLoopShutdown", liveness.monitorLoopShutdown);
+        lifecycle.put("monitorLoopStartCount", liveness.monitorLoopStartCount);
+        lifecycle.put("monitorLoopStopCount", liveness.monitorLoopStopCount);
+        lifecycle.put("monitorLoopShutdownCount", liveness.monitorLoopShutdownCount);
+        lifecycle.put("lastMonitorLoopStartReason", liveness.lastMonitorLoopStartReason);
+        lifecycle.put("lastMonitorLoopStopReason", liveness.lastMonitorLoopStopReason);
+        lifecycle.put("lastMonitorLoopShutdownReason", liveness.lastMonitorLoopShutdownReason);
+        HandlerThread currentMonitorThread = staticMonitorThreadRef;
+        lifecycle.put("monitorThreadExists", currentMonitorThread != null);
+        lifecycle.put(
+                "monitorThreadIsAliveNow",
+                currentMonitorThread != null && currentMonitorThread.isAlive()
+        );
+        lifecycle.put(
+                "monitorThreadState",
+                currentMonitorThread == null
+                        ? "NOT_CREATED"
+                        : currentMonitorThread.getState().name()
+        );
+        lifecycle.put("monitorLooperIsMain", staticMonitorLooperIsMain);
+        result.put("lifecycle", lifecycle);
+
+        JSObject scheduler = new JSObject();
+        scheduler.put("periodMs", FlowMonitorLoop.PERIOD_MS);
+        scheduler.put("lastMonitorStartElapsedMs", liveness.lastMonitorStartElapsedMs);
+        scheduler.put("lastMonitorStartWallMs", liveness.lastMonitorStartWallMs);
+        scheduler.put("lastMonitorEndElapsedMs", liveness.lastMonitorEndElapsedMs);
+        scheduler.put("lastMonitorEndWallMs", liveness.lastMonitorEndWallMs);
+        scheduler.put("lastCallbackScheduledElapsedMs", liveness.lastCallbackScheduledElapsedMs);
+        scheduler.put("scheduledCallbackDueElapsedMs", liveness.scheduledCallbackDueElapsedMs);
+        scheduler.put("callbackDeadlinePending", liveness.callbackDeadlinePending);
+        scheduler.put("actualMonitorStartElapsedMs", liveness.actualMonitorStartElapsedMs);
+        scheduler.put("callbackLatenessMs", liveness.callbackLatenessMs);
+        scheduler.put("lastCallbackLatenessMs", liveness.callbackLatenessMs);
+        scheduler.put("maxCallbackLatenessMs", liveness.maxCallbackLatenessMs);
+        scheduler.put("callbackLatenessOver3000Count", liveness.callbackLatenessOver3000Count);
+        scheduler.put("callbackLatenessOver5000Count", liveness.callbackLatenessOver5000Count);
+        result.put("scheduler", scheduler);
+        result.put("platform", getPlatformDiagnostics());
+
         JSArray recent = new JSArray();
         for (RecentTickSnapshot tick : snapshot.recentTicks) {
             JSObject row = new JSObject();
@@ -802,6 +928,52 @@ public class FlowForegroundService extends Service {
         result.put("recentTicks", recent);
         return result;
     }
+
+    private static JSObject getPlatformDiagnostics() {
+        JSObject result = new JSObject();
+        result.put("isIgnoringBatteryOptimizations", "UNAVAILABLE");
+        result.put("isBackgroundRestricted", "UNAVAILABLE");
+        result.put("appStandbyBucket", "UNAVAILABLE");
+        result.put("powerSaveMode", "UNAVAILABLE");
+
+        Context context = staticServiceContext;
+        if (context == null) return result;
+
+        PowerManager powerManager = null;
+        try {
+            powerManager = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
+            if (powerManager != null) {
+                try {
+                    result.put(
+                            "isIgnoringBatteryOptimizations",
+                            powerManager.isIgnoringBatteryOptimizations(context.getPackageName())
+                    );
+                } catch (RuntimeException ignored) { }
+                try {
+                    result.put("powerSaveMode", powerManager.isPowerSaveMode());
+                } catch (RuntimeException ignored) { }
+            }
+        } catch (RuntimeException ignored) { }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            try {
+                ActivityManager activityManager =
+                        (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+                if (activityManager != null) {
+                    result.put("isBackgroundRestricted", activityManager.isBackgroundRestricted());
+                }
+            } catch (RuntimeException ignored) { }
+            try {
+                UsageStatsManager usageStatsManager =
+                        (UsageStatsManager) context.getSystemService(Context.USAGE_STATS_SERVICE);
+                if (usageStatsManager != null) {
+                    result.put("appStandbyBucket", usageStatsManager.getAppStandbyBucket());
+                }
+            } catch (RuntimeException ignored) { }
+        }
+        return result;
+    }
+
     public static int getCurrentLevel() {
         if (staticState == BlockStateMachine.State.PERCEPTION) return 1;
         if (staticState == BlockStateMachine.State.COGNITION) return 2;
@@ -816,6 +988,7 @@ public class FlowForegroundService extends Service {
      */
     static final class RuntimeTrackingCounters {
         private static final int RECENT_TICK_CAPACITY = 64;
+        private final MonitorLivenessDiagnostics liveness;
 
         private long tickCount;
         private long detectorNonEmptyTickCount;
@@ -868,7 +1041,74 @@ public class FlowForegroundService extends Service {
         private int recentTickWriteIndex;
         private RecentTick currentTick;
 
+        RuntimeTrackingCounters() {
+            liveness = createLivenessDiagnostics();
+        }
+
+        private static MonitorLivenessDiagnostics createLivenessDiagnostics() {
+            try {
+                return new MonitorLivenessDiagnostics(
+                        Process.myPid(),
+                        SystemClock.elapsedRealtime(),
+                        System.currentTimeMillis()
+                );
+            } catch (RuntimeException ignored) {
+                // Android local JVM tests may not provide framework clock/PID
+                // implementations. A real service fills these values in onCreate.
+                return new MonitorLivenessDiagnostics(0, 0L, 0L);
+            }
+        }
+
+        synchronized void initializeProcessIdentity(int pid, long elapsedMs, long wallMs) {
+            liveness.initializeProcessIdentity(pid, elapsedMs, wallMs);
+        }
+
+        void recordServiceCreate(long wallMs, long elapsedMs) {
+            liveness.recordServiceCreate(wallMs, elapsedMs);
+        }
+
+        void recordServiceStartCommand(String action, long wallMs, long elapsedMs) {
+            liveness.recordServiceStartCommand(action, wallMs, elapsedMs);
+        }
+
+        void recordServiceDestroy(long wallMs, long elapsedMs) {
+            liveness.recordServiceDestroy(wallMs, elapsedMs);
+        }
+
+        void recordTaskRemoved(long wallMs, long elapsedMs) {
+            liveness.recordTaskRemoved(wallMs, elapsedMs);
+        }
+
+        void recordMonitorLoopStart(String reason) {
+            liveness.recordMonitorLoopStart(reason);
+        }
+
+        void recordMonitorLoopStop(String reason) {
+            liveness.recordMonitorLoopStop(reason);
+        }
+
+        void recordMonitorLoopShutdown(String reason) {
+            liveness.recordMonitorLoopShutdown(reason);
+        }
+
+        void recordCallbackScheduled(long scheduledElapsedMs, long dueElapsedMs) {
+            liveness.recordCallbackScheduled(scheduledElapsedMs, dueElapsedMs);
+        }
+
+        void cancelPendingCallbackDeadline() {
+            liveness.cancelPendingCallbackDeadline();
+        }
+
+        synchronized MonitorLivenessDiagnostics.Snapshot livenessSnapshot() {
+            return liveness.snapshot();
+        }
+
         synchronized void recordMonitorStart(long startElapsed) {
+            recordMonitorStart(startElapsed, 0L);
+        }
+
+        synchronized void recordMonitorStart(long startElapsed, long startWall) {
+            liveness.recordMonitorStart(startElapsed, startWall);
             long startDeltaMs = lastMonitorStartElapsed <= 0L
                     ? 0L
                     : Math.max(0L, startElapsed - lastMonitorStartElapsed);
@@ -888,6 +1128,11 @@ public class FlowForegroundService extends Service {
         }
 
         synchronized void recordMonitorEnd(long endElapsed) {
+            recordMonitorEnd(endElapsed, 0L);
+        }
+
+        synchronized void recordMonitorEnd(long endElapsed, long endWall) {
+            liveness.recordMonitorEnd(endElapsed, endWall);
             if (currentTick == null || currentTick.startElapsed <= 0L) return;
             long executionMs = Math.max(0L, endElapsed - currentTick.startElapsed);
             currentTick.executionMs = executionMs;
@@ -1349,6 +1594,7 @@ public class FlowForegroundService extends Service {
     @Nullable @Override public IBinder onBind(Intent intent) { return null; }
 
     @Override public void onTaskRemoved(Intent rootIntent) {
+        runtimeTracking.recordTaskRemoved(System.currentTimeMillis(), SystemClock.elapsedRealtime());
         // START_STICKY is the supported recovery path. Scheduling an exact
         // alarm to resurrect a background foreground-service is both brittle
         // on Android 15+ and unsuitable for a user-trust product.
@@ -1356,6 +1602,13 @@ public class FlowForegroundService extends Service {
     }
 
     @Override public void onDestroy() {
+        if (!serviceDestroyRecorded) {
+            serviceDestroyRecorded = true;
+            runtimeTracking.recordServiceDestroy(
+                    System.currentTimeMillis(),
+                    SystemClock.elapsedRealtime()
+            );
+        }
         monitorShutdownRequested = true;
         requestMonitorShutdown();
         overlayController.clearCallbacks();
@@ -1368,11 +1621,20 @@ public class FlowForegroundService extends Service {
         Handler worker = monitorHandler;
         HandlerThread thread = monitorThread;
         if (worker == null || thread == null) return;
+        runtimeTracking.cancelPendingCallbackDeadline();
         worker.removeCallbacksAndMessages(null);
         worker.postAtFrontOfQueue(() -> {
             if (monitorShutdownComplete) return;
             monitorShutdownComplete = true;
-            if (monitorLoop != null) monitorLoop.shutdown();
+            if (monitorLoop != null && !monitorLoop.isShutdown()) {
+                runtimeTracking.recordMonitorLoopStop(
+                        MonitorLivenessDiagnostics.LOOP_REASON_SERVICE_DESTROY
+                );
+                runtimeTracking.recordMonitorLoopShutdown(
+                        MonitorLivenessDiagnostics.LOOP_REASON_SERVICE_DESTROY
+                );
+                monitorLoop.shutdown();
+            }
             flushPendingUsage(true);
             staticMonitorThreadAlive = false;
             thread.quitSafely();
