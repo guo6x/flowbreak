@@ -1,10 +1,10 @@
 # KNOWN_ISSUES — 已知问题与缺陷
 
-> 所有未解决问题统一登记在这里。缺陷只能通过「真实修复 + 设备复测」从 OPEN 转为 RESOLVED；文档整理不得改变缺陷状态。
+> 所有未解决问题统一登记在这里。缺陷只能通过「真实修复 + 设备复测」从 OPEN 转为 RESOLVED；文档整理不得改变缺陷状态。平台边界可以使用单独的 `MITIGATED_ACCEPTED_PLATFORM_LIMITATION` 语义，但不等同于 RESOLVED。
 > 
 > - **Bug ID 唯一性**：一个 ID 在整个项目生命周期只能代表一个缺陷，禁止复用。已解决项保留原 ID 与完整历史，不删除。
 > - **证据存储**：设备原始证据不入 Git 仓库，由测试工作区外部保存；下文 Evidence 中的 External device evidence: 路径为测试工作区报告名。
-> - **状态语义**：RESOLVED 的判定标准 = 修复已合入 + 相关验证通过（附复测日期与真机证据）。非阻塞的兼容性观察使用 `COMPAT-xxx` 编号，状态为 OPEN OBSERVATION，不得在无真实用户可见失败证据时升级为 P1/P2。
+> - **状态语义**：RESOLVED 的判定标准 = 修复已合入 + 相关验证通过（附复测日期与真机证据）。`MITIGATED_ACCEPTED_PLATFORM_LIMITATION` 表示原始失败与严重性仍然有效、根因未必消除、已实现的缓解措施可降低或恢复影响、残余行为明确排除在当前支持保证之外，且是否阻塞发布由修订后的支持范围决定；它不重新定义 RESOLVED。非阻塞的兼容性观察使用 `COMPAT-xxx` 编号，状态为 OPEN OBSERVATION，不得在无真实用户可见失败证据时升级为 P1/P2。
 > 历史 Bug 不删除；已解决项保留在下方「Resolved」区。
 
 ## 缺陷格式
@@ -13,7 +13,7 @@
 | ---- | ---- |
 | ID | `FB-<severity>-<seq>`（缺陷）/ `COMPAT-xxx`（兼容性观察） |
 | Severity | P0（最高严重级，当前为 0）/ P1（核心保护失效）/ P2（一致性/体验）/ P1候选 / NON-BLOCKING COMPATIBILITY OBSERVATION |
-| Status | OPEN / RESOLVED（附复测日期与证据）/ OPEN OBSERVATION |
+| Status | OPEN / RESOLVED（附复测日期与证据）/ OPEN OBSERVATION / MITIGATED_ACCEPTED_PLATFORM_LIMITATION |
 | Affected version/SHA | 复现时的代码基线 |
 | Environment | 设备/系统/渠道 |
 | Observed | 现象 |
@@ -49,6 +49,34 @@
 - Impact（无用户可见失败）：强阻断核心行为已 PASS——Accessibility 立即执行 HOME、`TYPE_ACCESSIBILITY_OVERLAY` 顶部横幅可见且含「开始休息」入口、横幅单实例不堆叠、非目标应用正常使用、无全手机锁死、连续三次重进目标应用均继续阻断；核心强阻断**不依赖** BlockActivity 成功启动（修复 `3600d97`）。
 - Next action：多 OEM 矩阵中决定：删除 `tryStartBlockActivity` / OEM 条件化 / 继续作为 best-effort compatibility path。**不要**在无真实用户可见失败证据时升级为新的 P1/P2。
 - Evidence：External device evidence: `reports/R1-R4-retest-2026-08-14.md`（R3）、`reports/T38-strong-blocking.md`（§3 历史）
+
+## Platform limitations
+
+### FB-P1-07 / PLATFORM-EXEC-001 OEM/Android execution suspension can delay real-time enforcement
+
+- Severity：**P1（原始 supported-scope 核心保护失效）**
+- Status：**MITIGATED_ACCEPTED_PLATFORM_LIMITATION**
+- Release blocking：**NO — under the documented v1.1.0 supported scope**
+- Original evidence：supported Redmi 设备上约 `500241ms` 的 monitor execution gap；目标应用持续前台；未及时进入 BLOCKED，未及时显示 overlay，也没有及时产生 `block_attempt`。原始失败仍然有效。
+- Root cause boundary：scheduler/process/worker suspension 的具体原因没有被证明或消除。PR #26 不声称修复 HyperOS/Android execution suspension。
+- Mitigation：已验证的 UsageEvents historical reconciliation、machine-session recovery、target usage recovery、GRACE/reset replay correctness、RESTING cheat recovery、5–10s live fallback、bounded publication safety tail，以及 stale REST completion precommit guard。
+- Residual：当 FlowBreak 没有获得执行时间时，无法执行实时 overlay 或状态迁移。该残余行为不是单纯的「10s tail uncertainty」。
+- Evidence interpretation：healthy-runtime E2、execution-gap recovery 与 Test A accounting precision 必须分别报告；Test A accounting precision = **INCONCLUSIVE**。
+- Evidence：External device evidence: `D:\AI_code\flowbreak-device-evidence\redmi-fb-p1-07\2026-09-11-final-revalidation\gap-result.txt`
+
+### FB-P2-02 Recovered usage DB write and replay checkpoint durability are not atomic
+
+- Severity：**P2**
+- Status：**OPEN_NON_BLOCKING_V1_1_0**
+- Observed design：历史 usage 通过 Room/repository path 写入，replay checkpoint 通过 SharedPreferences 持久化；两个 durability domain 不属于同一 atomic transaction。
+- Residual crash windows：
+  - A. checkpoint 先 durable、DB usage 后 durable → usage 可能被低估。
+  - B. DB usage 先 durable、checkpoint 后 durable → recovery 可能 replay/duplicate usage。
+- Current impact：目前没有证据证明 supported-scope 核心阻断被绕过；machine 与 checkpoint 本身通过同一个 SharedPreferences editor 持久化。主要影响是窄 crash window 下的 accounting durability。
+- Gate impact：**NON-BLOCKING**，不重新打开 Gate E。
+- Next：如有必要，未来设计 transaction/journal/idempotency 方案。
+- `RECOVERED_USAGE_CHECKPOINT_ATOMICITY = NOT_ATOMIC`
+- `ATOMICITY_FOLLOW_UP = NON_BLOCKING_P2`
 
 ## 观察项（非缺陷，需要更多证据）
 

@@ -2,7 +2,7 @@
 
 > 本文档是**唯一产品行为规范**：定义「现在产品应该怎么工作」。
 > 不写开发历史、不写「以前怎么做」。涉及仍在修复中的缺陷时，使用「目标产品语义」与「Known deviations（当前基线）」两种状态分别标注。
-> 当前文档基线：`99fdcc2f6f357e78fb70dd127adedfa31a098a71`（历史缺陷编号见 `KNOWN_ISSUES.md`）。
+> 本文描述当前 master 的产品语义；具体验收基线与易变事实见 `CURRENT_STATUS.md`（历史缺陷编号见 `KNOWN_ISSUES.md`）。
 
 ## 1. 产品定位与边界
 
@@ -49,7 +49,7 @@
 
 状态机状态：`IDLE → PERCEPTION → COGNITION → BLOCKED → RESTING → GRACE → IDLE`。
 
-- 前台服务每 **2 秒** 检查一次当前前台应用（`ARCHITECTURE.md`）。
+- 当 Android 实际调度到保护服务时，监控循环以约 **2 秒** 为名义检查周期。该 cadence 表示 FlowBreak 获得执行时间时的产品轮询节奏，不是 Android/OEM 提供的调度 SLA（`ARCHITECTURE.md`）。
 - 目标应用在前台时，连续使用时长 `sessionMs` 按真实经过时间累计（单 tick 增量上限 10 秒）。
 - 百分比 = `sessionMs / (limitMinutes × 60s)`：
   - `≥ 80%` → **PERCEPTION**（第一层，轻提醒）
@@ -75,9 +75,20 @@
   - 明确定义的监控/配置生命周期转换（如用户关闭保护）
 - 熄屏/锁屏期间不累计使用时长；普通离开会话的重置规则不得解除 BLOCKED。
 
+### Android 执行调度边界（v1.1.0）
+
+- 如果 Android/OEM 暂时挂起 FlowBreak 进程或监控 worker 的执行，FlowBreak 在代码没有获得执行时间期间无法执行状态迁移，也无法显示实时阻断覆盖层。
+- 执行恢复后，仅当持久化 checkpoint 状态与 UsageEvents 历史足以可靠重建时，FlowBreak 才可以回放已经闭合的历史窗口。
+- 如果历史无法可靠重建，`reconciliation = INCOMPLETE`，FlowBreak 不制造目标应用使用时长。
+- 最后约 10 秒的 UsageEvents 发布安全尾段仍由普通 live path 处理。
+- 该边界不改变 `80% / 100% / 120%`、BLOCKED sticky、30 秒 pre-BLOCKED reset、RESTING、GRACE 或 Emergency Unlock 语义。
+- v1.1.0 不保证 Android/OEM 在一段时间内不给 FlowBreak 进程或 worker 执行时间时的实时 enforcement。
+
+本版本不声称 HyperOS freezer 已修复、不保证所有 Redmi 设备，也不声称 Android 永不挂起 FlowBreak。
+
 ### Known deviations（当前基线）
 
-- 当前基线 `99fdcc2` 已通过 Redmi R1–R4 真机复测，与上述目标语义一致：BLOCKED sticky（R2）与冷启动前台追踪（R1）两个历史偏差已关闭（`FB-P1-01`、`FB-P1-02` → RESOLVED，见 `KNOWN_ISSUES.md`），当前无已知产品行为偏差。
+- 历史基线 `99fdcc2` 已通过 Redmi R1–R4 真机复测，与上述状态机目标语义一致：BLOCKED sticky（R2）与冷启动前台追踪（R1）两个历史偏差已关闭（`FB-P1-01`、`FB-P1-02` → RESOLVED，见 `KNOWN_ISSUES.md`）。当前支持范围仍受 Android/OEM 执行调度边界约束，见 `FB-P1-07 / PLATFORM-EXEC-001`。
 - 兼容性观察（非产品行为偏差）：国内版 HyperOS 上 `tryStartBlockActivity` 尽力而为路径仍可能被系统拒绝（`COMPAT-001`，见 `KNOWN_ISSUES.md`），但不影响强阻断——无障碍顶部横幅独立可用。
 
 ## 6. 休息与解锁

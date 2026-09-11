@@ -58,6 +58,19 @@ CI（`.github/workflows/android.yml`）在 master push / PR 时执行：
 - Redmi：当前未连接 Redmi，未执行新 signed build smoke；既有 Redmi R1–R4 外部证据仍为 **PASS**，因此 `REDMI_SUPPORTED_REFERENCE=PASS`、`REDMI_NEW_BUILD_SMOKE=NOT_EXECUTED`。
 - 安全边界：production keys、GitHub signing secrets、age vault、USB backup、signing policy 均未修改。原始设备证据仍保存在仓库外：`D:\AI_code\flowbreak-device-evidence\iqoo-signed-sanity\2026-09-08-final-scope-acceptance\`。
 
+### 2026-09-11 Gate E supported-scope evidence model
+
+Gate E 的当前结论区分健康运行时、执行间隔恢复和 Android/OEM 无执行时间三种语义；本节不把历史等价性证据写成一次新的完整物理复测。
+
+- `E1_USAGE_ACCOUNTING = PASS_CARRIED_FORWARD_WITH_EQUIVALENCE`：依据为此前有效的 Redmi 真机 PASS（`54f6c54a313e96fb374514b2bb4bac8bfd689545`）与当前 master 的 normal-path equivalence。
+- `E2A_HEALTHY_RUNTIME_BLOCKING_LATENCY = PASS_CARRIED_FORWARD_WITH_EQUIVALENCE`：依据为此前签名 Redmi 约 `361s` 进入 BLOCKED 的证据（`c79fa0...`）与当前 master 的 normal-path equivalence。
+- `E2B_EXECUTION_GAP_RECOVERY = PASS_CURRENT_SIGNED_DEVICE_INTEGRATION`：当前签名 `ccacb6738a44d3bc08da9a4ceac75766316b2521` 已在 Redmi 上实际走过 reconciliation path，并恢复非零 machine session。
+- `TEST_A_RECOVERY_SIGNAL = PASS`。
+- `TEST_A_ACCOUNTING_PRECISION = INCONCLUSIVE`：精确 foreground transition timing 与 after-usage export 不完整，因此不能称为 exact accounting PASS；没有据此证明 overcount。
+- `REALTIME_ENFORCEMENT_DURING_OS_EXECUTION_SUSPENSION = NOT_GUARANTEED_PLATFORM_LIMITATION`：当 Android/OEM 不给进程或 worker 执行时间时，实时 overlay 与状态迁移不属于 v1.1.0 保证。
+
+当前 master 没有独立重新执行完整的 E1/E2 physical test sequence；本 Gate E 结论是 documented supported-scope evidence carry-forward，加上当前 signed execution-gap recovery integration。
+
 ### 2026-08-12 首轮验收记录（历史快照，不再代表当前状态）
 
 - 设备：Redmi Note 13 Pro 5G（`2312DRA50C` / garnet）/ Android 16 / SDK 36 / HyperOS 3.0（`OS3.0.306.0.WNRCNXM`）
