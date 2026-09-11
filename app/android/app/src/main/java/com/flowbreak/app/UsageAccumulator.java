@@ -56,6 +56,15 @@ public final class UsageAccumulator {
     }
 
     /**
+     * Restores the live observation anchor after a verified historical replay.
+     * The next live observation can account only for the post-replay tail.
+     */
+    public void restoreObservationAnchor(long now, String packageName, boolean isTarget) {
+        lastObservedAt = now;
+        lastObservedTargetPackage = isTarget && packageName != null ? packageName : "";
+    }
+
+    /**
      * 批量写入 repository。
      *
      * @param force true 时立即写（onDestroy 或 screen off）；false 时需达到 15 秒间隔

@@ -20,17 +20,20 @@ public final class FlowServiceRecoveryCoordinator {
     public static final class Result {
         public final FlowServiceStateStore.Config config;
         public final BlockStateMachine machine;
+        public final FlowServiceStateStore.MachineSnapshot machineSnapshot;
         public final PullbackSessionCoordinator.Snapshot pullbackSnapshot;
         public final boolean autoCompletedRest;
 
         Result(
                 FlowServiceStateStore.Config config,
                 BlockStateMachine machine,
+                FlowServiceStateStore.MachineSnapshot machineSnapshot,
                 PullbackSessionCoordinator.Snapshot pullbackSnapshot,
                 boolean autoCompletedRest
         ) {
             this.config = config;
             this.machine = machine;
+            this.machineSnapshot = machineSnapshot;
             this.pullbackSnapshot = pullbackSnapshot;
             this.autoCompletedRest = autoCompletedRest;
         }
@@ -94,7 +97,13 @@ public final class FlowServiceRecoveryCoordinator {
         // 7) 读取 pullback snapshot
         PullbackSessionCoordinator.Snapshot pullbackSnapshot = stateStore.loadPullbackSnapshot();
 
-        return new Result(config, machine, pullbackSnapshot, decision.autoCompletedRest);
+        return new Result(
+                config,
+                machine,
+                snapshot,
+                pullbackSnapshot,
+                decision.autoCompletedRest
+        );
     }
 
     private FlowServiceRecoveryCoordinator() { }

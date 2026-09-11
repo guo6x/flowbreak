@@ -170,6 +170,106 @@ public class BlockStateMachineTest {
         assertEquals(BlockStateMachine.State.GRACE, machine.update(true, "one", 20_000, LIMIT));
     }
 
+    @Test public void verifiedHistoryCrossingGraceExpiryCountsOnlyPostGraceTargetTime() {
+        long checkpoint = 1_000_000L;
+        BlockStateMachine machine = new BlockStateMachine(
+                BlockStateMachine.State.GRACE,
+                0L,
+                checkpoint + 100_000L,
+                0L,
+                ""
+        );
+        machine.seedCheckpoint(checkpoint, true);
+
+        assertEquals(
+                BlockStateMachine.State.BLOCKED,
+                machine.updateVerifiedHistory(true, "one", checkpoint + 500_000L, 300_000L)
+        );
+        assertEquals(400_000L, machine.getSessionMs());
+    }
+
+    @Test public void verifiedHistoryEndingInsideGraceDoesNotCountTarget() {
+        long checkpoint = 1_000_000L;
+        BlockStateMachine machine = new BlockStateMachine(
+                BlockStateMachine.State.GRACE,
+                0L,
+                checkpoint + 100_000L,
+                0L,
+                ""
+        );
+        machine.seedCheckpoint(checkpoint, true);
+
+        assertEquals(
+                BlockStateMachine.State.GRACE,
+                machine.updateVerifiedHistory(true, "one", checkpoint + 50_000L, 300_000L)
+        );
+        assertEquals(0L, machine.getSessionMs());
+    }
+
+    @Test public void verifiedTailTargetReentryDoesNotUseUnknownTailForReset() {
+        long safeEnd = 490_000L;
+        BlockStateMachine machine = new BlockStateMachine(
+                BlockStateMachine.State.COGNITION,
+                300_000L,
+                0L,
+                470_000L,
+                "one"
+        );
+        machine.seedCheckpoint(safeEnd, false);
+
+        machine.updateAfterVerifiedGap(true, "one", 500_000L, safeEnd, 300_000L);
+
+        assertEquals(BlockStateMachine.State.COGNITION, machine.getState());
+        assertEquals(300_000L, machine.getSessionMs());
+    }
+
+    @Test public void verifiedTailThirtySecondLeaveAllowsReset() {
+        BlockStateMachine machine = new BlockStateMachine(
+                BlockStateMachine.State.COGNITION,
+                300_000L,
+                0L,
+                460_000L,
+                "one"
+        );
+        machine.seedCheckpoint(490_000L, false);
+
+        machine.updateAfterVerifiedGap(true, "one", 500_000L, 490_000L, 300_000L);
+
+        assertEquals(BlockStateMachine.State.IDLE, machine.getState());
+        assertEquals(0L, machine.getSessionMs());
+    }
+
+    @Test public void verifiedTailKeepsBlockedSticky() {
+        BlockStateMachine machine = new BlockStateMachine(
+                BlockStateMachine.State.BLOCKED,
+                360_000L,
+                0L,
+                460_000L,
+                "one"
+        );
+        machine.seedCheckpoint(490_000L, false);
+
+        machine.updateAfterVerifiedGap(true, "one", 500_000L, 490_000L, 300_000L);
+
+        assertEquals(BlockStateMachine.State.BLOCKED, machine.getState());
+        assertEquals(360_000L, machine.getSessionMs());
+    }
+
+    @Test public void verifiedTailContinuousTargetCountsOnlyLiveTailOnce() {
+        BlockStateMachine machine = new BlockStateMachine(
+                BlockStateMachine.State.COGNITION,
+                300_000L,
+                0L,
+                0L,
+                "one"
+        );
+        machine.seedCheckpoint(490_000L, true);
+
+        machine.updateAfterVerifiedGap(true, "one", 500_000L, 490_000L, 300_000L);
+
+        assertEquals(310_000L, machine.getSessionMs());
+    }
+
     private BlockStateMachine blocked() {
         return new BlockStateMachine(BlockStateMachine.State.BLOCKED, 120_000L, 0, 0, "one");
     }
