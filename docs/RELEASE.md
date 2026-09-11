@@ -238,7 +238,7 @@ ORIGINAL_LAPTOP_RECOVERY = `NOT_YET_TESTED`
 
 - [x] Redmi 精准复测 R1–R4（FB-P1-01/02/03、FB-P2-01）全部 PASS（GATE B）
 - [x] Gate E supported-scope evidence：E1/E2A carry-forward equivalence、E2B current signed integration、Android execution suspension boundary 已记录；Test A exact accounting precision 保持 INCONCLUSIVE
-- [ ] 独立重跑完整 E1/E2 physical test sequence（不属于本次 supported-scope closeout）
+Optional / NON-BLOCKING future revalidation：a complete current-build E1/E2 physical rerun may be performed later, but is not required to retain the present Gate E supported-scope decision.
 - [ ] 连续运行 24 小时无时间暴涨、重复通知或 ANR，且无 silent protection drift（GATE F）
 - [x] v1.1.0 supported scope + vivo/iQOO fail-closed boundary 的最终真机检查（GATE D = `PASS_SUPPORTED_SCOPE`；iQOO fail-closed PASS，Redmi 新 signed smoke NOT_EXECUTED，既有 R1–R4 reference PASS）
 - [ ] 其他受支持范围候选 OEM：权限、后台限制、重启恢复实测（后续兼容性扩展）
@@ -257,8 +257,10 @@ ORIGINAL_LAPTOP_RECOVERY = `NOT_YET_TESTED`
 
 ## 下一步路线（建议排序）
 
-1. GATE F：24h stability + Protection Integrity
-2. GATE G remaining：cross-machine recovery（完成后才可整体关闭 GATE G；formal tag/store release 另行执行）
-3. 受支持范围候选 OEM 的后续兼容性矩阵（不重新打开 vivo/iQOO 运行时支持）
-4. 小规模 Beta（GATE I）
-5. 商店正式发行准备（GATE H）
+1. Gate F — minimal stability / Protection Integrity closeout
+2. Gate H — actual first-release channel compliance/materials
+3. Gate I — small beta
+4. Gate G remaining — cross-machine recovery before production release
+5. Final RC / tag / release
+
+Other-OEM compatibility expansion is a parallel/beta follow-up, not a current release-blocking main-path gate.

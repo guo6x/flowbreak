@@ -4,7 +4,7 @@
 > 
 > - **Bug ID 唯一性**：一个 ID 在整个项目生命周期只能代表一个缺陷，禁止复用。已解决项保留原 ID 与完整历史，不删除。
 > - **证据存储**：设备原始证据不入 Git 仓库，由测试工作区外部保存；下文 Evidence 中的 External device evidence: 路径为测试工作区报告名。
-> - **状态语义**：RESOLVED 的判定标准 = 修复已合入 + 相关验证通过（附复测日期与真机证据）。`MITIGATED_ACCEPTED_PLATFORM_LIMITATION` 表示原始失败与严重性仍然有效、根因未必消除、已实现的缓解措施可降低或恢复影响、残余行为明确排除在当前支持保证之外，且是否阻塞发布由修订后的支持范围决定；它不重新定义 RESOLVED。非阻塞的兼容性观察使用 `COMPAT-xxx` 编号，状态为 OPEN OBSERVATION，不得在无真实用户可见失败证据时升级为 P1/P2。
+> - **状态语义**：RESOLVED 的判定标准 = 修复已合入 + 相关验证通过（附复测日期与真机证据）。`MITIGATED_ACCEPTED_PLATFORM_LIMITATION` 表示原始失败与严重性仍然有效、根因未必消除、已实现的缓解措施可降低或恢复影响、残余行为明确排除在当前支持保证之外，且是否阻塞发布由修订后的支持范围决定；它不重新定义 RESOLVED。`OPEN_NON_BLOCKING_V1_1_0` 表示问题仍保持 OPEN、未声称已解决，但当前证据与支持范围不使其成为 v1.1.0 release blocker。非阻塞的兼容性观察使用 `COMPAT-xxx` 编号，状态为 OPEN OBSERVATION，不得在无真实用户可见失败证据时升级为 P1/P2。
 > 历史 Bug 不删除；已解决项保留在下方「Resolved」区。
 
 ## 缺陷格式
@@ -13,7 +13,7 @@
 | ---- | ---- |
 | ID | `FB-<severity>-<seq>`（缺陷）/ `COMPAT-xxx`（兼容性观察） |
 | Severity | P0（最高严重级，当前为 0）/ P1（核心保护失效）/ P2（一致性/体验）/ P1候选 / NON-BLOCKING COMPATIBILITY OBSERVATION |
-| Status | OPEN / RESOLVED（附复测日期与证据）/ OPEN OBSERVATION / MITIGATED_ACCEPTED_PLATFORM_LIMITATION |
+| Status | OPEN / RESOLVED（附复测日期与证据）/ OPEN OBSERVATION / MITIGATED_ACCEPTED_PLATFORM_LIMITATION / OPEN_NON_BLOCKING_V1_1_0 |
 | Affected version/SHA | 复现时的代码基线 |
 | Environment | 设备/系统/渠道 |
 | Observed | 现象 |

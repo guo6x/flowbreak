@@ -8,7 +8,7 @@
 | 项 | 值 |
 | ---- | ---- |
 | Last verified date | **2026-09-11** |
-| 代码基线 | 当前 master：`ccacb6738a44d3bc08da9a4ceac75766316b2521` |
+| Gate E verified behavior baseline | `ccacb6738a44d3bc08da9a4ceac75766316b2521` |
 | Master CI | **PASS** — Run `34569928299` |
 | Signed candidate | **PASS** — Run `34570309806`（verify + release） |
 | Signed artifact | `flowbreak-signed-dry-run-v1.1.0-ccacb6738a44d3bc08da9a4ceac75766316b2521`（ID `10187690618`） |
@@ -50,7 +50,7 @@
 
 ## 当前自动化验证
 
-- 当前 master `ccacb6738a44d3bc08da9a4ceac75766316b2521` 的自动化验证：**PASS**。
+- Gate E verified behavior baseline `ccacb6738a44d3bc08da9a4ceac75766316b2521` 的自动化验证：**PASS**。
 - Master verify：Run `34569928299` **PASS**。
 - Signed workflow：Run `34570309806` verify + release **PASS**。
 - Signed artifact：`flowbreak-signed-dry-run-v1.1.0-ccacb6738a44d3bc08da9a4ceac75766316b2521`，ID `10187690618`。
@@ -59,13 +59,13 @@
 ## Gate E 当前支持范围决策
 
 - `GATE_E = PASS_SUPPORTED_SCOPE_WITH_DOCUMENTED_PLATFORM_LIMITATION`。
-- `E1_USAGE_ACCOUNTING = PASS_CARRIED_FORWARD_WITH_EQUIVALENCE`：此前有效 Redmi 真机 PASS + 当前 master normal-path equivalence。
-- `E2A_HEALTHY_RUNTIME_BLOCKING_LATENCY = PASS_CARRIED_FORWARD_WITH_EQUIVALENCE`：此前签名 Redmi 约 `361s` BLOCKED 证据 + 当前 master normal-path equivalence。
+- `E1_USAGE_ACCOUNTING = PASS_CARRIED_FORWARD_WITH_EQUIVALENCE`：此前有效 Redmi 真机 PASS + 当前实现的 normal-path equivalence。
+- `E2A_HEALTHY_RUNTIME_BLOCKING_LATENCY = PASS_CARRIED_FORWARD_WITH_EQUIVALENCE`：此前签名 Redmi 约 `361s` BLOCKED 证据 + 当前实现的 normal-path equivalence。
 - `E2B_EXECUTION_GAP_RECOVERY = PASS_CURRENT_SIGNED_DEVICE_INTEGRATION`：当前签名 `ccacb6738a44d3bc08da9a4ceac75766316b2521` 在 Redmi 上实际执行 reconciliation path，并恢复非零 machine session。
 - Android/OEM execution suspension：`NOT_GUARANTEED_PLATFORM_LIMITATION`。进程或 worker 没有执行时间时，不保证实时 overlay 或状态迁移；这不是 HyperOS suspension 已修复的声明。
 - `FB-P1-07 = MITIGATED_ACCEPTED_PLATFORM_LIMITATION`：原始 P1 失败与严重性保留，缓解与可恢复影响已记录，残余实时调度边界不属于 v1.1.0 保证。
 - `FB-P2-02 = OPEN_NON_BLOCKING_V1_1_0`：recovered usage DB write 与 replay checkpoint durability 非 atomic；不重新打开 Gate E。
-- Test A：`TEST_A_RECOVERY_SIGNAL = PASS`；`TEST_A_ACCOUNTING_PRECISION = INCONCLUSIVE`。当前 master 未独立重跑完整 E1/E2 physical test sequence。
+- Test A：`TEST_A_RECOVERY_SIGNAL = PASS`；`TEST_A_ACCOUNTING_PRECISION = INCONCLUSIVE`。本次 Gate E closeout 未独立重跑完整 E1/E2 physical test sequence。
 
 ## 历史自动化快照（99fdcc2，2026-08-14）
 
@@ -131,7 +131,9 @@ TRUE_VERSION_UPGRADE = `NOT_TESTED_NO_VALID_LOWER_FINAL_SIGNED_BUILD`
 
 - **RELEASE PREPARATION ≠ STORE READY ≠ PRODUCTION RELEASE APPROVED**。
 - 已完成：**GATE A / B / C / D / E（支持范围内）**。Gate E 的 `PASS_SUPPORTED_SCOPE_WITH_DOCUMENTED_PLATFORM_LIMITATION` 表示健康运行时与执行间隔恢复证据可接受，同时明确 Android/OEM 无执行时间期间不保证实时 enforcement。已知不可靠的 vivo/iQOO 在 v1.1.0 明确不支持且 fail closed。
-- 仍需完成：**GATE F / G / H / I**。其中 `FB-P1-05`、`FB-P1-07` 的原始边界不伪装成 RESOLVED，但均不阻塞当前已定义支持范围的 Gate E；`FB-P2-02` 为 non-blocking follow-up。
+- 仍需完成：**GATE F / G / H / I**。
+- `FB-P1-05` 仍为 **P1 / OPEN_UNSUPPORTED_V1_1_0**；由于 vivo/iQOO 在 v1.1.0 明确不支持并 fail closed，它不阻塞 Gate D 或当前 v1.1.0 release scope，也不是 Gate E 问题。
+- `FB-P1-07` 仍为 **P1 / MITIGATED_ACCEPTED_PLATFORM_LIMITATION**；在修订后的执行调度边界下，它不阻塞 Gate E。`FB-P2-02` 为 non-blocking follow-up。
 
 ## 历史状态（2026-08-12 快照，不再代表当前）
 
@@ -140,10 +142,10 @@ TRUE_VERSION_UPGRADE = `NOT_TESTED_NO_VALID_LOWER_FINAL_SIGNED_BUILD`
 
 ## 下一路线（建议排序）
 
-1. GATE F：完成最小 stability / Protection Integrity closeout
-2. GATE H：完成首发渠道合规与发布材料
-3. GATE I：小规模 Beta
-4. GATE G remaining：完成 cross-machine recovery 后再进行 production release
-5. 最终 RC / tag / release
+1. Gate F — minimal stability / Protection Integrity closeout
+2. Gate H — actual first-release channel compliance/materials
+3. Gate I — small beta
+4. Gate G remaining — cross-machine recovery before production release
+5. Final RC / tag / release
 
-其他 OEM 扩展属于 v1.1.0 之后或 beta 工作，不是当前 release-blocking Gate D 工作。
+其他 OEM 兼容性扩展属于 parallel/beta follow-up，不是当前 release-blocking main-path gate。
