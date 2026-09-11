@@ -39,7 +39,7 @@ public final class BlockStateMachine {
         long delta = lastCheckAt <= 0 ? 0 : Math.max(0, Math.min(10_000L, now - lastCheckAt));
         lastCheckAt = now;
 
-        return updateWithDelta(targetInForeground, foregroundPackage, now, limitMs, delta);
+        return updateWithDelta(targetInForeground, foregroundPackage, now, limitMs, delta, now);
     }
 
     /**
@@ -57,9 +57,58 @@ public final class BlockStateMachine {
     ) {
         limitMs = Math.max(1_000L, limitMs);
         if (lastCheckAt > 0L && now < lastCheckAt) return state;
+        if (state == State.GRACE
+                && lastCheckAt > 0L
+                && graceUntil > lastCheckAt
+                && graceUntil < now) {
+            long graceBoundary = graceUntil;
+            long deltaToGraceBoundary = graceBoundary - lastCheckAt;
+            lastCheckAt = graceBoundary;
+            updateWithDelta(
+                    targetInForeground,
+                    foregroundPackage,
+                    graceBoundary,
+                    limitMs,
+                    deltaToGraceBoundary,
+                    graceBoundary
+            );
+        }
         long delta = lastCheckAt <= 0L ? 0L : Math.max(0L, now - lastCheckAt);
         lastCheckAt = now;
-        return updateWithDelta(targetInForeground, foregroundPackage, now, limitMs, delta);
+        return updateWithDelta(targetInForeground, foregroundPackage, now, limitMs, delta, now);
+    }
+
+    /**
+     * Applies the first live observation after a verified replay.
+     *
+     * <p>The elapsed delta remains subject to the ordinary ten-second live
+     * clamp.  A target re-entry may, however, use only the verified endpoint
+     * for the thirty-second leave-reset decision; the unverified tail must not
+     * be treated as proven non-target time.</p>
+     */
+    public State updateAfterVerifiedGap(
+            boolean targetInForeground,
+            String foregroundPackage,
+            long now,
+            long verifiedThrough,
+            long limitMs
+    ) {
+        limitMs = Math.max(1_000L, limitMs);
+        if (lastCheckAt > 0L && now < lastCheckAt) return state;
+        long previous = lastCheckAt;
+        long delta = lastCheckAt <= 0L ? 0L : Math.max(0L, Math.min(10_000L, now - lastCheckAt));
+        long resetEvaluationAt = verifiedThrough >= previous && verifiedThrough <= now
+                ? verifiedThrough
+                : previous;
+        lastCheckAt = now;
+        return updateWithDelta(
+                targetInForeground,
+                foregroundPackage,
+                now,
+                limitMs,
+                delta,
+                resetEvaluationAt
+        );
     }
 
     /** Seeds the state-machine clock at a persisted monitor checkpoint. */
@@ -73,7 +122,8 @@ public final class BlockStateMachine {
             String foregroundPackage,
             long now,
             long limitMs,
-            long delta
+            long delta,
+            long leaveResetEvaluationAt
     ) {
 
         if (graceUntil > now) {
@@ -99,7 +149,7 @@ public final class BlockStateMachine {
             // BLOCKED is sticky: only a completed rest or a legitimate
             // emergency unlock may leave it, never plain time away.
             if (leftTargetsAt > 0
-                    && now - leftTargetsAt >= LEAVE_RESET_MS
+                    && leaveResetEvaluationAt - leftTargetsAt >= LEAVE_RESET_MS
                     && state != State.BLOCKED) {
                 reset();
             }

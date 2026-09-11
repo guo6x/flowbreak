@@ -227,6 +227,11 @@ public final class TargetSessionGapReconciler {
      */
     public static Result reconcile(Input input) {
         if (!isValidInput(input)) return Result.incomplete(input);
+        // The persisted checkpoint combines screen and keyguard into one
+        // interactionAvailable bit.  A false value cannot prove which state
+        // was active at the beginning of the gap, so historical target time
+        // must not be credited from that ambiguous starting point.
+        if (!input.startingInteractionAvailable) return Result.incomplete(input);
 
         String startingPackage = input.startingForegroundPackage == null
                 ? ""

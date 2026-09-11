@@ -216,6 +216,21 @@ public class TargetSessionGapReconcilerTest {
         assertTrue(result.usageMsByTargetPackage.isEmpty());
     }
 
+    @Test public void falseStartingInteractionIsIncompleteWithoutBlindHistoricalCredit() {
+        TargetSessionGapReconciler.Result result = reconcile(
+                START + 100_000L,
+                A,
+                true,
+                false,
+                setOf(A),
+                Collections.emptyList()
+        );
+
+        assertEquals(TargetSessionGapReconciler.Status.INCOMPLETE, result.status);
+        assertTrue(result.usageMsByTargetPackage.isEmpty());
+        assertEquals(0L, result.historicalTargetMsRecovered);
+    }
+
     @Test public void classQualifiedBackgroundAfterPackageOnlyCheckpointIsConservative() {
         TargetSessionGapReconciler.Result result = reconcile(
                 START + 200_000L,
