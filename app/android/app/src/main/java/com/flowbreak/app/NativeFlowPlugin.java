@@ -6,6 +6,7 @@ import android.content.SharedPreferences;
 import android.content.Context;
 import android.net.Uri;
 import android.os.Build;
+import android.os.SystemClock;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -213,8 +214,24 @@ public class NativeFlowPlugin extends Plugin {
         String requestedActivity = call.getString("activity", "breathe");
         executor.execute(() -> {
             try {
-                NativeFlowRestCoordinator.Result outcome =
-                        restCoordinator.complete(prefs(), requestedActivity);
+                SharedPreferences preferences = prefs();
+                RestCompletionIntegrityGate.Attempt<NativeFlowRestCoordinator.Result> attempt =
+                        RestCompletionIntegrityGate.execute(
+                                preferences.getString(
+                                        "blockState", BlockStateMachine.State.IDLE.name()
+                                ),
+                                FlowForegroundService.isProtectionServiceRuntimeActive(),
+                                FlowForegroundService.getLastCompletedMonitorTickElapsedMs(),
+                                SystemClock.elapsedRealtime(),
+                                () -> restCoordinator.complete(preferences, requestedActivity)
+                        );
+                if (attempt.deferred()) {
+                    getActivity().runOnUiThread(
+                            () -> call.reject(RestCompletionIntegrityGate.RETRYABLE_MESSAGE)
+                    );
+                    return;
+                }
+                NativeFlowRestCoordinator.Result outcome = attempt.value;
                 if (outcome.needServiceRefresh) {
                     try {
                         serviceController.sendAction(FlowForegroundService.ACTION_COMPLETE_REST);

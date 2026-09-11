@@ -59,7 +59,8 @@ public class FlowForegroundService extends Service {
     public static final String PREF_PULLBACK_SUCCESS = "pullbackSuccess";
 
     private static final long EMERGENCY_GRACE_MS = FlowServiceStateStore.EMERGENCY_GRACE_MS;
-    private static final long GAP_RECONCILIATION_THRESHOLD_MS = 5_000L;
+    private static final long GAP_RECONCILIATION_THRESHOLD_MS =
+            GapReconciliationWindow.RECONCILIATION_THRESHOLD_MS;
     private static final long MAX_CLOCK_SKEW_MS = 60_000L;
 
     private static volatile BlockStateMachine.State staticState = BlockStateMachine.State.IDLE;
@@ -80,6 +81,8 @@ public class FlowForegroundService extends Service {
     private static volatile HandlerThread staticMonitorThreadRef;
     private static volatile Context staticServiceContext;
     private static volatile Set<String> staticRuntimeTargetSnapshot = Collections.emptySet();
+    private static volatile boolean staticServiceRuntimeActive;
+    private static volatile long staticLastCompletedMonitorTickElapsedMs;
     private static volatile long staticGapDetectedCount;
     private static volatile long staticGapReconciliationCount;
     private static volatile long staticLastGapMs;
@@ -137,6 +140,9 @@ public class FlowForegroundService extends Service {
             long startWall = System.currentTimeMillis();
             runtimeTracking.recordMonitorStart(livenessServiceGeneration, startElapsed, startWall);
             tick(startWall, startElapsed);
+            // This timestamp is a process-local integrity signal. It is updated
+            // only after tick() returns successfully and is never persisted.
+            staticLastCompletedMonitorTickElapsedMs = SystemClock.elapsedRealtime();
             long endElapsed = SystemClock.elapsedRealtime();
             long endWall = System.currentTimeMillis();
             runtimeTracking.recordMonitorEnd(livenessServiceGeneration, endElapsed, endWall);
@@ -158,6 +164,8 @@ public class FlowForegroundService extends Service {
 
     @Override public void onCreate() {
         super.onCreate();
+        staticServiceRuntimeActive = true;
+        staticLastCompletedMonitorTickElapsedMs = 0L;
         runtimeTracking.initializeProcessIdentity(
                 Process.myPid(),
                 SystemClock.elapsedRealtime(),
@@ -669,12 +677,17 @@ public class FlowForegroundService extends Service {
             return 0L;
         }
 
-        long safeEndWallMs = nowWallMs - TargetSessionGapReconciler.LIVE_TAIL_MS;
-        if (safeEndWallMs <= checkpointWallMs) {
-            markGapResult("SKIPPED", 0L, 0L);
-            discardUnreconciledGap(nowWallMs, nowElapsedMs);
+        GapReconciliationWindow.Decision window = GapReconciliationWindow.classify(
+                gapMs, checkpointWallMs, nowWallMs
+        );
+        if (window.kind == GapReconciliationWindow.Kind.SKIPPED_LIVE_WINDOW) {
+            // The gap is above the replay threshold but the historical window
+            // is not closed yet. Keep every anchor at the checkpoint so the
+            // ordinary live path can account for the full clamped delta.
+            markGapResult("SKIPPED_LIVE_WINDOW", 0L, 0L);
             return 0L;
         }
+        long safeEndWallMs = window.safeEndWallMs;
 
         staticGapReconciliationCount++;
         ForegroundUsageDetector.GapQuery query = foregroundDetector.queryEventsForReconciliation(
@@ -1177,6 +1190,12 @@ public class FlowForegroundService extends Service {
     public static long getLastTickAt() { return staticLastTickAt; }
     public static long getLastUsageEventAt() { return staticLastUsageEventAt; }
     public static String getForegroundPackage() { return staticForegroundPackage; }
+    public static boolean isProtectionServiceRuntimeActive() {
+        return staticServiceRuntimeActive;
+    }
+    public static long getLastCompletedMonitorTickElapsedMs() {
+        return staticLastCompletedMonitorTickElapsedMs;
+    }
     public static JSObject getRuntimeTrackingDiagnostics() {
         return getRuntimeTrackingDiagnostics(null);
     }
@@ -1253,6 +1272,8 @@ public class FlowForegroundService extends Service {
         result.put("lastReconciliationResult", staticLastReconciliationResult);
         result.put("lastGapQueryFailureClass", staticLastGapQueryFailureClass);
         result.put("historicalTargetMsRecovered", staticHistoricalTargetMsRecovered);
+        result.put("serviceRuntimeActive", staticServiceRuntimeActive);
+        result.put("lastCompletedMonitorTickElapsedMs", staticLastCompletedMonitorTickElapsedMs);
         result.put("monitorThreadAlive", staticMonitorThreadAlive);
         result.put("monitorLooperIsMain", staticMonitorLooperIsMain);
 
@@ -2022,6 +2043,7 @@ public class FlowForegroundService extends Service {
     }
 
     @Override public void onDestroy() {
+        staticServiceRuntimeActive = false;
         if (!serviceDestroyRecorded) {
             serviceDestroyRecorded = true;
             runtimeTracking.recordServiceDestroy(
