@@ -45,6 +45,26 @@ public final class RestCheatTracker {
         return accumulatedMs;
     }
 
+    /**
+     * Applies target time from an ordered, independently verified history.
+     *
+     * <p>This path deliberately has no ten-second clamp: the caller has
+     * already bounded and verified the historical interval. It shares the
+     * same cumulative counter and threshold as live {@link #observe} calls.</p>
+     *
+     * @param resting current state is RESTING
+     * @param verifiedTargetMs verified target-app duration from the replay
+     * @return the current cumulative cheat duration
+     */
+    public long applyVerifiedTargetMs(boolean resting, long verifiedTargetMs) {
+        if (!resting) {
+            reset();
+            return accumulatedMs;
+        }
+        accumulatedMs += Math.max(0L, verifiedTargetMs);
+        return accumulatedMs;
+    }
+
     /** 是否已达到触发阈值。 */
     public boolean triggered() {
         return accumulatedMs >= CHEAT_THRESHOLD_MS;

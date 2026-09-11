@@ -546,22 +546,33 @@ public class FlowForegroundService extends Service {
         // 注意：observedTargetMs 在首次切回目标应用时为 0（continuedTarget=false），
         // 所以用 prevObservedAt 独立计算 delta，确保首次切回也能被计入
         BlockStateMachine.State currentState = machine.getState();
-        long cheatAccumulated = restCheatTracker.observe(
+        restCheatTracker.observe(
                 currentState == BlockStateMachine.State.RESTING,
                 isTarget,
                 prevObservedAt,
                 now
         );
         if (restCheatTracker.triggered()) {
-            machine.cancelRest(limitMinutes * 60_000L);
-            repository.log("rest_cheat", foreground, "", cheatAccumulated / 1000L, "");
-            alert("休息已取消", "检测到在休息期间使用目标应用，未完成本次休息。");
-            machine.seedCheckpoint(now, isTarget);
-            recordCheckpoint(now, nowElapsed, isTarget, interactionAvailableNow, foreground);
-            persistState(true);
-            flushPendingUsage(false);
-            restCheatTracker.reset();
-            return;
+            RestCheatReplay.Decision liveRestCheat = RestCheatReplay.cancelTriggered(
+                    machine,
+                    restCheatTracker,
+                    limitMinutes * 60_000L
+            );
+            if (liveRestCheat.cancelled) {
+                handleRestCheatCancellation(
+                        foreground,
+                        liveRestCheat.accumulatedMs,
+                        true,
+                        now,
+                        nowElapsed,
+                        isTarget,
+                        interactionAvailableNow,
+                        foreground
+                );
+                persistState(true);
+                flushPendingUsage(false);
+                return;
+            }
         }
 
         long machineSessionBeforeMs = machine.getSessionMs();
@@ -699,6 +710,24 @@ public class FlowForegroundService extends Service {
         // authority for the final ten-second tail.
         machine.seedCheckpoint(checkpointWallMs, checkpointTargetActive);
         applyVerifiedGap(result);
+        RestCheatReplay.Decision historicalRestCheat = RestCheatReplay.applyVerifiedTargetMs(
+                machine,
+                restCheatTracker,
+                result.historicalTargetMsRecovered,
+                limitMinutes * 60_000L
+        );
+        if (historicalRestCheat.cancelled) {
+            handleRestCheatCancellation(
+                    historicalRestCheatPackage(result),
+                    historicalRestCheat.accumulatedMs,
+                    false,
+                    0L,
+                    0L,
+                    false,
+                    false,
+                    ""
+            );
+        }
         for (java.util.Map.Entry<String, Long> entry : result.usageMsByTargetPackage.entrySet()) {
             usageAccumulator.queue(entry.getKey(), entry.getValue());
         }
@@ -764,6 +793,59 @@ public class FlowForegroundService extends Service {
                 limitMs
         );
         announceHistoricalStateChange(before, after, result.finalForegroundPackage);
+    }
+
+    private String historicalRestCheatPackage(TargetSessionGapReconciler.Result result) {
+        if (result != null) {
+            for (java.util.Map.Entry<String, Long> entry
+                    : result.usageMsByTargetPackage.entrySet()) {
+                if (entry.getKey() != null && entry.getValue() != null && entry.getValue() > 0L) {
+                    return entry.getKey();
+                }
+            }
+            if (result.finalForegroundPackage != null && !result.finalForegroundPackage.isEmpty()) {
+                return result.finalForegroundPackage;
+            }
+        }
+        return "";
+    }
+
+    private void handleRestCheatCancellation(
+            String packageName,
+            long cheatAccumulated,
+            boolean anchorLiveCheckpoint,
+            long nowWallMs,
+            long nowElapsedMs,
+            boolean targetActive,
+            boolean interactionAvailableNow,
+            String foregroundPackage
+    ) {
+        // Historical replay has already advanced the checkpoint to its safe
+        // endpoint. The live path anchors it to the current observation before
+        // the forced persist. Both paths clear the active rest session and
+        // share the same user-visible/event semantics.
+        if (anchorLiveCheckpoint) {
+            machine.seedCheckpoint(nowWallMs, targetActive);
+            recordCheckpoint(
+                    nowWallMs,
+                    nowElapsedMs,
+                    targetActive,
+                    interactionAvailableNow,
+                    foregroundPackage
+            );
+        }
+        stateStore.clearActiveRestSession();
+        repository.log(
+                "rest_cheat",
+                packageName == null ? "" : packageName,
+                "",
+                Math.max(0L, cheatAccumulated) / 1000L,
+                ""
+        );
+        alert("休息已取消", "检测到在休息期间使用目标应用，未完成本次休息。");
+        // The live branch returns before the normal state-change announcer;
+        // historical replay must preserve that behavior as well.
+        lastAnnouncedState = machine.getState();
     }
 
     private void announceHistoricalStateChange(
