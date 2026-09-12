@@ -43,6 +43,8 @@ export interface NativeProtectionStatus {
   monitorThreadAlive: boolean;
   heartbeatFresh: boolean;
   currentServiceHeartbeatAt: number;
+  accessibilityEnabledInSettings: boolean;
+  accessibilityRuntimeConnected: boolean;
   protectionRuntimeAvailable: boolean;
   permissions: PermissionState;
 }

@@ -34,6 +34,7 @@ public class FlowAccessibilityService extends AccessibilityService {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private BlockedTargetBanner blockBanner;
+    private long accessibilityRuntimeGeneration;
 
     private final Runnable blockPoll = new Runnable() {
         @Override public void run() {
@@ -49,6 +50,7 @@ public class FlowAccessibilityService extends AccessibilityService {
 
     @Override protected void onServiceConnected() {
         super.onServiceConnected();
+        accessibilityRuntimeGeneration = AccessibilityRuntimeState.connect();
         blockBanner = new BlockedTargetBanner(
                 this,
                 (WindowManager) getSystemService(WINDOW_SERVICE),
@@ -58,10 +60,6 @@ public class FlowAccessibilityService extends AccessibilityService {
     }
 
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
-        if (!protectionRuntimeAvailable()) {
-            cleanupBanner();
-            return;
-        }
         SharedPreferences prefs = prefs();
         if (!canEnforce(prefs)) {
             cleanupBanner();
@@ -153,13 +151,21 @@ public class FlowAccessibilityService extends AccessibilityService {
     }
 
     @Override public boolean onUnbind(Intent intent) {
+        disconnectAccessibilityRuntime();
         cleanupBanner();
         return super.onUnbind(intent);
     }
 
     @Override public void onDestroy() {
+        disconnectAccessibilityRuntime();
         cleanupBanner();
         super.onDestroy();
+    }
+
+    private void disconnectAccessibilityRuntime() {
+        long generation = accessibilityRuntimeGeneration;
+        accessibilityRuntimeGeneration = 0L;
+        AccessibilityRuntimeState.disconnect(generation);
     }
 
     private void cleanupBanner() {
@@ -180,6 +186,22 @@ public class FlowAccessibilityService extends AccessibilityService {
         return NativeFlowPermissionManager.isProtectionRuntimeAvailable(Build.MANUFACTURER);
     }
 
+    boolean hasUsageStats() {
+        return new NativeFlowPermissionManager(this).hasUsageStats();
+    }
+
+    boolean hasOverlay() {
+        return new NativeFlowPermissionManager(this).hasOverlay();
+    }
+
+    boolean accessibilityEnabledInSettings() {
+        return new NativeFlowPermissionManager(this).hasAccessibility();
+    }
+
+    ProtectionRuntimeHealthEvaluator.Result currentCoreRuntimeHealth() {
+        return FlowForegroundService.getCurrentProtectionRuntimeHealth();
+    }
+
     private boolean isBlocked(SharedPreferences prefs) {
         return BlockStateMachine.State.BLOCKED.name().equals(
                 prefs.getString("blockState", BlockStateMachine.State.IDLE.name())
@@ -188,9 +210,21 @@ public class FlowAccessibilityService extends AccessibilityService {
 
     private boolean canEnforce(SharedPreferences prefs) {
         boolean strongDefault = "domestic".equals(BuildConfig.CHANNEL);
-        return protectionRuntimeAvailable()
-                && prefs.getBoolean("monitoringEnabled", true)
-                && prefs.getBoolean("strongBlockingEnabled", strongDefault);
+        boolean monitoringEnabled = prefs.getBoolean("monitoringEnabled", true);
+        boolean strongBlockingEnabled = prefs.getBoolean("strongBlockingEnabled", strongDefault);
+        Set<String> targets = PreferenceUtils.getMigratedTargetApps(prefs);
+        ProtectionPrerequisiteGate.Result prerequisites = ProtectionPrerequisiteGate.evaluate(
+                protectionRuntimeAvailable(),
+                monitoringEnabled,
+                !targets.isEmpty(),
+                hasUsageStats(),
+                hasOverlay()
+        );
+        return prerequisites.isAllowed()
+                && strongBlockingEnabled
+                && accessibilityEnabledInSettings()
+                && AccessibilityRuntimeState.isConnected()
+                && currentCoreRuntimeHealth().isHealthy();
     }
 
     /**

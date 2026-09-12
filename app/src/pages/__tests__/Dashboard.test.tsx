@@ -46,6 +46,8 @@ function protectionStatus(
     monitorThreadAlive: true,
     heartbeatFresh: true,
     currentServiceHeartbeatAt: Date.now(),
+    accessibilityEnabledInSettings: false,
+    accessibilityRuntimeConnected: false,
     protectionRuntimeAvailable: true,
     permissions: {
       hasUsageStats: true,
@@ -365,6 +367,25 @@ describe("Dashboard", () => {
 
     await waitFor(() => expect(screen.getAllByText("保护降级").length).toBeGreaterThanOrEqual(1));
     expect(screen.getByText("无障碍强阻断不可用，仅保留核心悬浮窗保护")).toBeInTheDocument();
+    expect(screen.getByText("连续使用")).toBeInTheDocument();
+  });
+
+  it("native accessibility enabled but disconnected stays degraded without disabling core protection", async () => {
+    mockIsNative = true;
+    vi.mocked(NativeFlow.getProtectionStatus).mockResolvedValue(protectionStatus({
+      status: "DEGRADED",
+      reason: "ACCESSIBILITY_SERVICE_NOT_CONNECTED",
+      coreProtectionOperational: true,
+      strongBlockingRequested: true,
+      strongBlockingOperational: false,
+      strongBlockingDegradedReason: "ACCESSIBILITY_SERVICE_NOT_CONNECTED",
+      accessibilityEnabledInSettings: true,
+      accessibilityRuntimeConnected: false,
+    }));
+    renderDashboard({ isMonitoring: true, blockState: "IDLE" });
+
+    await waitFor(() => expect(screen.getAllByText("保护降级").length).toBeGreaterThanOrEqual(1));
+    expect(screen.getByText("无障碍强阻断尚未运行，核心悬浮窗保护仍有效")).toBeInTheDocument();
     expect(screen.getByText("连续使用")).toBeInTheDocument();
   });
 

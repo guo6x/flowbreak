@@ -24,9 +24,11 @@ public final class ProtectionStatusEvaluator {
         public final boolean hasOverlay;
         public final boolean serviceRuntimeActive;
         public final boolean monitorThreadAlive;
-        public final boolean heartbeatFresh;
+        public final long lastCompletedMonitorTickElapsedMs;
+        public final long nowElapsedMs;
         public final boolean strongBlockingRequested;
-        public final boolean accessibilityAvailable;
+        public final boolean accessibilityEnabledInSettings;
+        public final boolean accessibilityRuntimeConnected;
         public final String integrityFailureReason;
 
         public Input(
@@ -38,9 +40,11 @@ public final class ProtectionStatusEvaluator {
                 boolean hasOverlay,
                 boolean serviceRuntimeActive,
                 boolean monitorThreadAlive,
-                boolean heartbeatFresh,
+                long lastCompletedMonitorTickElapsedMs,
+                long nowElapsedMs,
                 boolean strongBlockingRequested,
-                boolean accessibilityAvailable,
+                boolean accessibilityEnabledInSettings,
+                boolean accessibilityRuntimeConnected,
                 String integrityFailureReason
         ) {
             this.configured = configured;
@@ -51,9 +55,11 @@ public final class ProtectionStatusEvaluator {
             this.hasOverlay = hasOverlay;
             this.serviceRuntimeActive = serviceRuntimeActive;
             this.monitorThreadAlive = monitorThreadAlive;
-            this.heartbeatFresh = heartbeatFresh;
+            this.lastCompletedMonitorTickElapsedMs = lastCompletedMonitorTickElapsedMs;
+            this.nowElapsedMs = nowElapsedMs;
             this.strongBlockingRequested = strongBlockingRequested;
-            this.accessibilityAvailable = accessibilityAvailable;
+            this.accessibilityEnabledInSettings = accessibilityEnabledInSettings;
+            this.accessibilityRuntimeConnected = accessibilityRuntimeConnected;
             this.integrityFailureReason = integrityFailureReason == null
                     ? ""
                     : integrityFailureReason;
@@ -67,6 +73,7 @@ public final class ProtectionStatusEvaluator {
         public final boolean strongBlockingRequested;
         public final boolean strongBlockingOperational;
         public final String strongBlockingDegradedReason;
+        public final ProtectionRuntimeHealthEvaluator.Result runtimeHealth;
 
         private Result(
                 Status status,
@@ -74,7 +81,8 @@ public final class ProtectionStatusEvaluator {
                 boolean coreProtectionOperational,
                 boolean strongBlockingRequested,
                 boolean strongBlockingOperational,
-                String strongBlockingDegradedReason
+                String strongBlockingDegradedReason,
+                ProtectionRuntimeHealthEvaluator.Result runtimeHealth
         ) {
             this.status = status;
             this.reason = reason;
@@ -82,6 +90,7 @@ public final class ProtectionStatusEvaluator {
             this.strongBlockingRequested = strongBlockingRequested;
             this.strongBlockingOperational = strongBlockingOperational;
             this.strongBlockingDegradedReason = strongBlockingDegradedReason;
+            this.runtimeHealth = runtimeHealth;
         }
     }
 
@@ -95,6 +104,14 @@ public final class ProtectionStatusEvaluator {
                 input.hasUsageStats,
                 input.hasOverlay
         );
+        ProtectionRuntimeHealthEvaluator.Result runtimeHealth =
+                ProtectionRuntimeHealthEvaluator.evaluate(
+                        input.serviceRuntimeActive,
+                        input.monitorThreadAlive,
+                        input.lastCompletedMonitorTickElapsedMs,
+                        input.nowElapsedMs,
+                        input.integrityFailureReason
+                );
 
         Status status;
         String reason;
@@ -112,36 +129,36 @@ public final class ProtectionStatusEvaluator {
         } else if (!prerequisites.isAllowed()) {
             status = Status.DEGRADED;
             reason = prerequisites.reason.name();
-        } else if (!input.serviceRuntimeActive) {
-            status = Status.STARTING_OR_UNCONFIRMED;
-            reason = "SERVICE_NOT_RUNNING";
-        } else if (!input.monitorThreadAlive) {
-            status = Status.STARTING_OR_UNCONFIRMED;
-            reason = "MONITOR_THREAD_NOT_ALIVE";
-        } else if (!input.heartbeatFresh) {
-            status = Status.STARTING_OR_UNCONFIRMED;
-            reason = "HEARTBEAT_STALE";
-        } else if (!input.integrityFailureReason.isEmpty()) {
-            status = Status.DEGRADED;
-            reason = input.integrityFailureReason;
-        } else if (input.strongBlockingRequested && !input.accessibilityAvailable) {
+        } else if (!runtimeHealth.isHealthy()) {
+            status = runtimeHealth.hasIntegrityFailure()
+                    ? Status.DEGRADED
+                    : Status.STARTING_OR_UNCONFIRMED;
+            reason = runtimeHealth.reason;
+        } else if (input.strongBlockingRequested
+                && !input.accessibilityEnabledInSettings) {
             status = Status.DEGRADED;
             reason = "ACCESSIBILITY_MISSING";
+        } else if (input.strongBlockingRequested
+                && !input.accessibilityRuntimeConnected) {
+            status = Status.DEGRADED;
+            reason = "ACCESSIBILITY_SERVICE_NOT_CONNECTED";
         } else {
             status = Status.ACTIVE;
             reason = "";
         }
 
         boolean coreOperational = prerequisites.isAllowed()
-                && input.serviceRuntimeActive
-                && input.monitorThreadAlive
-                && input.heartbeatFresh
-                && input.integrityFailureReason.isEmpty();
+                && runtimeHealth.isHealthy();
         boolean strongOperational = !input.strongBlockingRequested
-                || (coreOperational && input.accessibilityAvailable);
+                || (coreOperational
+                && input.accessibilityEnabledInSettings
+                && input.accessibilityRuntimeConnected);
         String strongReason = "";
-        if (input.strongBlockingRequested && !input.accessibilityAvailable) {
+        if (input.strongBlockingRequested && !input.accessibilityEnabledInSettings) {
             strongReason = "ACCESSIBILITY_MISSING";
+        } else if (input.strongBlockingRequested
+                && !input.accessibilityRuntimeConnected) {
+            strongReason = "ACCESSIBILITY_SERVICE_NOT_CONNECTED";
         } else if (input.strongBlockingRequested && !coreOperational) {
             // Keep the enhancement diagnosis separate while still exposing the
             // core failure that prevents any strong-blocking operation.
@@ -154,7 +171,8 @@ public final class ProtectionStatusEvaluator {
                 coreOperational,
                 input.strongBlockingRequested,
                 strongOperational,
-                strongReason
+                strongReason,
+                runtimeHealth
         );
     }
 }

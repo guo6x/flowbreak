@@ -72,6 +72,29 @@ public class ProtectionIntegrityEvaluatorTest {
         assertTrue(result.strongBlockingOperational);
     }
 
+    @Test public void runtimeHealthUsesElapsedRealtimeAndRejectsStaleOrFutureTicks() {
+        ProtectionRuntimeHealthEvaluator.Result fresh =
+                ProtectionRuntimeHealthEvaluator.evaluate(true, true, 1_000L, 1_000L, "");
+        assertTrue(fresh.isHealthy());
+        assertTrue(fresh.heartbeatFresh);
+
+        ProtectionRuntimeHealthEvaluator.Result stale =
+                ProtectionRuntimeHealthEvaluator.evaluate(
+                        true,
+                        true,
+                        1_000L,
+                        1_000L + ProtectionRuntimeHealthEvaluator.SERVICE_HEARTBEAT_STALE_MS,
+                        ""
+                );
+        assertFalse(stale.isHealthy());
+        assertEquals("HEARTBEAT_STALE", stale.reason);
+
+        ProtectionRuntimeHealthEvaluator.Result future =
+                ProtectionRuntimeHealthEvaluator.evaluate(true, true, 2_000L, 1_000L, "");
+        assertFalse(future.isHealthy());
+        assertEquals("HEARTBEAT_FROM_FUTURE", future.reason);
+    }
+
     @Test public void missingCorePermissionDegradesCoreProtection() {
         ProtectionStatusEvaluator.Result result = ProtectionStatusEvaluator.evaluate(
                 input(true, true, true, true, false, true, true, true, true, "")
@@ -92,7 +115,8 @@ public class ProtectionIntegrityEvaluatorTest {
         ProtectionStatusEvaluator.Result result = ProtectionStatusEvaluator.evaluate(
                 new ProtectionStatusEvaluator.Input(
                         true, true, true, true, true, true,
-                        true, true, true, true, false, ""
+                        true, true, 1_000L, 1_000L,
+                        true, false, false, ""
                 )
         );
         assertEquals(ProtectionStatusEvaluator.Status.DEGRADED, result.status);
@@ -107,7 +131,8 @@ public class ProtectionIntegrityEvaluatorTest {
         ProtectionStatusEvaluator.Result result = ProtectionStatusEvaluator.evaluate(
                 new ProtectionStatusEvaluator.Input(
                         true, true, true, true, true, true,
-                        false, true, false, true, true, ""
+                        false, true, 1_000L, 1_000L,
+                        true, true, true, ""
                 )
         );
         assertEquals(ProtectionStatusEvaluator.Status.STARTING_OR_UNCONFIRMED, result.status);
@@ -115,6 +140,37 @@ public class ProtectionIntegrityEvaluatorTest {
         assertTrue(result.strongBlockingRequested);
         assertFalse(result.strongBlockingOperational);
         assertEquals("SERVICE_NOT_RUNNING", result.strongBlockingDegradedReason);
+    }
+
+    @Test public void settingsEnabledButDisconnectedDegradesOnlyStrongBlocking() {
+        ProtectionStatusEvaluator.Result result = ProtectionStatusEvaluator.evaluate(
+                new ProtectionStatusEvaluator.Input(
+                        true, true, true, true, true, true,
+                        true, true, 1_000L, 1_000L,
+                        true, true, false, ""
+                )
+        );
+        assertEquals(ProtectionStatusEvaluator.Status.DEGRADED, result.status);
+        assertEquals("ACCESSIBILITY_SERVICE_NOT_CONNECTED", result.reason);
+        assertTrue(result.coreProtectionOperational);
+        assertFalse(result.strongBlockingOperational);
+        assertEquals(
+                "ACCESSIBILITY_SERVICE_NOT_CONNECTED",
+                result.strongBlockingDegradedReason
+        );
+    }
+
+    @Test public void connectedAccessibilityMakesStrongBlockingOperational() {
+        ProtectionStatusEvaluator.Result result = ProtectionStatusEvaluator.evaluate(
+                new ProtectionStatusEvaluator.Input(
+                        true, true, true, true, true, true,
+                        true, true, 1_000L, 1_000L,
+                        true, true, true, ""
+                )
+        );
+        assertEquals(ProtectionStatusEvaluator.Status.ACTIVE, result.status);
+        assertTrue(result.coreProtectionOperational);
+        assertTrue(result.strongBlockingOperational);
     }
 
     @Test public void unsupportedAndPausedRemainDistinct() {
@@ -161,7 +217,9 @@ public class ProtectionIntegrityEvaluatorTest {
                 overlay,
                 service,
                 thread,
-                heartbeat,
+                1_000L,
+                heartbeat ? 1_000L : 46_000L,
+                false,
                 false,
                 false,
                 integrityReason

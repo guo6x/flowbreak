@@ -70,6 +70,7 @@ function nativeStatusReason(reason: string) {
     MONITOR_THREAD_NOT_ALIVE: '保护监控线程当前不可用，保护尚未生效',
     HEARTBEAT_STALE: '保护服务心跳已过期，保护尚未生效',
     ACCESSIBILITY_MISSING: '无障碍强阻断不可用，仅保留核心悬浮窗保护',
+    ACCESSIBILITY_SERVICE_NOT_CONNECTED: '无障碍强阻断尚未运行，核心悬浮窗保护仍有效',
     MONITORING_DISABLED: '保护监控当前已暂停',
     NO_TARGETS: '尚未配置受限应用',
     NOT_CONFIGURED: '尚未完成保护配置',

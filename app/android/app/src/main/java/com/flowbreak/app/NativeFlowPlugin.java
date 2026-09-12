@@ -224,11 +224,10 @@ public class NativeFlowPlugin extends Plugin {
             SharedPreferences preferences = prefs();
             Set<String> targets = PreferenceUtils.getMigratedTargetApps(preferences);
             boolean monitoringEnabled = preferences.getBoolean("monitoringEnabled", true);
-            long now = System.currentTimeMillis();
-            long currentHeartbeat = FlowForegroundService.getLastCompletedMonitorTickWallMs();
-            boolean heartbeatFresh = currentHeartbeat > 0L
-                    && now >= currentHeartbeat
-                    && now - currentHeartbeat < FlowForegroundService.SERVICE_HEARTBEAT_STALE_MS;
+            long currentHeartbeatWall = FlowForegroundService.getLastCompletedMonitorTickWallMs();
+            long currentHeartbeatElapsed =
+                    FlowForegroundService.getLastCompletedMonitorTickElapsedMs();
+            long nowElapsed = SystemClock.elapsedRealtime();
             boolean supportedRuntime = permissions.isProtectionRuntimeAvailable();
             boolean hasUsageStats = permissions.hasUsageStats();
             boolean hasOverlay = permissions.hasOverlay();
@@ -236,6 +235,8 @@ public class NativeFlowPlugin extends Plugin {
             boolean monitorThreadAlive = FlowForegroundService.isMonitorThreadAlive();
             boolean strongRequested = "domestic".equals(BuildConfig.CHANNEL)
                     && preferences.getBoolean("strongBlockingEnabled", true);
+            boolean accessibilityEnabledInSettings = permissions.hasAccessibility();
+            boolean accessibilityRuntimeConnected = AccessibilityRuntimeState.isConnected();
             ProtectionStatusEvaluator.Result status = ProtectionStatusEvaluator.evaluate(
                     new ProtectionStatusEvaluator.Input(
                             preferences.getBoolean("serviceConfigured", false),
@@ -246,9 +247,11 @@ public class NativeFlowPlugin extends Plugin {
                             hasOverlay,
                             serviceRuntimeActive,
                             monitorThreadAlive,
-                            heartbeatFresh,
+                            currentHeartbeatElapsed,
+                            nowElapsed,
                             strongRequested,
-                            permissions.hasAccessibility(),
+                            accessibilityEnabledInSettings,
+                            accessibilityRuntimeConnected,
                             FlowForegroundService.getProtectionIntegrityFailureReason()
                     )
             );
@@ -264,8 +267,13 @@ public class NativeFlowPlugin extends Plugin {
             result.put("targetCount", targets.size());
             result.put("serviceRuntimeActive", serviceRuntimeActive);
             result.put("monitorThreadAlive", monitorThreadAlive);
-            result.put("heartbeatFresh", heartbeatFresh);
-            result.put("currentServiceHeartbeatAt", currentHeartbeat);
+            result.put("heartbeatFresh", status.runtimeHealth.heartbeatFresh);
+            result.put("currentServiceHeartbeatAt", currentHeartbeatWall);
+            result.put("currentServiceHeartbeatElapsedMs", currentHeartbeatElapsed);
+            result.put("coreRuntimeHealthReason", status.runtimeHealth.reason);
+            result.put("coreRuntimeHealthCheckedAtElapsedMs", status.runtimeHealth.nowElapsedMs);
+            result.put("accessibilityEnabledInSettings", accessibilityEnabledInSettings);
+            result.put("accessibilityRuntimeConnected", accessibilityRuntimeConnected);
             result.put("protectionRuntimeAvailable", supportedRuntime);
             result.put("permissions", permissions.permissionState());
             call.resolve(result);

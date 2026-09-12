@@ -46,20 +46,22 @@ import org.robolectric.shadows.ShadowWindowManagerImpl;
 @Config(sdk = 35)
 public class FlowAccessibilityServiceTest {
     private SharedPreferences prefs;
-    private ServiceController<FlowAccessibilityService> controller;
-    private FlowAccessibilityService service;
+    private ServiceController<TestableFlowAccessibilityService> controller;
+    private TestableFlowAccessibilityService service;
 
     @Before public void setUp() {
+        AccessibilityRuntimeState.resetForTests();
         prefs = ApplicationProvider.getApplicationContext()
                 .getSharedPreferences("FlowBreakPrefs", Context.MODE_PRIVATE);
         prefs.edit().clear().commit();
-        controller = Robolectric.buildService(FlowAccessibilityService.class);
+        controller = Robolectric.buildService(TestableFlowAccessibilityService.class);
         service = controller.create().get();
         service.onServiceConnected();
     }
 
     @After public void tearDown() {
         controller.destroy();
+        AccessibilityRuntimeState.resetForTests();
         prefs.edit().clear().commit();
         ShadowLog.reset();
     }
@@ -99,6 +101,12 @@ public class FlowAccessibilityServiceTest {
             if (child instanceof Button) return (Button) child;
         }
         return null;
+    }
+
+    private void assertNoEnforcement() {
+        assertTrue(shadowA11y(service).getGlobalActionsPerformed().isEmpty());
+        assertFalse(service.isBlockBannerShowing());
+        assertEquals(0, service.blockActivityAttempts);
     }
 
     @Test public void blockedTargetWindowEventSendsHomeAndShowsBanner() {
@@ -144,6 +152,117 @@ public class FlowAccessibilityServiceTest {
 
         assertTrue(shadowA11y(service).getGlobalActionsPerformed().isEmpty());
         assertFalse(service.isBlockBannerShowing());
+    }
+
+    @Test public void accessibilitySettingsDisabledDoesNotEnforceBlockedTarget() {
+        enableBlocked("com.example.video");
+        service.accessibilitySettings = false;
+
+        service.onAccessibilityEvent(windowEvent("com.example.video", "com.example.video.MainActivity"));
+
+        assertNoEnforcement();
+    }
+
+    @Test public void disconnectedAccessibilityRuntimeDoesNotEnforceBlockedTarget() {
+        service.onUnbind(new Intent());
+        enableBlocked("com.example.video");
+
+        service.onAccessibilityEvent(windowEvent("com.example.video", "com.example.video.MainActivity"));
+
+        assertNoEnforcement();
+    }
+
+    @Test public void serviceRuntimeAbsentDoesNotEnforcePersistedBlockedTarget() {
+        enableBlocked("com.example.video");
+        service.serviceRuntimeActive = false;
+
+        service.onAccessibilityEvent(windowEvent("com.example.video", "com.example.video.MainActivity"));
+
+        assertNoEnforcement();
+    }
+
+    @Test public void deadMonitorThreadDoesNotEnforcePersistedBlockedTarget() {
+        enableBlocked("com.example.video");
+        service.monitorThreadAlive = false;
+
+        service.onAccessibilityEvent(windowEvent("com.example.video", "com.example.video.MainActivity"));
+
+        assertNoEnforcement();
+    }
+
+    @Test public void staleMonitorHeartbeatDoesNotEnforcePersistedBlockedTarget() {
+        enableBlocked("com.example.video");
+        service.nowElapsed = service.lastCompletedMonitorTickElapsed
+                + ProtectionRuntimeHealthEvaluator.SERVICE_HEARTBEAT_STALE_MS;
+
+        service.onAccessibilityEvent(windowEvent("com.example.video", "com.example.video.MainActivity"));
+
+        assertNoEnforcement();
+    }
+
+    @Test public void integrityFailureDoesNotEnforcePersistedBlockedTarget() {
+        enableBlocked("com.example.video");
+        service.integrityFailureReason = "LIVE_USAGE_QUERY_FAILED";
+
+        service.onAccessibilityEvent(windowEvent("com.example.video", "com.example.video.MainActivity"));
+
+        assertNoEnforcement();
+    }
+
+    @Test public void missingUsageAccessDoesNotEnforcePersistedBlockedTarget() {
+        enableBlocked("com.example.video");
+        service.usageAccess = false;
+
+        service.onAccessibilityEvent(windowEvent("com.example.video", "com.example.video.MainActivity"));
+
+        assertNoEnforcement();
+    }
+
+    @Test public void missingOverlayDoesNotEnforcePersistedBlockedTarget() {
+        enableBlocked("com.example.video");
+        service.overlayPermission = false;
+
+        service.onAccessibilityEvent(windowEvent("com.example.video", "com.example.video.MainActivity"));
+
+        assertNoEnforcement();
+    }
+
+    @Test public void healthyCoreRuntimePreservesStrongBlockingBehavior() {
+        enableBlocked("com.example.video");
+
+        service.onAccessibilityEvent(windowEvent("com.example.video", "com.example.video.MainActivity"));
+
+        assertTrue(shadowA11y(service).getGlobalActionsPerformed()
+                .contains(AccessibilityService.GLOBAL_ACTION_HOME));
+        assertTrue(service.isBlockBannerShowing());
+        assertEquals(1, service.blockActivityAttempts);
+    }
+
+    @Test public void unhealthyCoreRuntimePollRemovesExistingBanner() {
+        enableBlocked("com.example.video");
+        service.onAccessibilityEvent(windowEvent("com.example.video", "com.example.video.MainActivity"));
+        assertTrue(service.isBlockBannerShowing());
+
+        service.monitorThreadAlive = false;
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(2_500L));
+
+        assertFalse(service.isBlockBannerShowing());
+        assertEquals(0, windowViews().size());
+        assertEquals(1, service.blockActivityAttempts);
+    }
+
+    @Test public void unhealthyCoreRuntimeRestButtonCannotStartRest() {
+        enableBlocked("com.example.video");
+        service.onAccessibilityEvent(windowEvent("com.example.video", "com.example.video.MainActivity"));
+        Button rest = findButton((ViewGroup) windowViews().get(0));
+        assertNotNull(rest);
+
+        service.serviceRuntimeActive = false;
+        rest.performClick();
+
+        assertFalse(service.isBlockBannerShowing());
+        assertNull(Shadows.shadowOf((ContextWrapper) service).getNextStartedService());
+        assertEquals(1, service.blockActivityAttempts);
     }
 
     @Test public void monitoringDisabledCleansExistingBannerAndStopsPolling() {
@@ -303,22 +422,64 @@ public class FlowAccessibilityServiceTest {
 
         service.onUnbind(new Intent());
         assertFalse(service.isBlockBannerShowing());
+        assertFalse(AccessibilityRuntimeState.isConnected());
+    }
+
+    @Test public void destroyClearsAccessibilityRuntimeConnection() {
+        assertTrue(AccessibilityRuntimeState.isConnected());
+
+        service.onDestroy();
+
+        assertFalse(AccessibilityRuntimeState.isConnected());
     }
 
     /** 模拟 MIUI 拒绝后台 Activity 启动（MIUILOG- Permission Denied Activity）。 */
-    static class ThrowingService extends FlowAccessibilityService {
+    static class TestableFlowAccessibilityService extends FlowAccessibilityService {
+        boolean runtimeAvailable = true;
+        boolean usageAccess = true;
+        boolean overlayPermission = true;
+        boolean accessibilitySettings = true;
+        boolean serviceRuntimeActive = true;
+        boolean monitorThreadAlive = true;
+        long lastCompletedMonitorTickElapsed = 1_000L;
+        long nowElapsed = 1_000L;
+        String integrityFailureReason = "";
+        int blockActivityAttempts;
+
+        @Override boolean protectionRuntimeAvailable() { return runtimeAvailable; }
+
+        @Override boolean hasUsageStats() { return usageAccess; }
+
+        @Override boolean hasOverlay() { return overlayPermission; }
+
+        @Override boolean accessibilityEnabledInSettings() { return accessibilitySettings; }
+
+        @Override ProtectionRuntimeHealthEvaluator.Result currentCoreRuntimeHealth() {
+            return ProtectionRuntimeHealthEvaluator.evaluate(
+                    serviceRuntimeActive,
+                    monitorThreadAlive,
+                    lastCompletedMonitorTickElapsed,
+                    nowElapsed,
+                    integrityFailureReason
+            );
+        }
+
+        @Override boolean tryStartBlockActivity(String packageName) {
+            blockActivityAttempts++;
+            return super.tryStartBlockActivity(packageName);
+        }
+    }
+
+    static class ThrowingService extends TestableFlowAccessibilityService {
         @Override public void startActivity(Intent intent) {
             throw new IllegalStateException("MIUI background start rejected");
         }
     }
 
-    static class UnsupportedRuntimeService extends FlowAccessibilityService {
+    static class UnsupportedRuntimeService extends TestableFlowAccessibilityService {
         @Override boolean protectionRuntimeAvailable() { return false; }
     }
 
-    static class ToggleableRuntimeService extends FlowAccessibilityService {
-        boolean runtimeAvailable = true;
-
-        @Override boolean protectionRuntimeAvailable() { return runtimeAvailable; }
+    static class ToggleableRuntimeService extends TestableFlowAccessibilityService {
     }
 }

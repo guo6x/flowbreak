@@ -62,7 +62,8 @@ public class FlowForegroundService extends Service {
     private static final long GAP_RECONCILIATION_THRESHOLD_MS =
             GapReconciliationWindow.RECONCILIATION_THRESHOLD_MS;
     private static final long MAX_CLOCK_SKEW_MS = 60_000L;
-    public static final long SERVICE_HEARTBEAT_STALE_MS = 45_000L;
+    public static final long SERVICE_HEARTBEAT_STALE_MS =
+            ProtectionRuntimeHealthEvaluator.SERVICE_HEARTBEAT_STALE_MS;
 
     private static volatile BlockStateMachine.State staticState = BlockStateMachine.State.IDLE;
     private static volatile long staticSessionMs;
@@ -1315,6 +1316,18 @@ public class FlowForegroundService extends Service {
         HandlerThread thread = staticMonitorThreadRef;
         return staticServiceRuntimeActive && thread != null && thread.isAlive();
     }
+    public static ProtectionRuntimeHealthEvaluator.Result getCurrentProtectionRuntimeHealth() {
+        return ProtectionRuntimeHealthEvaluator.evaluate(
+                staticServiceRuntimeActive,
+                isMonitorThreadAlive(),
+                staticLastCompletedMonitorTickElapsedMs,
+                SystemClock.elapsedRealtime(),
+                staticProtectionIntegrityFailureReason
+        );
+    }
+    public static boolean isProtectionRuntimeHealthy() {
+        return getCurrentProtectionRuntimeHealth().isHealthy();
+    }
     public static long getLastCompletedMonitorTickElapsedMs() {
         return staticLastCompletedMonitorTickElapsedMs;
     }
@@ -1343,6 +1356,8 @@ public class FlowForegroundService extends Service {
     }
 
     public static JSObject getRuntimeTrackingDiagnostics(SharedPreferences persistedPreferences) {
+        ProtectionRuntimeHealthEvaluator.Result runtimeHealth =
+                getCurrentProtectionRuntimeHealth();
         if (persistedPreferences != null) {
             Set<String> persistedTargets = PreferenceUtils.getMigratedTargetApps(persistedPreferences);
             staticPersistedTargetCount = persistedTargets.size();
@@ -1413,6 +1428,10 @@ public class FlowForegroundService extends Service {
         result.put("lastCompletedMonitorTickElapsedMs", staticLastCompletedMonitorTickElapsedMs);
         result.put("lastCompletedMonitorTickWallMs", staticLastCompletedMonitorTickWallMs);
         result.put("monitorThreadAlive", isMonitorThreadAlive());
+        result.put("coreRuntimeHealthy", runtimeHealth.isHealthy());
+        result.put("coreRuntimeHealthReason", runtimeHealth.reason);
+        result.put("coreRuntimeHealthCheckedAtElapsedMs", runtimeHealth.nowElapsedMs);
+        result.put("heartbeatFresh", runtimeHealth.heartbeatFresh);
         result.put("monitorLooperIsMain", staticMonitorLooperIsMain);
         result.put("protectionIntegrityFailureReason", staticProtectionIntegrityFailureReason);
         result.put("liveUsageQueryFailureCount", staticLiveUsageQueryFailureCount);

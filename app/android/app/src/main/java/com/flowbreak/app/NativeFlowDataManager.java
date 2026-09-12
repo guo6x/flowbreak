@@ -41,14 +41,11 @@ public final class NativeFlowDataManager {
 
     /** 诊断 JSON 对象，包含 formatVersion=1 和所有运行状态字段。 */
     public JSObject diagnostics(SharedPreferences prefs) {
-        long now = System.currentTimeMillis();
         FlowDao dao = FlowDatabase.get(context).flowDao();
+        ProtectionRuntimeHealthEvaluator.Result runtimeHealth =
+                FlowForegroundService.getCurrentProtectionRuntimeHealth();
         long currentHeartbeat = FlowForegroundService.getLastCompletedMonitorTickWallMs();
-        boolean serviceAlive = FlowForegroundService.isProtectionServiceRuntimeActive()
-                && FlowForegroundService.isMonitorThreadAlive()
-                && currentHeartbeat > 0L
-                && now >= currentHeartbeat
-                && now - currentHeartbeat < FlowForegroundService.SERVICE_HEARTBEAT_STALE_MS;
+        boolean serviceAlive = runtimeHealth.isHealthy();
         JSObject result = new JSObject();
         result.put("versionName", BuildConfig.VERSION_NAME);
         result.put("versionCode", BuildConfig.VERSION_CODE);
@@ -58,6 +55,10 @@ public final class NativeFlowDataManager {
         result.put("serviceAlive", serviceAlive);
         result.put("serviceHeartbeatAt", currentHeartbeat);
         result.put("persistedServiceHeartbeatAt", prefs.getLong("serviceHeartbeatAt", 0L));
+        result.put("coreRuntimeHealthy", runtimeHealth.isHealthy());
+        result.put("coreRuntimeHealthReason", runtimeHealth.reason);
+        result.put("coreRuntimeHealthCheckedAtElapsedMs", runtimeHealth.nowElapsedMs);
+        result.put("heartbeatFresh", runtimeHealth.heartbeatFresh);
         result.put("lastUsageEventAt", FlowForegroundService.getLastUsageEventAt());
         result.put("state", FlowForegroundService.getState().name());
         result.put("sessionSeconds", FlowForegroundService.getSessionSeconds());
