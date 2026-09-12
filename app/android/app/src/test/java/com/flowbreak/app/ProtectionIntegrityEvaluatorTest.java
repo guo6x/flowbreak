@@ -95,6 +95,31 @@ public class ProtectionIntegrityEvaluatorTest {
         assertEquals("HEARTBEAT_FROM_FUTURE", future.reason);
     }
 
+    @Test public void oldServiceHeartbeatCannotSatisfyCurrentRuntimeHealth() {
+        long oldServiceHeartbeat = FlowForegroundService.heartbeatElapsedForCurrentService(
+                1L,
+                2L,
+                1_000L
+        );
+        assertEquals(0L, oldServiceHeartbeat);
+        assertTrue(FlowForegroundService.heartbeatElapsedForCurrentService(
+                2L,
+                2L,
+                1_000L
+        ) > 0L);
+
+        ProtectionRuntimeHealthEvaluator.Result result =
+                ProtectionRuntimeHealthEvaluator.evaluate(
+                        true,
+                        true,
+                        oldServiceHeartbeat,
+                        1_000L,
+                        ""
+                );
+        assertFalse(result.isHealthy());
+        assertEquals("HEARTBEAT_MISSING", result.reason);
+    }
+
     @Test public void missingCorePermissionDegradesCoreProtection() {
         ProtectionStatusEvaluator.Result result = ProtectionStatusEvaluator.evaluate(
                 input(true, true, true, true, false, true, true, true, true, "")

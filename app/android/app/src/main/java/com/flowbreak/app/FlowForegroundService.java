@@ -83,8 +83,7 @@ public class FlowForegroundService extends Service {
     private static volatile Context staticServiceContext;
     private static volatile Set<String> staticRuntimeTargetSnapshot = Collections.emptySet();
     private static volatile boolean staticServiceRuntimeActive;
-    private static volatile long staticLastCompletedMonitorTickElapsedMs;
-    private static volatile long staticLastCompletedMonitorTickWallMs;
+    private static volatile MonitorHeartbeat staticMonitorHeartbeat = MonitorHeartbeat.EMPTY;
     private static volatile String staticProtectionIntegrityFailureReason = "";
     private static volatile long staticLiveUsageQueryFailureCount;
     private static volatile String staticLastLiveUsageQueryFailureClass = "";
@@ -143,18 +142,29 @@ public class FlowForegroundService extends Service {
     private final Runnable monitor = new Runnable() {
         @Override public void run() {
             if (monitorShutdownRequested) return;
+            long serviceGeneration = livenessServiceGeneration;
             long startElapsed = SystemClock.elapsedRealtime();
             long startWall = System.currentTimeMillis();
-            runtimeTracking.recordMonitorStart(livenessServiceGeneration, startElapsed, startWall);
+            if (!runtimeTracking.recordMonitorStart(serviceGeneration, startElapsed, startWall)) {
+                return;
+            }
             tick(startWall, startElapsed);
-            // This timestamp is a process-local integrity signal. It is updated
-            // only after tick() returns successfully and is never persisted.
-            staticLastCompletedMonitorTickElapsedMs = SystemClock.elapsedRealtime();
-            staticLastCompletedMonitorTickWallMs = System.currentTimeMillis();
             long endElapsed = SystemClock.elapsedRealtime();
             long endWall = System.currentTimeMillis();
-            runtimeTracking.recordMonitorEnd(livenessServiceGeneration, endElapsed, endWall);
-            if (monitorLoop != null) monitorLoop.scheduleNext();
+            runtimeTracking.recordMonitorEnd(serviceGeneration, endElapsed, endWall);
+            // This timestamp is a process-local integrity signal. Publish it
+            // atomically with the service generation and only after tick()
+            // returns successfully. A late old-instance callback can never
+            // satisfy the current service's health check.
+            if (!monitorShutdownRequested
+                    && runtimeTracking.isCurrentServiceGeneration(serviceGeneration)) {
+                staticMonitorHeartbeat = new MonitorHeartbeat(
+                        serviceGeneration,
+                        endElapsed,
+                        endWall
+                );
+            }
+            if (!monitorShutdownRequested && monitorLoop != null) monitorLoop.scheduleNext();
         }
     };
 
@@ -172,12 +182,12 @@ public class FlowForegroundService extends Service {
 
     @Override public void onCreate() {
         super.onCreate();
-        staticServiceRuntimeActive = true;
+        staticServiceRuntimeActive = false;
+        staticMonitorThreadRef = null;
+        staticMonitorHeartbeat = MonitorHeartbeat.EMPTY;
         staticLastTickAt = 0L;
         staticLastUsageEventAt = 0L;
         staticForegroundPackage = "";
-        staticLastCompletedMonitorTickElapsedMs = 0L;
-        staticLastCompletedMonitorTickWallMs = 0L;
         staticProtectionIntegrityFailureReason = "";
         staticLiveUsageQueryFailureCount = 0L;
         staticLastLiveUsageQueryFailureClass = "";
@@ -251,6 +261,7 @@ public class FlowForegroundService extends Service {
         filter.addAction(Intent.ACTION_SCREEN_OFF);
         filter.addAction(Intent.ACTION_SCREEN_ON);
         registerReceiver(screenReceiver, filter);
+        staticServiceRuntimeActive = true;
         // Establish the engine snapshot before any later service command can
         // reach the monitor owner (for example BEGIN_REST after a cold start).
         postMonitorCommand(this::load);
@@ -373,7 +384,7 @@ public class FlowForegroundService extends Service {
         if (usageAccumulator != null) {
             usageAccumulator.restoreObservationAnchor(nowWallMs, "", false);
         }
-        staticProtectionIntegrityFailureReason = "";
+        clearIntegrityFailureIfCurrent();
         if (machine != null) {
             recordCheckpoint(nowWallMs, nowElapsedMs, false, false, "");
             lastAnnouncedState = BlockStateMachine.State.IDLE;
@@ -387,9 +398,13 @@ public class FlowForegroundService extends Service {
      * the next healthy cycle start at the current instant.
      */
     private void failClosedForIntegrity(String reason, long nowWallMs, long nowElapsedMs) {
-        staticProtectionIntegrityFailureReason = reason == null || reason.isEmpty()
+        String normalizedReason = reason == null || reason.isEmpty()
                 ? "PROTECTION_INTEGRITY_FAILURE"
                 : reason;
+        synchronized (runtimeTracking) {
+            if (!runtimeTracking.isCurrentServiceGeneration(livenessServiceGeneration)) return;
+            staticProtectionIntegrityFailureReason = normalizedReason;
+        }
         if (usageAccumulator != null && stateStore != null && repository != null) {
             flushPendingUsage(true);
         }
@@ -419,6 +434,14 @@ public class FlowForegroundService extends Service {
         staticLiveUsageQueryFailureCount = foregroundDetector.getLiveUsageQueryFailureCount();
         staticLastLiveUsageQueryFailureClass = foregroundDetector.getLastLiveUsageQueryFailureClass();
         staticLastLiveUsageQuerySucceeded = foregroundDetector.wasLastLiveUsageQuerySuccessful();
+    }
+
+    private void clearIntegrityFailureIfCurrent() {
+        synchronized (runtimeTracking) {
+            if (runtimeTracking.isCurrentServiceGeneration(livenessServiceGeneration)) {
+                staticProtectionIntegrityFailureReason = "";
+            }
+        }
     }
 
     /**
@@ -640,7 +663,7 @@ public class FlowForegroundService extends Service {
             );
             return;
         }
-        staticProtectionIntegrityFailureReason = "";
+        clearIntegrityFailureIfCurrent();
         boolean foregroundPresent = foreground != null && !foreground.isEmpty();
         boolean foregroundInRuntimeTargets = foregroundPresent && targetApps.contains(foreground);
         boolean foregroundIsSelfPackage = getPackageName().equals(foreground);
@@ -1237,6 +1260,21 @@ public class FlowForegroundService extends Service {
         }
     }
 
+    private static final class MonitorHeartbeat {
+        private static final MonitorHeartbeat EMPTY = new MonitorHeartbeat(0L, 0L, 0L);
+
+        private final long serviceGeneration;
+        private final long completedElapsedMs;
+        private final long completedWallMs;
+
+        private MonitorHeartbeat(long serviceGeneration, long completedElapsedMs,
+                long completedWallMs) {
+            this.serviceGeneration = serviceGeneration;
+            this.completedElapsedMs = completedElapsedMs;
+            this.completedWallMs = completedWallMs;
+        }
+    }
+
     private void flushPendingUsage(boolean force) {
         usageAccumulator.flush(
                 force,
@@ -1326,10 +1364,11 @@ public class FlowForegroundService extends Service {
         return staticServiceRuntimeActive && thread != null && thread.isAlive();
     }
     public static ProtectionRuntimeHealthEvaluator.Result getCurrentProtectionRuntimeHealth() {
+        MonitorHeartbeat heartbeat = currentMonitorHeartbeat();
         return ProtectionRuntimeHealthEvaluator.evaluate(
                 staticServiceRuntimeActive,
                 isMonitorThreadAlive(),
-                staticLastCompletedMonitorTickElapsedMs,
+                heartbeat.completedElapsedMs,
                 SystemClock.elapsedRealtime(),
                 staticProtectionIntegrityFailureReason
         );
@@ -1349,10 +1388,10 @@ public class FlowForegroundService extends Service {
         );
     }
     public static long getLastCompletedMonitorTickElapsedMs() {
-        return staticLastCompletedMonitorTickElapsedMs;
+        return currentMonitorHeartbeat().completedElapsedMs;
     }
     public static long getLastCompletedMonitorTickWallMs() {
-        return staticLastCompletedMonitorTickWallMs;
+        return currentMonitorHeartbeat().completedWallMs;
     }
     public static String getProtectionIntegrityFailureReason() {
         return staticProtectionIntegrityFailureReason;
@@ -1366,6 +1405,31 @@ public class FlowForegroundService extends Service {
     public static boolean wasLastLiveUsageQuerySuccessful() {
         return staticLastLiveUsageQuerySucceeded;
     }
+
+    private static MonitorHeartbeat currentMonitorHeartbeat() {
+        MonitorHeartbeat heartbeat = staticMonitorHeartbeat;
+        long currentServiceGeneration = runtimeTracking.currentServiceGeneration();
+        if (heartbeatElapsedForCurrentService(
+                heartbeat.serviceGeneration,
+                currentServiceGeneration,
+                heartbeat.completedElapsedMs
+        ) <= 0L) {
+            return MonitorHeartbeat.EMPTY;
+        }
+        return heartbeat;
+    }
+
+    static long heartbeatElapsedForCurrentService(
+            long heartbeatServiceGeneration,
+            long currentServiceGeneration,
+            long heartbeatElapsedMs
+    ) {
+        return heartbeatServiceGeneration > 0L
+                && heartbeatServiceGeneration == currentServiceGeneration
+                ? heartbeatElapsedMs
+                : 0L;
+    }
+
     public static JSObject getRuntimeTrackingDiagnostics() {
         return getRuntimeTrackingDiagnostics(null);
     }
@@ -1393,6 +1457,9 @@ public class FlowForegroundService extends Service {
         }
 
         RuntimeTrackingSnapshot snapshot = runtimeTracking.snapshot();
+        MonitorLivenessDiagnostics.Snapshot liveness = runtimeTracking.livenessSnapshot();
+        MonitorHeartbeat heartbeat = currentMonitorHeartbeat();
+        MonitorHeartbeat rawHeartbeat = staticMonitorHeartbeat;
         JSObject result = new JSObject();
         result.put("tickCount", snapshot.tickCount);
         result.put("detectorNonEmptyTickCount", snapshot.detectorNonEmptyTickCount);
@@ -1445,8 +1512,8 @@ public class FlowForegroundService extends Service {
         result.put("lastGapQueryFailureClass", staticLastGapQueryFailureClass);
         result.put("historicalTargetMsRecovered", staticHistoricalTargetMsRecovered);
         result.put("serviceRuntimeActive", staticServiceRuntimeActive);
-        result.put("lastCompletedMonitorTickElapsedMs", staticLastCompletedMonitorTickElapsedMs);
-        result.put("lastCompletedMonitorTickWallMs", staticLastCompletedMonitorTickWallMs);
+        result.put("lastCompletedMonitorTickElapsedMs", heartbeat.completedElapsedMs);
+        result.put("lastCompletedMonitorTickWallMs", heartbeat.completedWallMs);
         result.put("monitorThreadAlive", isMonitorThreadAlive());
         result.put("coreRuntimeHealthy", runtimeHealth.isHealthy());
         result.put("coreRuntimeHealthReason", runtimeHealth.reason);
@@ -1458,7 +1525,6 @@ public class FlowForegroundService extends Service {
         result.put("lastLiveUsageQueryFailureClass", staticLastLiveUsageQueryFailureClass);
         result.put("lastLiveUsageQuerySucceeded", staticLastLiveUsageQuerySucceeded);
 
-        MonitorLivenessDiagnostics.Snapshot liveness = runtimeTracking.livenessSnapshot();
         JSObject lifecycle = new JSObject();
         lifecycle.put("processPid", liveness.processPid);
         lifecycle.put("processInstanceStartedElapsedMs", liveness.processInstanceStartedElapsedMs);
@@ -1479,6 +1545,15 @@ public class FlowForegroundService extends Service {
         lifecycle.put("lastServiceDestroyWallMs", liveness.lastServiceDestroyWallMs);
         lifecycle.put("lastDestroyedServiceInstanceId", liveness.lastDestroyedServiceInstanceId);
         lifecycle.put("lastDestroyedServiceGeneration", liveness.lastDestroyedServiceGeneration);
+        lifecycle.put("lastCompletedMonitorTickServiceGeneration", rawHeartbeat.serviceGeneration);
+        lifecycle.put(
+                "heartbeatGenerationMatchesCurrent",
+                heartbeatElapsedForCurrentService(
+                        rawHeartbeat.serviceGeneration,
+                        liveness.currentServiceGeneration,
+                        rawHeartbeat.completedElapsedMs
+                ) > 0L
+        );
         lifecycle.put("serviceTaskRemovedCount", liveness.serviceTaskRemovedCount);
         lifecycle.put("lastTaskRemovedElapsedMs", liveness.lastTaskRemovedElapsedMs);
         lifecycle.put("lastTaskRemovedWallMs", liveness.lastTaskRemovedWallMs);
@@ -1686,6 +1761,10 @@ public class FlowForegroundService extends Service {
             return liveness.recordServiceCreate(wallMs, elapsedMs);
         }
 
+        synchronized long currentServiceGeneration() {
+            return liveness.currentServiceGeneration();
+        }
+
         void recordServiceStartCommand(long serviceGeneration, String action, long wallMs,
                 long elapsedMs) {
             liveness.recordServiceStartCommand(serviceGeneration, action, wallMs, elapsedMs);
@@ -1728,9 +1807,18 @@ public class FlowForegroundService extends Service {
             return liveness.isCurrentServiceGeneration(serviceGeneration);
         }
 
-        synchronized void recordMonitorStart(long serviceGeneration, long startElapsed,
+        synchronized void deactivateServiceGeneration(long serviceGeneration) {
+            if (!liveness.isCurrentServiceGeneration(serviceGeneration)) return;
+            staticServiceRuntimeActive = false;
+            staticMonitorThreadRef = null;
+            staticMonitorHeartbeat = MonitorHeartbeat.EMPTY;
+        }
+
+        synchronized boolean recordMonitorStart(long serviceGeneration, long startElapsed,
                 long startWall) {
-            if (!liveness.recordMonitorStart(serviceGeneration, startElapsed, startWall)) return;
+            if (!liveness.recordMonitorStart(serviceGeneration, startElapsed, startWall)) {
+                return false;
+            }
             long startDeltaMs = lastMonitorStartElapsed <= 0L
                     ? 0L
                     : Math.max(0L, startElapsed - lastMonitorStartElapsed);
@@ -1747,6 +1835,7 @@ public class FlowForegroundService extends Service {
                 if (postDelayGapMs > 5_000L) postDelayGapOver5000Count++;
             }
             currentTick = appendRecentTick(startDeltaMs, 0L, postDelayGapMs, startElapsed);
+            return true;
         }
 
         synchronized void recordMonitorEnd(long serviceGeneration, long endElapsed, long endWall) {
@@ -2236,9 +2325,8 @@ public class FlowForegroundService extends Service {
     }
 
     @Override public void onDestroy() {
-        staticServiceRuntimeActive = false;
-        staticLastCompletedMonitorTickElapsedMs = 0L;
-        staticLastCompletedMonitorTickWallMs = 0L;
+        monitorShutdownRequested = true;
+        runtimeTracking.deactivateServiceGeneration(livenessServiceGeneration);
         if (!serviceDestroyRecorded) {
             serviceDestroyRecorded = true;
             runtimeTracking.recordServiceDestroy(
@@ -2247,7 +2335,6 @@ public class FlowForegroundService extends Service {
                     SystemClock.elapsedRealtime()
             );
         }
-        monitorShutdownRequested = true;
         requestMonitorShutdown();
         overlayController.clearCallbacks();
         overlayController.dismissAll();
