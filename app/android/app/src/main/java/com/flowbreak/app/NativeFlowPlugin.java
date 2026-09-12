@@ -191,6 +191,14 @@ public class NativeFlowPlugin extends Plugin {
 
     @PluginMethod public void beginRest(PluginCall call) {
         try {
+            String persistedState = prefs().getString(
+                    "blockState",
+                    BlockStateMachine.State.IDLE.name()
+            );
+            if (!FlowForegroundService.isRestEntryAllowedForState(persistedState)) {
+                call.reject("PROTECTION_RUNTIME_UNHEALTHY");
+                return;
+            }
             serviceController.sendAction(FlowForegroundService.ACTION_BEGIN_REST);
             call.resolve();
         } catch (Exception error) {

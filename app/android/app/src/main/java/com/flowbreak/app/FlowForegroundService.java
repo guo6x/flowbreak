@@ -295,8 +295,17 @@ public class FlowForegroundService extends Service {
 
     private void handleEngineCommand(String action) {
         if (ACTION_BEGIN_REST.equals(action)) {
-            beginRestSession();
-            postOverlayAction(() -> overlayController.dismissBlocker());
+            String persistedState = machine == null
+                    ? BlockStateMachine.State.IDLE.name()
+                    : machine.getState().name();
+            if (!isRestEntryAllowedForState(persistedState)) {
+                Log.w("FlowForegroundService",
+                        "BEGIN_REST rejected: current protection runtime is unhealthy");
+                postOverlayAction(() -> overlayController.dismissAll());
+            } else {
+                beginRestSession();
+                postOverlayAction(() -> overlayController.dismissBlocker());
+            }
         } else if (ACTION_COMPLETE_REST.equals(action)) {
             // NativeFlowPlugin validates and persists a completed rest before
             // asking a possibly recreated service to refresh its in-memory state.
@@ -1328,6 +1337,17 @@ public class FlowForegroundService extends Service {
     public static boolean isProtectionRuntimeHealthy() {
         return getCurrentProtectionRuntimeHealth().isHealthy();
     }
+    /**
+     * Prevent a stale persisted BLOCKED state from being converted into a
+     * rest session after the current protection runtime loses liveness.
+     * Non-BLOCKED states retain the existing manual/restoration semantics.
+     */
+    public static boolean isRestEntryAllowedForState(String persistedState) {
+        return BlockedRestEntryGate.isAllowed(
+                persistedState,
+                isProtectionRuntimeHealthy()
+        );
+    }
     public static long getLastCompletedMonitorTickElapsedMs() {
         return staticLastCompletedMonitorTickElapsedMs;
     }
@@ -2183,6 +2203,18 @@ public class FlowForegroundService extends Service {
     }
 
     private void openRest() {
+        String persistedState = stateStore == null
+                ? staticState.name()
+                : stateStore.preferences().getString(
+                        "blockState",
+                        BlockStateMachine.State.IDLE.name()
+                );
+        if (!isRestEntryAllowedForState(persistedState)) {
+            Log.w("FlowForegroundService",
+                    "openRest rejected: current protection runtime is unhealthy");
+            overlayController.dismissAll();
+            return;
+        }
         Intent intent = new Intent(this, MainActivity.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         intent.putExtra("navigateTo", "rest");
