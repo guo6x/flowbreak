@@ -6,7 +6,6 @@ import android.content.SharedPreferences;
 import android.content.Context;
 import android.net.Uri;
 import android.os.Build;
-import android.os.SystemClock;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -299,14 +298,14 @@ public class NativeFlowPlugin extends Plugin {
         executor.execute(() -> {
             try {
                 SharedPreferences preferences = prefs();
+                ProtectionRuntimeHealthEvaluator.Result runtimeHealth =
+                        FlowForegroundService.getCurrentProtectionRuntimeHealth();
                 RestCompletionIntegrityGate.Attempt<NativeFlowRestCoordinator.Result> attempt =
                         RestCompletionIntegrityGate.execute(
                                 preferences.getString(
                                         "blockState", BlockStateMachine.State.IDLE.name()
                                 ),
-                                FlowForegroundService.isProtectionServiceRuntimeActive(),
-                                FlowForegroundService.getLastCompletedMonitorTickElapsedMs(),
-                                SystemClock.elapsedRealtime(),
+                                runtimeHealth,
                                 () -> restCoordinator.complete(preferences, requestedActivity)
                         );
                 if (attempt.deferred()) {

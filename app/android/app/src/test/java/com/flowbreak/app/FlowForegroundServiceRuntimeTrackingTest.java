@@ -218,6 +218,16 @@ public class FlowForegroundServiceRuntimeTrackingTest {
         assertEquals(3, snapshot.recentTicks.length);
     }
 
+    @Test public void disabledMonitoringTickPreservesAnActiveRestSession() {
+        assertFalse(FlowForegroundService.shouldResetMonitoringLifecycleForDisabledTick(
+                BlockStateMachine.State.RESTING
+        ));
+        assertTrue(FlowForegroundService.shouldResetMonitoringLifecycleForDisabledTick(
+                BlockStateMachine.State.IDLE
+        ));
+        assertTrue(FlowForegroundService.shouldResetMonitoringLifecycleForDisabledTick(null));
+    }
+
     private BlockStateMachine freshMachine() {
         return new BlockStateMachine(BlockStateMachine.State.IDLE, 0L, 0L, 0L, "");
     }

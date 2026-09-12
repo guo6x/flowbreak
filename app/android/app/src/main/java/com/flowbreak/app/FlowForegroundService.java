@@ -148,16 +148,18 @@ public class FlowForegroundService extends Service {
             if (!runtimeTracking.recordMonitorStart(serviceGeneration, startElapsed, startWall)) {
                 return;
             }
-            tick(startWall, startElapsed);
+            boolean tickVerified = tick(startWall, startElapsed);
             long endElapsed = SystemClock.elapsedRealtime();
             long endWall = System.currentTimeMillis();
             runtimeTracking.recordMonitorEnd(serviceGeneration, endElapsed, endWall);
             // This timestamp is a process-local integrity signal. Publish it
-            // atomically with the service generation and only after tick()
-            // returns successfully. A late old-instance callback can never
-            // satisfy the current service's health check.
+            // atomically with the service generation and only after a tick
+            // verifies its live protection inputs. A failed query must not
+            // make rest completion appear safe, and a late old-instance
+            // callback can never satisfy the current service's health check.
             synchronized (runtimeTracking) {
-                if (!monitorShutdownRequested
+                if (tickVerified
+                        && !monitorShutdownRequested
                         && runtimeTracking.isCurrentServiceGeneration(serviceGeneration)) {
                     staticMonitorHeartbeat = new MonitorHeartbeat(
                             serviceGeneration,
@@ -569,7 +571,7 @@ public class FlowForegroundService extends Service {
         persistState(true);
     }
 
-    private void tick(long now, long nowElapsed) {
+    private boolean tick(long now, long nowElapsed) {
         boolean targetSetEmpty = targetApps == null || targetApps.isEmpty();
         boolean interactionAvailableNow = monitoringEnabled
                 && !targetSetEmpty
@@ -589,9 +591,17 @@ public class FlowForegroundService extends Service {
         }
         if (!monitoringEnabled) {
             runtimeTracking.recordMonitoringDisabledReturn();
-            resetMonitoringLifecycle(now, nowElapsed);
+            if (shouldResetMonitoringLifecycleForDisabledTick(
+                    machine == null ? null : machine.getState())) {
+                resetMonitoringLifecycle(now, nowElapsed);
+            } else {
+                // A manually started rest session is independent from the
+                // monitoring switch. Keep its state and persisted session
+                // until the owner completes or cancels it.
+                notificationController.updateServiceNotification(snapshot());
+            }
             postOverlayAction(() -> overlayController.dismissBlocker());
-            return;
+            return true;
         }
         if (targetSetEmpty) {
             runtimeTracking.recordTargetSetEmptyReturn();
@@ -600,7 +610,7 @@ public class FlowForegroundService extends Service {
                 overlayController.dismissBlocker();
                 overlayController.dismissWarningBar();
             });
-            return;
+            return true;
         }
         if (!interactionAvailableNow) {
             runtimeTracking.recordInteractionUnavailableReturn();
@@ -621,7 +631,7 @@ public class FlowForegroundService extends Service {
                 overlayController.dismissBlocker();
                 overlayController.dismissWarningBar();
             });
-            return;
+            return true;
         }
         if (!interactionAvailable && machine != null) {
             interactionAvailable = true;
@@ -636,7 +646,7 @@ public class FlowForegroundService extends Service {
         }
         if (permissionManager == null) {
             failClosedForIntegrity("PERMISSION_MANAGER_UNAVAILABLE", now, nowElapsed);
-            return;
+            return false;
         }
         ProtectionPrerequisiteGate.Result prerequisites;
         try {
@@ -652,11 +662,11 @@ public class FlowForegroundService extends Service {
                     now,
                     nowElapsed
             );
-            return;
+            return false;
         }
         if (!prerequisites.isAllowed()) {
             failClosedForIntegrity(prerequisites.reason.name(), now, nowElapsed);
-            return;
+            return false;
         }
         long verifiedGapSafeEndWallMs = reconcileHistoricalGap(now, nowElapsed);
         String previousForeground = staticForegroundPackage;
@@ -671,7 +681,7 @@ public class FlowForegroundService extends Service {
                     now,
                     nowElapsed
             );
-            return;
+            return false;
         }
         clearIntegrityFailureIfCurrent();
         boolean foregroundPresent = foreground != null && !foreground.isEmpty();
@@ -740,7 +750,7 @@ public class FlowForegroundService extends Service {
                 );
                 persistState(true);
                 flushPendingUsage(false);
-                return;
+                return true;
             }
         }
 
@@ -817,6 +827,7 @@ public class FlowForegroundService extends Service {
                 foreground
         );
         persistState(stateChanged);
+        return true;
     }
 
     private long reconcileHistoricalGap(long nowWallMs, long nowElapsedMs) {
@@ -1413,6 +1424,12 @@ public class FlowForegroundService extends Service {
                 persistedState,
                 isProtectionRuntimeHealthy()
         );
+    }
+    static boolean shouldResetMonitoringLifecycleForDisabledTick(
+            BlockStateMachine.State currentState
+    ) {
+        return currentState == null
+                || currentState != BlockStateMachine.State.RESTING;
     }
     public static long getLastCompletedMonitorTickElapsedMs() {
         return currentMonitorHeartbeat().completedElapsedMs;
