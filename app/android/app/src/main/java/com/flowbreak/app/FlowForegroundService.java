@@ -425,6 +425,14 @@ public class FlowForegroundService extends Service {
         if (restCheatTracker != null) restCheatTracker.reset();
         staticForegroundPackage = "";
         if (machine != null) {
+            if (shouldCancelRestForIntegrityFailure(machine.getState())) {
+                // A failed live query creates a blind interval. An active rest
+                // cannot be completed after that interval because the service
+                // could not verify that the user stayed away from targets.
+                machine.cancelRest(limitMinutes * 60_000L);
+                if (stateStore != null) stateStore.clearActiveRestSession();
+                lastAnnouncedState = machine.getState();
+            }
             machine.seedCheckpoint(nowWallMs, false);
         }
         if (usageAccumulator != null) {
@@ -1430,6 +1438,11 @@ public class FlowForegroundService extends Service {
     ) {
         return currentState == null
                 || currentState != BlockStateMachine.State.RESTING;
+    }
+    static boolean shouldCancelRestForIntegrityFailure(
+            BlockStateMachine.State currentState
+    ) {
+        return currentState == BlockStateMachine.State.RESTING;
     }
     public static long getLastCompletedMonitorTickElapsedMs() {
         return currentMonitorHeartbeat().completedElapsedMs;

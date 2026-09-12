@@ -393,7 +393,21 @@ public class NativeFlowPlugin extends Plugin {
         boolean monitoringEnabled = data.has("monitoringEnabled")
                 ? call.getBoolean("monitoringEnabled", true)
                 : current.getBoolean("monitoringEnabled", true);
+        boolean wasMonitoringEnabled = current.getBoolean("monitoringEnabled", true);
         boolean wasConfigured = current.getBoolean("serviceConfigured", false);
+        com.getcapacitor.JSArray apps = call.getArray("targetApps");
+        Set<String> filteredTargets = null;
+        if (apps != null) {
+            filteredTargets = appCatalog.filterTargetApps(
+                    NativeFlowAppCatalog.toStringSet(apps)
+            );
+        }
+        int targetCount = filteredTargets == null
+                ? PreferenceUtils.getMigratedTargetApps(current).size()
+                : filteredTargets.size();
+        if (monitoringEnabled && !wasMonitoringEnabled
+                && rejectMonitoringActivation(call, true, targetCount)) return;
+
         SharedPreferences.Editor editor = current.edit().putBoolean("serviceConfigured", true);
         if (data.has("limitMinutes")) editor.putInt(
                 "limitMinutes", Math.max(1, call.getInt("limitMinutes", 25))
@@ -412,12 +426,8 @@ public class NativeFlowPlugin extends Plugin {
         if (data.has("monitoringEnabled")) editor.putBoolean(
                 "monitoringEnabled", call.getBoolean("monitoringEnabled", true)
         );
-        com.getcapacitor.JSArray apps = call.getArray("targetApps");
-        if (apps != null) {
-            Set<String> filtered = appCatalog.filterTargetApps(
-                    NativeFlowAppCatalog.toStringSet(apps)
-            );
-            if (!filtered.isEmpty()) editor.putStringSet(PreferenceUtils.PREF_TARGET_APPS, filtered);
+        if (filteredTargets != null && !filteredTargets.isEmpty()) {
+            editor.putStringSet(PreferenceUtils.PREF_TARGET_APPS, filteredTargets);
         }
         editor.apply();
         try {

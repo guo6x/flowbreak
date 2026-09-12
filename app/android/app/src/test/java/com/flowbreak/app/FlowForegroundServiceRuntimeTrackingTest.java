@@ -228,6 +228,19 @@ public class FlowForegroundServiceRuntimeTrackingTest {
         assertTrue(FlowForegroundService.shouldResetMonitoringLifecycleForDisabledTick(null));
     }
 
+    @Test public void integrityFailureCancelsOnlyAnActiveRestSession() {
+        assertTrue(FlowForegroundService.shouldCancelRestForIntegrityFailure(
+                BlockStateMachine.State.RESTING
+        ));
+        assertFalse(FlowForegroundService.shouldCancelRestForIntegrityFailure(
+                BlockStateMachine.State.BLOCKED
+        ));
+        assertFalse(FlowForegroundService.shouldCancelRestForIntegrityFailure(
+                BlockStateMachine.State.IDLE
+        ));
+        assertFalse(FlowForegroundService.shouldCancelRestForIntegrityFailure(null));
+    }
+
     private BlockStateMachine freshMachine() {
         return new BlockStateMachine(BlockStateMachine.State.IDLE, 0L, 0L, 0L, "");
     }
