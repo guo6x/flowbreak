@@ -136,6 +136,24 @@ public class ProtectionIntegrityEvaluatorTest {
         assertEquals("SERVICE_GENERATION_CHANGED", result.integrityFailureReason);
     }
 
+    @Test public void suppliedRuntimeHealthSnapshotDrivesStatusEvaluation() {
+        ProtectionRuntimeHealthEvaluator.Result unhealthy =
+                ProtectionRuntimeHealthEvaluator.evaluate(
+                        false,
+                        false,
+                        0L,
+                        1_000L,
+                        ""
+                );
+        ProtectionStatusEvaluator.Result status = ProtectionStatusEvaluator.evaluate(
+                input(true, true, true, true, true, true, true, true, true, ""),
+                unhealthy
+        );
+        assertFalse(status.coreProtectionOperational);
+        assertEquals("SERVICE_NOT_RUNNING", status.reason);
+        assertTrue(status.runtimeHealth == unhealthy);
+    }
+
     @Test public void missingCorePermissionDegradesCoreProtection() {
         ProtectionStatusEvaluator.Result result = ProtectionStatusEvaluator.evaluate(
                 input(true, true, true, true, false, true, true, true, true, "")

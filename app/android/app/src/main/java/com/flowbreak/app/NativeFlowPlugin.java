@@ -232,15 +232,16 @@ public class NativeFlowPlugin extends Plugin {
             SharedPreferences preferences = prefs();
             Set<String> targets = PreferenceUtils.getMigratedTargetApps(preferences);
             boolean monitoringEnabled = preferences.getBoolean("monitoringEnabled", true);
+            ProtectionRuntimeHealthEvaluator.Result runtimeHealth =
+                    FlowForegroundService.getCurrentProtectionRuntimeHealth();
             long currentHeartbeatWall = FlowForegroundService.getLastCompletedMonitorTickWallMs();
-            long currentHeartbeatElapsed =
-                    FlowForegroundService.getLastCompletedMonitorTickElapsedMs();
-            long nowElapsed = SystemClock.elapsedRealtime();
+            long currentHeartbeatElapsed = runtimeHealth.lastCompletedMonitorTickElapsedMs;
+            long nowElapsed = runtimeHealth.nowElapsedMs;
             boolean supportedRuntime = permissions.isProtectionRuntimeAvailable();
             boolean hasUsageStats = permissions.hasUsageStats();
             boolean hasOverlay = permissions.hasOverlay();
-            boolean serviceRuntimeActive = FlowForegroundService.isProtectionServiceRuntimeActive();
-            boolean monitorThreadAlive = FlowForegroundService.isMonitorThreadAlive();
+            boolean serviceRuntimeActive = runtimeHealth.serviceRuntimeActive;
+            boolean monitorThreadAlive = runtimeHealth.monitorThreadAlive;
             boolean strongRequested = "domestic".equals(BuildConfig.CHANNEL)
                     && preferences.getBoolean("strongBlockingEnabled", true);
             boolean accessibilityEnabledInSettings = permissions.hasAccessibility();
@@ -260,8 +261,9 @@ public class NativeFlowPlugin extends Plugin {
                             strongRequested,
                             accessibilityEnabledInSettings,
                             accessibilityRuntimeConnected,
-                            FlowForegroundService.getProtectionIntegrityFailureReason()
-                    )
+                            runtimeHealth.integrityFailureReason
+                    ),
+                    runtimeHealth
             );
             JSObject result = new JSObject();
             result.put("status", status.status.name());

@@ -97,6 +97,22 @@ public final class ProtectionStatusEvaluator {
     private ProtectionStatusEvaluator() { }
 
     public static Result evaluate(Input input) {
+        return evaluate(
+                input,
+                ProtectionRuntimeHealthEvaluator.evaluate(
+                        input.serviceRuntimeActive,
+                        input.monitorThreadAlive,
+                        input.lastCompletedMonitorTickElapsedMs,
+                        input.nowElapsedMs,
+                        input.integrityFailureReason
+                )
+        );
+    }
+
+    static Result evaluate(
+            Input input,
+            ProtectionRuntimeHealthEvaluator.Result runtimeHealth
+    ) {
         ProtectionPrerequisiteGate.Result prerequisites = ProtectionPrerequisiteGate.evaluate(
                 input.supportedRuntime,
                 input.monitoringEnabled,
@@ -104,14 +120,6 @@ public final class ProtectionStatusEvaluator {
                 input.hasUsageStats,
                 input.hasOverlay
         );
-        ProtectionRuntimeHealthEvaluator.Result runtimeHealth =
-                ProtectionRuntimeHealthEvaluator.evaluate(
-                        input.serviceRuntimeActive,
-                        input.monitorThreadAlive,
-                        input.lastCompletedMonitorTickElapsedMs,
-                        input.nowElapsedMs,
-                        input.integrityFailureReason
-                );
 
         Status status;
         String reason;
