@@ -136,6 +136,44 @@ public class FlowAccessibilityServiceTest {
         assertFalse(service.isBlockBannerShowing());
     }
 
+    @Test public void monitoringDisabledDoesNotEnforceBlockedTarget() {
+        enableBlocked("com.example.video");
+        prefs.edit().putBoolean("monitoringEnabled", false).commit();
+
+        service.onAccessibilityEvent(windowEvent("com.example.video", "com.example.video.MainActivity"));
+
+        assertTrue(shadowA11y(service).getGlobalActionsPerformed().isEmpty());
+        assertFalse(service.isBlockBannerShowing());
+    }
+
+    @Test public void monitoringDisabledCleansExistingBannerAndStopsPolling() {
+        enableBlocked("com.example.video");
+        service.onAccessibilityEvent(windowEvent("com.example.video", "com.example.video.MainActivity"));
+        assertTrue(service.isBlockBannerShowing());
+        assertEquals(1, shadowA11y(service).getGlobalActionsPerformed().size());
+
+        prefs.edit().putBoolean("monitoringEnabled", false).commit();
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(2_500L));
+
+        assertFalse(service.isBlockBannerShowing());
+        assertEquals(0, windowViews().size());
+        assertEquals(1, shadowA11y(service).getGlobalActionsPerformed().size());
+    }
+
+    @Test public void monitoringDisabledRestButtonDoesNotStartRest() {
+        enableBlocked("com.example.video");
+        service.onAccessibilityEvent(windowEvent("com.example.video", "com.example.video.MainActivity"));
+        Button rest = findButton((ViewGroup) windowViews().get(0));
+        assertNotNull(rest);
+
+        prefs.edit().putBoolean("monitoringEnabled", false).commit();
+        rest.performClick();
+
+        assertFalse(service.isBlockBannerShowing());
+        assertNull(Shadows.shadowOf((ContextWrapper) service).getNextStartedService());
+        assertTrue(shadowA11y(service).getGlobalActionsPerformed().size() == 1);
+    }
+
     @Test public void repeatedKicksDoNotStackBanner() {
         enableBlocked("com.example.video");
         service.onAccessibilityEvent(windowEvent("com.example.video", "com.example.video.MainActivity"));

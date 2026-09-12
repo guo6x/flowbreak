@@ -40,17 +40,22 @@ public class NativeFlowPlugin extends Plugin {
     }
 
     /**
-     * Reject any transition that would activate protection on a known
-     * unsupported OEM. The persisted configuration remains untouched.
+     * Reject any transition that would activate protection without the hard
+     * core prerequisites. The persisted configuration remains untouched.
      */
-    private boolean rejectMonitoringActivation(PluginCall call, boolean requested) {
+    private boolean rejectMonitoringActivation(PluginCall call, boolean requested, int targetCount) {
         if (!requested) return false;
-        if (!permissions.isProtectionRuntimeAvailable()) {
-            call.reject(NativeFlowPermissionManager.UNSUPPORTED_DEVICE_FOR_RELIABLE_MONITORING_MESSAGE);
-            return true;
-        }
-        if (!permissions.isBackgroundStabilitySatisfied()) {
-            call.reject(NativeFlowPermissionManager.BACKGROUND_STABILITY_REQUIRED_MESSAGE);
+        ProtectionPrerequisiteGate.Result prerequisites = permissions.evaluateCorePrerequisites(
+                true,
+                targetCount
+        );
+        if (!prerequisites.isAllowed()) {
+            call.reject(
+                    "PROTECTION_PREREQUISITE_"
+                            + prerequisites.code()
+                            + ": "
+                            + prerequisites.message()
+            );
             return true;
         }
         return false;
@@ -142,23 +147,29 @@ public class NativeFlowPlugin extends Plugin {
     @PluginMethod public void startService(PluginCall call) {
         try {
             boolean monitoringEnabled = call.getBoolean("monitoringEnabled", true);
-            if (rejectMonitoringActivation(call, monitoringEnabled)) return;
+            Set<String> requestedTargets = null;
+            com.getcapacitor.JSArray apps = call.getArray("apps");
+            if (apps != null) {
+                requestedTargets = appCatalog.filterTargetApps(
+                        NativeFlowAppCatalog.toStringSet(apps)
+                );
+                if (requestedTargets.isEmpty()) {
+                    call.reject("PROTECTION_PREREQUISITE_NO_TARGETS: 至少需要一个有效的受限应用");
+                    return;
+                }
+            }
+            int targetCount = requestedTargets == null
+                    ? PreferenceUtils.getMigratedTargetApps(prefs()).size()
+                    : requestedTargets.size();
+            if (rejectMonitoringActivation(call, monitoringEnabled, targetCount)) return;
             SharedPreferences.Editor editor = prefs().edit()
                     .putBoolean("serviceConfigured", true)
                     .putBoolean("monitoringEnabled", monitoringEnabled);
             if (call.getData().has("limitMinutes")) {
                 editor.putInt("limitMinutes", Math.max(1, call.getInt("limitMinutes", 25)));
             }
-            com.getcapacitor.JSArray apps = call.getArray("apps");
-            if (apps != null) {
-                Set<String> filtered = appCatalog.filterTargetApps(
-                        NativeFlowAppCatalog.toStringSet(apps)
-                );
-                if (filtered.isEmpty()) {
-                    call.reject("至少需要一个有效的受限应用");
-                    return;
-                }
-                editor.putStringSet(PreferenceUtils.PREF_TARGET_APPS, filtered);
+            if (requestedTargets != null) {
+                editor.putStringSet(PreferenceUtils.PREF_TARGET_APPS, requestedTargets);
             }
             editor.apply();
             serviceController.sendAction(FlowForegroundService.ACTION_START);
@@ -206,6 +217,61 @@ public class NativeFlowPlugin extends Plugin {
 
     @PluginMethod public void getCurrentApp(PluginCall call) {
         call.resolve(serviceController.currentApp());
+    }
+
+    @PluginMethod public void getProtectionStatus(PluginCall call) {
+        try {
+            SharedPreferences preferences = prefs();
+            Set<String> targets = PreferenceUtils.getMigratedTargetApps(preferences);
+            boolean monitoringEnabled = preferences.getBoolean("monitoringEnabled", true);
+            long now = System.currentTimeMillis();
+            long currentHeartbeat = FlowForegroundService.getLastCompletedMonitorTickWallMs();
+            boolean heartbeatFresh = currentHeartbeat > 0L
+                    && now >= currentHeartbeat
+                    && now - currentHeartbeat < FlowForegroundService.SERVICE_HEARTBEAT_STALE_MS;
+            boolean supportedRuntime = permissions.isProtectionRuntimeAvailable();
+            boolean hasUsageStats = permissions.hasUsageStats();
+            boolean hasOverlay = permissions.hasOverlay();
+            boolean serviceRuntimeActive = FlowForegroundService.isProtectionServiceRuntimeActive();
+            boolean monitorThreadAlive = FlowForegroundService.isMonitorThreadAlive();
+            boolean strongRequested = "domestic".equals(BuildConfig.CHANNEL)
+                    && preferences.getBoolean("strongBlockingEnabled", true);
+            ProtectionStatusEvaluator.Result status = ProtectionStatusEvaluator.evaluate(
+                    new ProtectionStatusEvaluator.Input(
+                            preferences.getBoolean("serviceConfigured", false),
+                            monitoringEnabled,
+                            supportedRuntime,
+                            !targets.isEmpty(),
+                            hasUsageStats,
+                            hasOverlay,
+                            serviceRuntimeActive,
+                            monitorThreadAlive,
+                            heartbeatFresh,
+                            strongRequested,
+                            permissions.hasAccessibility(),
+                            FlowForegroundService.getProtectionIntegrityFailureReason()
+                    )
+            );
+            JSObject result = new JSObject();
+            result.put("status", status.status.name());
+            result.put("reason", status.reason);
+            result.put("coreProtectionOperational", status.coreProtectionOperational);
+            result.put("strongBlockingRequested", status.strongBlockingRequested);
+            result.put("strongBlockingOperational", status.strongBlockingOperational);
+            result.put("strongBlockingDegradedReason", status.strongBlockingDegradedReason);
+            result.put("monitoringConfigured", preferences.getBoolean("serviceConfigured", false));
+            result.put("monitoringEnabled", monitoringEnabled);
+            result.put("targetCount", targets.size());
+            result.put("serviceRuntimeActive", serviceRuntimeActive);
+            result.put("monitorThreadAlive", monitorThreadAlive);
+            result.put("heartbeatFresh", heartbeatFresh);
+            result.put("currentServiceHeartbeatAt", currentHeartbeat);
+            result.put("protectionRuntimeAvailable", supportedRuntime);
+            result.put("permissions", permissions.permissionState());
+            call.resolve(result);
+        } catch (Exception error) {
+            call.reject("读取保护状态失败", error);
+        }
     }
 
     // ==================== Rest Coordination ====================
@@ -290,7 +356,6 @@ public class NativeFlowPlugin extends Plugin {
         SharedPreferences current = prefs();
         boolean shouldReload = current.getBoolean("serviceConfigured", false)
                 && current.getBoolean("monitoringEnabled", true);
-        if (shouldReload && rejectMonitoringActivation(call, true)) return;
         prefs().edit()
                 .putStringSet(PreferenceUtils.PREF_TARGET_APPS, filtered)
                 .putBoolean("serviceConfigured", true)
@@ -311,7 +376,6 @@ public class NativeFlowPlugin extends Plugin {
         boolean monitoringEnabled = data.has("monitoringEnabled")
                 ? call.getBoolean("monitoringEnabled", true)
                 : current.getBoolean("monitoringEnabled", true);
-        if (rejectMonitoringActivation(call, monitoringEnabled)) return;
         boolean wasConfigured = current.getBoolean("serviceConfigured", false);
         SharedPreferences.Editor editor = current.edit().putBoolean("serviceConfigured", true);
         if (data.has("limitMinutes")) editor.putInt(

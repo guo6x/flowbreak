@@ -1,6 +1,8 @@
 package com.flowbreak.app;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import android.app.usage.UsageEvents;
 import android.app.usage.UsageStatsManager;
@@ -195,6 +197,51 @@ public class ForegroundUsageDetectorTest {
         assertEquals("tv.danmaku.bili", detector.detect(NOW + 4_500L));
         assertEquals("tv.danmaku.bili", detector.detect(NOW + 6_500L));
         assertEquals("tv.danmaku.bili", detector.detect(NOW + 12_500L));
+    }
+
+    @Test public void liveQueryExceptionClearsStaleForegroundAndRecoversSafely() {
+        Context context = ApplicationProvider.getApplicationContext();
+        UsageStatsManager manager = context.getSystemService(UsageStatsManager.class);
+        final boolean[] fail = {false};
+        ForegroundUsageDetector detector = new ForegroundUsageDetector(
+                context,
+                new ForegroundAppTracker(),
+                ForegroundUsageDetector.INITIAL_EVENT_LOOKBACK_MS,
+                (begin, end) -> {
+                    if (fail[0]) throw new SecurityException("usage access revoked");
+                    return manager.queryEvents(begin, end);
+                }
+        );
+
+        event("tv.danmaku.bili", "MainActivity", UsageEvents.Event.ACTIVITY_RESUMED, NOW + 100L);
+        assertEquals("tv.danmaku.bili", detector.detect(NOW + 500L));
+        assertTrue(detector.wasLastLiveUsageQuerySuccessful());
+
+        fail[0] = true;
+        assertEquals("", detector.detect(NOW + 2_500L));
+        assertFalse(detector.wasLastLiveUsageQuerySuccessful());
+        assertEquals(1L, detector.getLiveUsageQueryFailureCount());
+        assertEquals("SecurityException", detector.getLastLiveUsageQueryFailureClass());
+
+        fail[0] = false;
+        event("com.example.reader", "MainActivity", UsageEvents.Event.ACTIVITY_RESUMED, NOW + 3_000L);
+        assertEquals("com.example.reader", detector.detect(NOW + 4_000L));
+        assertTrue(detector.wasLastLiveUsageQuerySuccessful());
+    }
+
+    @Test public void nullLiveQueryFailsClosedWithSanitizedCategory() {
+        Context context = ApplicationProvider.getApplicationContext();
+        ForegroundUsageDetector detector = new ForegroundUsageDetector(
+                context,
+                new ForegroundAppTracker(),
+                ForegroundUsageDetector.INITIAL_EVENT_LOOKBACK_MS,
+                (begin, end) -> null
+        );
+
+        assertEquals("", detector.detect(NOW));
+        assertFalse(detector.wasLastLiveUsageQuerySuccessful());
+        assertEquals(1L, detector.getLiveUsageQueryFailureCount());
+        assertEquals("USAGE_EVENTS_NULL", detector.getLastLiveUsageQueryFailureClass());
     }
 
     @Test public void realSwitchAwayClearsTargetBeforeLauncherResumes() {

@@ -5,11 +5,10 @@ import { Moon, Clock, Shield, Zap, ChevronRight } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import { DailyReflection, getTodayActivities, getTodayReflection, saveTodayReflection } from '../backend/storage';
 import { Capacitor } from '@capacitor/core';
-import { NativeFlow } from '../backend/nativeFlow';
+import { NativeFlow, NativeProtectionStatus } from '../backend/nativeFlow';
 import { useNativePermissions } from '../hooks/useNativePermissions';
 import { getProtectionViewModel, formatRemainingTime, formatCountdown } from '../utils/protectionStatus';
 import {
-  requiresBackgroundStabilityPermission,
   UNSUPPORTED_DEVICE_DETAIL,
   UNSUPPORTED_DEVICE_MESSAGE,
 } from '../utils/backgroundStability';
@@ -33,16 +32,68 @@ function formatGoal(minutes: number) {
   return `${hours.toFixed(1)}小时`;
 }
 
+const NATIVE_STATUS_LABELS: Record<NativeProtectionStatus['status'], string> = {
+  PAUSED: '已暂停',
+  UNCONFIGURED: '未配置',
+  UNSUPPORTED: '设备不支持',
+  STARTING_OR_UNCONFIRMED: '正在确认',
+  ACTIVE: '已开启',
+  DEGRADED: '保护降级',
+};
+
+const NATIVE_STATUS_CLASSES: Record<NativeProtectionStatus['status'], string> = {
+  PAUSED: 'bg-gray-100 text-gray-500',
+  UNCONFIGURED: 'bg-amber-100 text-amber-700',
+  UNSUPPORTED: 'bg-red-100 text-red-700',
+  STARTING_OR_UNCONFIRMED: 'bg-amber-100 text-amber-700',
+  ACTIVE: 'bg-green-100 text-green-700',
+  DEGRADED: 'bg-red-100 text-red-700',
+};
+
+function nativeStatusDisplayKey(
+  status: NativeProtectionStatus | null
+): NativeProtectionStatus['status'] | null {
+  if (!status) return null;
+  // The core boolean is authoritative. A malformed or racing ACTIVE response
+  // must never make the UI claim that protection is currently operational.
+  if (status.status === 'ACTIVE' && status.coreProtectionOperational !== true) {
+    return 'STARTING_OR_UNCONFIRMED';
+  }
+  return status.status;
+}
+
+function nativeStatusReason(reason: string) {
+  const labels: Record<string, string> = {
+    USAGE_ACCESS_MISSING: '使用情况访问权限已失效',
+    OVERLAY_MISSING: '悬浮窗权限已失效',
+    SERVICE_NOT_RUNNING: '保护服务当前未运行，保护尚未生效',
+    MONITOR_THREAD_NOT_ALIVE: '保护监控线程当前不可用，保护尚未生效',
+    HEARTBEAT_STALE: '保护服务心跳已过期，保护尚未生效',
+    ACCESSIBILITY_MISSING: '无障碍强阻断不可用，仅保留核心悬浮窗保护',
+    MONITORING_DISABLED: '保护监控当前已暂停',
+    NO_TARGETS: '尚未配置受限应用',
+    NOT_CONFIGURED: '尚未完成保护配置',
+    UNSUPPORTED_DEVICE: UNSUPPORTED_DEVICE_MESSAGE,
+  };
+  return labels[reason] || (reason ? `保护状态：${reason}` : '保护尚未确认');
+}
+
 
 function ProtectionStatusCard({
   now,
+  isNative,
+  nativeStatus,
   missingPermissions,
+  runtimeStatusNeedsAttention,
   missingPermissionLabel,
   currentAppName,
   unsupportedDevice,
 }: {
   now: number;
+  isNative: boolean;
+  nativeStatus: NativeProtectionStatus | null;
   missingPermissions: boolean;
+  runtimeStatusNeedsAttention: boolean;
   missingPermissionLabel: string;
   currentAppName: string;
   unsupportedDevice: boolean;
@@ -59,7 +110,13 @@ function ProtectionStatusCard({
   const handleRetry = () => setMonitoring(true);
 
   const noTargetApps = (profile.targetApps || []).length === 0;
-  const protectionActive = isMonitoring && !noTargetApps && !unsupportedDevice;
+  const localProtectionActive = isMonitoring && !noTargetApps && !unsupportedDevice;
+  const protectionActive = isNative
+    ? nativeStatus?.coreProtectionOperational === true
+    : localProtectionActive;
+  const nativeUnsupported = nativeStatus?.status === 'UNSUPPORTED';
+  const displayedUnsupported = unsupportedDevice || nativeUnsupported;
+  const nativeStatusKey = nativeStatusDisplayKey(nativeStatus);
 
   const vm = getProtectionViewModel({
     isMonitoring: protectionActive,
@@ -74,14 +131,18 @@ function ProtectionStatusCard({
     currentAppName,
   });
 
-  const badgeLabel = unsupportedDevice ? '设备不支持'
-    : !isMonitoring ? '已暂停'
-    : noTargetApps ? '未配置'
-    : '已开启';
-  const badgeClass = unsupportedDevice ? 'bg-red-100 text-red-700'
-    : !isMonitoring ? 'bg-gray-100 text-gray-500'
-    : noTargetApps ? 'bg-amber-100 text-amber-700'
-    : 'bg-green-100 text-green-700';
+  const badgeLabel = isNative
+    ? nativeStatusKey ? NATIVE_STATUS_LABELS[nativeStatusKey] : '正在确认'
+    : unsupportedDevice ? '设备不支持'
+      : !isMonitoring ? '已暂停'
+      : noTargetApps ? '未配置'
+      : '已开启';
+  const badgeClass = isNative
+    ? nativeStatusKey ? NATIVE_STATUS_CLASSES[nativeStatusKey] : 'bg-amber-100 text-amber-700'
+    : unsupportedDevice ? 'bg-red-100 text-red-700'
+      : !isMonitoring ? 'bg-gray-100 text-gray-500'
+      : noTargetApps ? 'bg-amber-100 text-amber-700'
+      : 'bg-green-100 text-green-700';
 
   return (
     <div className="card-lg p-5 mb-4">
@@ -91,13 +152,13 @@ function ProtectionStatusCard({
           {badgeLabel}
         </span>
       </div>
-      {unsupportedDevice && (
+      {displayedUnsupported && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-3" role="alert">
           <p className="text-[13px] text-red-700 font-medium">{UNSUPPORTED_DEVICE_MESSAGE}</p>
           <p className="text-[12px] text-red-700 mt-1 leading-relaxed">{UNSUPPORTED_DEVICE_DETAIL}</p>
         </div>
       )}
-      {vm.hasError && !unsupportedDevice && (
+      {vm.hasError && !displayedUnsupported && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-3" role="alert">
           <p className="text-[13px] text-red-700">{vm.errorMessage}</p>
           <div className="flex gap-2 mt-2">
@@ -110,14 +171,21 @@ function ProtectionStatusCard({
           </div>
         </div>
       )}
-      {missingPermissions && (
+      {(missingPermissions || runtimeStatusNeedsAttention) && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-3" role="alert">
-          <p className="text-[13px] text-red-700">{missingPermissionLabel}权限已失效</p>
-          <div className="flex gap-2 mt-2">
-            <button onClick={() => navigate('/permissions')} className="text-[12px] text-red-600 underline">
-              去授权
-            </button>
-          </div>
+          <p className="text-[13px] text-red-700">{missingPermissionLabel}</p>
+          {missingPermissions && (
+            <div className="flex gap-2 mt-2">
+              <button onClick={() => navigate('/permissions')} className="text-[12px] text-red-600 underline">
+                去授权
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {isNative && nativeStatus?.strongBlockingRequested && !nativeStatus.strongBlockingOperational && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-3" role="alert">
+          <p className="text-[13px] text-amber-700">{nativeStatusReason(nativeStatus.strongBlockingDegradedReason)}</p>
         </div>
       )}
       <div className="space-y-1.5 text-[13px]">
@@ -196,20 +264,63 @@ export default function Dashboard() {
   const [summaryError, setSummaryError] = useState(false);
   const [toggling, setToggling] = useState(false);
   const { isNative, permissions } = useNativePermissions();
+  const [nativeProtectionStatus, setNativeProtectionStatus] = useState<NativeProtectionStatus | null>(null);
   const noTargetApps = profile.targetApps.length === 0;
-  const unsupportedDevice = isNative && permissions.unsupportedDevice === true;
-  const protectionActive = isMonitoring && !noTargetApps && !unsupportedDevice;
-  const needsBackgroundStability = isNative && requiresBackgroundStabilityPermission(permissions.manufacturer);
-  const missingCritical = isNative && protectionActive && (
+  const unsupportedDevice = isNative && (
+    permissions.unsupportedDevice === true
+    || nativeProtectionStatus?.status === 'UNSUPPORTED'
+  );
+  const localProtectionActive = isMonitoring && !noTargetApps && !unsupportedDevice;
+  const protectionActive = isNative
+    ? nativeProtectionStatus?.coreProtectionOperational === true
+    : localProtectionActive;
+  const nativeMonitoringEnabled = nativeProtectionStatus?.monitoringEnabled ?? isMonitoring;
+  const missingPermission = isNative && nativeProtectionStatus
+    ? nativeProtectionStatus.reason === 'USAGE_ACCESS_MISSING'
+      || nativeProtectionStatus.reason === 'OVERLAY_MISSING'
+    : false;
+  const missingCritical = isNative && !nativeProtectionStatus && localProtectionActive && (
     !permissions.hasUsageStats
     || !permissions.hasOverlay
-    || (needsBackgroundStability && !permissions.isIgnoringBattery)
   );
   const missingCriticalLabel = !permissions.hasUsageStats
-    ? '使用情况访问'
+    ? '使用情况访问权限已失效'
     : !permissions.hasOverlay
-      ? '悬浮窗'
-      : '电池优化豁免';
+      ? '悬浮窗权限已失效'
+      : '保护权限已失效';
+
+  useEffect(() => {
+    if (!isNative) {
+      setNativeProtectionStatus(null);
+      return;
+    }
+    let active = true;
+    const refresh = () => {
+      NativeFlow.getProtectionStatus().then(status => {
+        if (active) setNativeProtectionStatus(status);
+      }).catch(() => {
+        if (active) setNativeProtectionStatus(null);
+      });
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 2_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [isNative]);
+
+  const runtimeStatusNeedsAttention = isNative
+    && nativeProtectionStatus !== null
+    && !nativeProtectionStatus.coreProtectionOperational
+    && nativeProtectionStatus.status !== 'PAUSED'
+    && nativeProtectionStatus.status !== 'UNCONFIGURED'
+    && nativeProtectionStatus.status !== 'UNSUPPORTED';
+  const statusIssueLabel = nativeProtectionStatus
+    ? nativeStatusReason(nativeProtectionStatus.reason)
+    : missingCriticalLabel;
+  const monitoringIntent = isNative ? nativeMonitoringEnabled : isMonitoring;
+  const nativeStatusKey = nativeStatusDisplayKey(nativeProtectionStatus);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -273,7 +384,7 @@ export default function Dashboard() {
     if (noTargetApps || unsupportedDevice) return;
     setToggling(true);
     try {
-      setMonitoring(!isMonitoring);
+      setMonitoring(!monitoringIntent);
       await new Promise(r => setTimeout(r, 300));
     } finally {
       setToggling(false);
@@ -318,7 +429,13 @@ export default function Dashboard() {
             <div className="flex items-center gap-1.5 bg-primary/10 px-3 py-1.5 rounded-full">
               <div className={`w-2 h-2 rounded-full ${protectionActive ? 'bg-primary animate-pulse' : 'bg-gray-400'}`} />
               <span className="text-[11px] text-primary font-medium">
-                {unsupportedDevice ? '设备不支持' : noTargetApps ? '未配置' : isMonitoring ? '监控中' : '已暂停'}
+                {unsupportedDevice || nativeProtectionStatus?.status === 'UNSUPPORTED'
+                  ? '设备不支持'
+                  : isNative
+                    ? nativeStatusKey
+                      ? NATIVE_STATUS_LABELS[nativeStatusKey]
+                      : '正在确认'
+                    : noTargetApps ? '未配置' : isMonitoring ? '监控中' : '已暂停'}
               </span>
             </div>
             {protectionActive && currentAppName && (
@@ -329,8 +446,11 @@ export default function Dashboard() {
       </div>
       <ProtectionStatusCard
         now={now}
-        missingPermissions={missingCritical}
-        missingPermissionLabel={missingCriticalLabel}
+        isNative={isNative}
+        nativeStatus={nativeProtectionStatus}
+        missingPermissions={missingCritical || missingPermission}
+        runtimeStatusNeedsAttention={runtimeStatusNeedsAttention}
+        missingPermissionLabel={statusIssueLabel}
         currentAppName={currentAppName}
         unsupportedDevice={unsupportedDevice}
       />
@@ -339,11 +459,11 @@ export default function Dashboard() {
         onClick={handleToggleMonitoring}
         disabled={toggling || noTargetApps || unsupportedDevice}
         className={`w-full h-12 rounded-xl text-[14px] font-medium transition-colors mb-5 ${
-          unsupportedDevice ? 'bg-gray-200 text-gray-500' : isMonitoring ? 'bg-gray-200 text-gray-700' : noTargetApps ? 'bg-gray-200 text-gray-500' : 'bg-primary text-white'
+          unsupportedDevice ? 'bg-gray-200 text-gray-500' : monitoringIntent ? 'bg-gray-200 text-gray-700' : noTargetApps ? 'bg-gray-200 text-gray-500' : 'bg-primary text-white'
         }`}
-        aria-label={unsupportedDevice ? UNSUPPORTED_DEVICE_MESSAGE : noTargetApps ? '请先选择受限应用' : isMonitoring ? '暂停保护' : '开启保护'}
+        aria-label={unsupportedDevice ? UNSUPPORTED_DEVICE_MESSAGE : noTargetApps ? '请先选择受限应用' : monitoringIntent ? '暂停保护' : '开启保护'}
       >
-        {unsupportedDevice ? UNSUPPORTED_DEVICE_MESSAGE : noTargetApps ? '请先选择受限应用' : toggling ? (isMonitoring ? '正在暂停...' : '正在开启...') : (isMonitoring ? '暂停保护' : '开启保护')}
+        {unsupportedDevice ? UNSUPPORTED_DEVICE_MESSAGE : noTargetApps ? '请先选择受限应用' : toggling ? (monitoringIntent ? '正在暂停...' : '正在开启...') : (monitoringIntent ? '暂停保护' : '开启保护')}
       </button>
 
       <motion.div
@@ -483,17 +603,17 @@ export default function Dashboard() {
               <div className="w-20 h-20 rounded-full bg-gradient-to-br from-primary/10 to-secondary/10 flex items-center justify-center">
                 <Clock size={32} className="text-primary/40" />
               </div>
-              {isMonitoring && (
+              {protectionActive && (
                 <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center">
                   <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
                 </div>
               )}
             </div>
             <p className="text-[14px] font-medium text-gray-700 mb-1">
-              {isMonitoring ? '正在记录活动' : '监控已暂停'}
+              {protectionActive ? '正在记录活动' : '监控已暂停'}
             </p>
             <p className="text-[12px] text-gray-400 text-center leading-relaxed max-w-[220px]">
-              {isMonitoring 
+              {protectionActive
                 ? '使用设备时，这里会自动显示你的应用使用记录'
                 : '点击上方按钮开启监控，以记录你的健康使用情况'}
             </p>
@@ -509,7 +629,7 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {isMonitoring && level !== 'NONE' && (
+      {protectionActive && level !== 'NONE' && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}

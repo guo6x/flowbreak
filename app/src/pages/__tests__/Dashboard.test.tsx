@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { BrowserRouter } from "react-router";
 import Dashboard from "../Dashboard";
 import { useStore } from "../../hooks/useStore";
+import { NativeFlow, NativeProtectionStatus } from "../../backend/nativeFlow";
 
 const mockNavigate = vi.fn();
 
@@ -19,6 +20,7 @@ vi.mock("../../backend/nativeFlow", () => ({
   NativeFlow: {
     getDashboardSummary: vi.fn().mockRejectedValue(new Error("not native")),
     saveDailyReflection: vi.fn(),
+    getProtectionStatus: vi.fn(),
   },
 }));
 
@@ -26,6 +28,40 @@ let mockIsNative = false;
 let mockHasUsage = true;
 let mockHasOverlay = true;
 let mockUnsupported = false;
+
+function protectionStatus(
+  overrides: Partial<NativeProtectionStatus> = {}
+): NativeProtectionStatus {
+  return {
+    status: "ACTIVE",
+    reason: "",
+    coreProtectionOperational: true,
+    strongBlockingRequested: false,
+    strongBlockingOperational: true,
+    strongBlockingDegradedReason: "",
+    monitoringConfigured: true,
+    monitoringEnabled: true,
+    targetCount: 1,
+    serviceRuntimeActive: true,
+    monitorThreadAlive: true,
+    heartbeatFresh: true,
+    currentServiceHeartbeatAt: Date.now(),
+    protectionRuntimeAvailable: true,
+    permissions: {
+      hasUsageStats: true,
+      hasOverlay: true,
+      isIgnoringBattery: false,
+      hasNotification: true,
+      hasAccessibility: false,
+      isDomestic: false,
+      channel: "play",
+      manufacturer: "redmi",
+      unsupportedDevice: false,
+      protectionRuntimeAvailable: true,
+    },
+    ...overrides,
+  };
+}
 
 vi.mock("../../hooks/useNativePermissions", () => ({
   useNativePermissions: () => ({
@@ -90,6 +126,7 @@ describe("Dashboard", () => {
     mockHasUsage = true;
     mockHasOverlay = true;
     mockUnsupported = false;
+    vi.mocked(NativeFlow.getProtectionStatus).mockResolvedValue(null as never);
   });
 
   it("渲染暂停按钮", () => {
@@ -245,6 +282,104 @@ describe("Dashboard", () => {
     renderDashboard({ isMonitoring: true, blockState: "IDLE" });
     fireEvent.click(screen.getByText("去授权"));
     expect(mockNavigate).toHaveBeenCalledWith("/permissions");
+  });
+
+  it("native service absent never renders protection as active", async () => {
+    mockIsNative = true;
+    vi.mocked(NativeFlow.getProtectionStatus).mockResolvedValue(protectionStatus({
+      status: "STARTING_OR_UNCONFIRMED",
+      reason: "SERVICE_NOT_RUNNING",
+      coreProtectionOperational: false,
+      serviceRuntimeActive: false,
+      monitorThreadAlive: false,
+      heartbeatFresh: false,
+      currentServiceHeartbeatAt: 0,
+    }));
+    renderDashboard({ isMonitoring: true, blockState: "IDLE" });
+
+    await waitFor(() => expect(screen.getAllByText("正在确认").length).toBeGreaterThanOrEqual(1));
+    expect(screen.queryByText("已开启")).toBeNull();
+    expect(screen.getByText("保护服务当前未运行，保护尚未生效")).toBeInTheDocument();
+  });
+
+  it("native stale heartbeat never renders protection as active", async () => {
+    mockIsNative = true;
+    vi.mocked(NativeFlow.getProtectionStatus).mockResolvedValue(protectionStatus({
+      status: "STARTING_OR_UNCONFIRMED",
+      reason: "HEARTBEAT_STALE",
+      coreProtectionOperational: false,
+      heartbeatFresh: false,
+      currentServiceHeartbeatAt: Date.now() - 60_000,
+    }));
+    renderDashboard({ isMonitoring: true, blockState: "IDLE" });
+
+    await waitFor(() => expect(screen.getAllByText("正在确认").length).toBeGreaterThanOrEqual(1));
+    expect(screen.queryByText("已开启")).toBeNull();
+    expect(screen.getByText("保护服务心跳已过期，保护尚未生效")).toBeInTheDocument();
+  });
+
+  it("native dead monitor thread never renders protection as active", async () => {
+    mockIsNative = true;
+    vi.mocked(NativeFlow.getProtectionStatus).mockResolvedValue(protectionStatus({
+      status: "STARTING_OR_UNCONFIRMED",
+      reason: "MONITOR_THREAD_NOT_ALIVE",
+      coreProtectionOperational: false,
+      monitorThreadAlive: false,
+    }));
+    renderDashboard({ isMonitoring: true, blockState: "IDLE" });
+
+    await waitFor(() => expect(screen.getAllByText("正在确认").length).toBeGreaterThanOrEqual(1));
+    expect(screen.queryByText("已开启")).toBeNull();
+    expect(screen.getByText("保护监控线程当前不可用，保护尚未生效")).toBeInTheDocument();
+  });
+
+  it("native missing usage or overlay is degraded rather than green", async () => {
+    mockIsNative = true;
+    vi.mocked(NativeFlow.getProtectionStatus).mockResolvedValue(protectionStatus({
+      status: "DEGRADED",
+      reason: "USAGE_ACCESS_MISSING",
+      coreProtectionOperational: false,
+      permissions: {
+        ...protectionStatus().permissions,
+        hasUsageStats: false,
+      },
+    }));
+    renderDashboard({ isMonitoring: true, blockState: "IDLE" });
+
+    await waitFor(() => expect(screen.getAllByText("保护降级").length).toBeGreaterThanOrEqual(1));
+    expect(screen.queryByText("已开启")).toBeNull();
+    expect(screen.getByText("使用情况访问权限已失效")).toBeInTheDocument();
+  });
+
+  it("native strong blocking degradation keeps core status separate", async () => {
+    mockIsNative = true;
+    vi.mocked(NativeFlow.getProtectionStatus).mockResolvedValue(protectionStatus({
+      status: "DEGRADED",
+      reason: "ACCESSIBILITY_MISSING",
+      coreProtectionOperational: true,
+      strongBlockingRequested: true,
+      strongBlockingOperational: false,
+      strongBlockingDegradedReason: "ACCESSIBILITY_MISSING",
+    }));
+    renderDashboard({ isMonitoring: true, blockState: "IDLE" });
+
+    await waitFor(() => expect(screen.getAllByText("保护降级").length).toBeGreaterThanOrEqual(1));
+    expect(screen.getByText("无障碍强阻断不可用，仅保留核心悬浮窗保护")).toBeInTheDocument();
+    expect(screen.getByText("连续使用")).toBeInTheDocument();
+  });
+
+  it("native ACTIVE without core truth never renders as active", async () => {
+    mockIsNative = true;
+    vi.mocked(NativeFlow.getProtectionStatus).mockResolvedValue(protectionStatus({
+      status: "ACTIVE",
+      coreProtectionOperational: false,
+      reason: "HEARTBEAT_STALE",
+      heartbeatFresh: false,
+    }));
+    renderDashboard({ isMonitoring: true, blockState: "IDLE" });
+
+    await waitFor(() => expect(screen.getAllByText("正在确认").length).toBeGreaterThanOrEqual(1));
+    expect(screen.queryByText("已开启")).toBeNull();
   });
 
   it("快速点击300ms内不重复切换", async () => {
