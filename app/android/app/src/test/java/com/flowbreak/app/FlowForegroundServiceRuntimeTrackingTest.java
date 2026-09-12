@@ -218,6 +218,39 @@ public class FlowForegroundServiceRuntimeTrackingTest {
         assertEquals(3, snapshot.recentTicks.length);
     }
 
+    @Test public void disabledMonitoringTickPreservesAnActiveRestSession() {
+        assertFalse(FlowForegroundService.shouldResetMonitoringLifecycleForDisabledTick(
+                BlockStateMachine.State.RESTING
+        ));
+        assertTrue(FlowForegroundService.shouldResetMonitoringLifecycleForDisabledTick(
+                BlockStateMachine.State.IDLE
+        ));
+        assertTrue(FlowForegroundService.shouldResetMonitoringLifecycleForDisabledTick(null));
+    }
+
+    @Test public void unavailableRuntimeTickPreservesAnActiveRestSession() {
+        assertFalse(FlowForegroundService.shouldResetMonitoringLifecycleForUnavailableTick(
+                BlockStateMachine.State.RESTING
+        ));
+        assertTrue(FlowForegroundService.shouldResetMonitoringLifecycleForUnavailableTick(
+                BlockStateMachine.State.BLOCKED
+        ));
+        assertTrue(FlowForegroundService.shouldResetMonitoringLifecycleForUnavailableTick(null));
+    }
+
+    @Test public void integrityFailureCancelsOnlyAnActiveRestSession() {
+        assertTrue(FlowForegroundService.shouldCancelRestForIntegrityFailure(
+                BlockStateMachine.State.RESTING
+        ));
+        assertFalse(FlowForegroundService.shouldCancelRestForIntegrityFailure(
+                BlockStateMachine.State.BLOCKED
+        ));
+        assertFalse(FlowForegroundService.shouldCancelRestForIntegrityFailure(
+                BlockStateMachine.State.IDLE
+        ));
+        assertFalse(FlowForegroundService.shouldCancelRestForIntegrityFailure(null));
+    }
+
     private BlockStateMachine freshMachine() {
         return new BlockStateMachine(BlockStateMachine.State.IDLE, 0L, 0L, 0L, "");
     }

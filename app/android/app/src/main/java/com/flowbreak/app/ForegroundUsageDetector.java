@@ -18,7 +18,7 @@ import java.util.Objects;
  * 从 FlowForegroundService.getTopPackage() 抽取，保持原有：
  * - 初次游标为空时回看 36 小时
  * - 每次查询后游标推进到 now
- * - 异常安全降级，返回 tracker 当前状态
+ * - 查询失败时 fail closed，不返回 tracker 的旧前台状态
  * - 通过 accept() 喂入事件，MOVE_TO_FOREGROUND 等才会更新前台包
  *
  * 冷启动引导（bootstrap）：在 tracker 确认前台包之前，每次 detect 都会
@@ -35,23 +35,40 @@ public final class ForegroundUsageDetector {
     static final long RECENT_EVENT_RETENTION_MS = 2 * LATE_EVENT_OVERLAP_MS;
     static final int MAX_RECENT_EVENT_CACHE_SIZE = 4_096;
 
-    private final Context context;
+    interface UsageEventsQuery {
+        UsageEvents query(long begin, long end);
+    }
+
     private final ForegroundAppTracker tracker;
     private final long initialLookbackMs;
+    private final UsageEventsQuery usageEventsQuery;
     private final LinkedHashSet<ObservedEvent> recentSeenEvents = new LinkedHashSet<>();
 
     private long usageEventsCursor;
     private long lastUsageEventAt;
+    private long liveUsageQueryFailureCount;
+    private String lastLiveUsageQueryFailureClass = "";
+    private boolean lastLiveUsageQuerySucceeded;
     private boolean bootstrapPending = true;
 
     public ForegroundUsageDetector(Context context) {
-        this(context, new ForegroundAppTracker(), INITIAL_EVENT_LOOKBACK_MS);
+        this(context, new ForegroundAppTracker(), INITIAL_EVENT_LOOKBACK_MS,
+                systemUsageEventsQuery(context));
     }
 
     public ForegroundUsageDetector(Context context, ForegroundAppTracker tracker, long initialLookbackMs) {
-        this.context = context.getApplicationContext();
+        this(context, tracker, initialLookbackMs, systemUsageEventsQuery(context));
+    }
+
+    ForegroundUsageDetector(
+            Context context,
+            ForegroundAppTracker tracker,
+            long initialLookbackMs,
+            UsageEventsQuery usageEventsQuery
+    ) {
         this.tracker = tracker;
         this.initialLookbackMs = initialLookbackMs;
+        this.usageEventsQuery = usageEventsQuery;
     }
 
     /**
@@ -59,8 +76,6 @@ public final class ForegroundUsageDetector {
      * 每次查询后游标至少推进到 now，staticLastUsageEventAt 由调用方读取 getLastUsageEventAt() 后更新。
      */
     public String detect(long now) {
-        UsageStatsManager manager = (UsageStatsManager) context.getSystemService(Context.USAGE_STATS_SERVICE);
-        if (manager == null) return "";
         try {
             long begin;
             if (bootstrapPending) {
@@ -74,7 +89,9 @@ public final class ForegroundUsageDetector {
                 begin = Math.max(0, usageEventsCursor - LATE_EVENT_OVERLAP_MS);
             }
 
-            List<ObservedEvent> events = readEvents(manager, begin, now);
+            List<ObservedEvent> events = readEvents(begin, now);
+            lastLiveUsageQuerySucceeded = true;
+            lastLiveUsageQueryFailureClass = "";
             updateLastUsageEventAt(events);
 
             if (bootstrapPending) {
@@ -86,7 +103,7 @@ public final class ForegroundUsageDetector {
             } else {
                 pruneRecentSeen(now);
                 if (containsLateEvent(events)) {
-                    rebuildTracker(manager, now);
+                    rebuildTracker(now);
                 } else {
                     applyUnseenEvents(events, now);
                 }
@@ -95,7 +112,9 @@ public final class ForegroundUsageDetector {
             // 后续轮询只需新事件，避免重复扫描整个回看窗口
             usageEventsCursor = Math.max(usageEventsCursor, now);
             bootstrapPending = tracker.getForegroundPackage().isEmpty();
-        } catch (Exception ignored) { }
+        } catch (Exception exception) {
+            recordLiveQueryFailure(exception);
+        }
         return tracker.getForegroundPackage();
     }
 
@@ -119,20 +138,26 @@ public final class ForegroundUsageDetector {
         return usageEventsCursor;
     }
 
+    public long getLiveUsageQueryFailureCount() {
+        return liveUsageQueryFailureCount;
+    }
+
+    public String getLastLiveUsageQueryFailureClass() {
+        return lastLiveUsageQueryFailureClass;
+    }
+
+    public boolean wasLastLiveUsageQuerySuccessful() {
+        return lastLiveUsageQuerySucceeded;
+    }
+
     /**
      * Reads an explicit historical window for gap reconciliation.  This path
      * reports query failures to the caller instead of silently falling back to
      * the live tracker.
      */
     GapQuery queryEventsForReconciliation(long begin, long end) {
-        UsageStatsManager manager = (UsageStatsManager) context.getSystemService(
-                Context.USAGE_STATS_SERVICE
-        );
-        if (manager == null) {
-            return GapQuery.failure("USAGE_STATS_MANAGER_UNAVAILABLE");
-        }
         try {
-            UsageEvents usageEvents = manager.queryEvents(begin, end);
+            UsageEvents usageEvents = usageEventsQuery.query(begin, end);
             if (usageEvents == null) {
                 return GapQuery.failure("USAGE_EVENTS_NULL");
             }
@@ -145,7 +170,7 @@ public final class ForegroundUsageDetector {
             }
             return GapQuery.success(result);
         } catch (Exception exception) {
-            return GapQuery.failure(exception.getClass().getName());
+            return GapQuery.failure(failureClass(exception));
         }
     }
 
@@ -177,8 +202,12 @@ public final class ForegroundUsageDetector {
         }
     }
 
-    private List<ObservedEvent> readEvents(UsageStatsManager manager, long begin, long end) {
-        return readEventsFromCursor(manager.queryEvents(begin, end));
+    private List<ObservedEvent> readEvents(long begin, long end) {
+        UsageEvents events = usageEventsQuery.query(begin, end);
+        if (events == null) {
+            throw new LiveQueryFailureException("USAGE_EVENTS_NULL");
+        }
+        return readEventsFromCursor(events);
     }
 
     private List<ObservedEvent> readEventsFromCursor(UsageEvents events) {
@@ -273,9 +302,8 @@ public final class ForegroundUsageDetector {
         }
     }
 
-    private void rebuildTracker(UsageStatsManager manager, long now) {
+    private void rebuildTracker(long now) {
         List<ObservedEvent> history = readEvents(
-                manager,
                 Math.max(0, now - initialLookbackMs),
                 now
         );
@@ -283,6 +311,51 @@ public final class ForegroundUsageDetector {
         updateLastUsageEventAt(history);
         applyOrderedEvents(history);
         rebuildRecentSeen(history, now);
+    }
+
+    private void recordLiveQueryFailure(Exception exception) {
+        liveUsageQueryFailureCount++;
+        lastLiveUsageQueryFailureClass = failureClass(exception);
+        lastLiveUsageQuerySucceeded = false;
+        tracker.reset();
+        // A failed query may have happened after the cursor advanced.  Force
+        // the next bootstrap to use the full initial lookback instead of the
+        // short retry window, otherwise an already-foreground app can be
+        // silently lost during recovery.
+        usageEventsCursor = 0L;
+        bootstrapPending = true;
+        recentSeenEvents.clear();
+    }
+
+    private static String failureClass(Exception exception) {
+        if (exception instanceof LiveQueryFailureException) {
+            return ((LiveQueryFailureException) exception).category;
+        }
+        if (exception == null || exception.getClass() == null) return "UNKNOWN";
+        String simpleName = exception.getClass().getSimpleName();
+        return simpleName == null || simpleName.isEmpty() ? "UNKNOWN" : simpleName;
+    }
+
+    private static UsageEventsQuery systemUsageEventsQuery(Context context) {
+        Context applicationContext = context.getApplicationContext();
+        return (begin, end) -> {
+            UsageStatsManager manager = (UsageStatsManager) applicationContext.getSystemService(
+                    Context.USAGE_STATS_SERVICE
+            );
+            if (manager == null) {
+                throw new LiveQueryFailureException("USAGE_STATS_MANAGER_UNAVAILABLE");
+            }
+            return manager.queryEvents(begin, end);
+        };
+    }
+
+    private static final class LiveQueryFailureException extends RuntimeException {
+        private final String category;
+
+        private LiveQueryFailureException(String category) {
+            super(category);
+            this.category = category;
+        }
     }
 
     private void rebuildRecentSeen(List<ObservedEvent> events, long now) {
