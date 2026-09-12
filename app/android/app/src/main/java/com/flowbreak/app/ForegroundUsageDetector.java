@@ -318,6 +318,11 @@ public final class ForegroundUsageDetector {
         lastLiveUsageQueryFailureClass = failureClass(exception);
         lastLiveUsageQuerySucceeded = false;
         tracker.reset();
+        // A failed query may have happened after the cursor advanced.  Force
+        // the next bootstrap to use the full initial lookback instead of the
+        // short retry window, otherwise an already-foreground app can be
+        // silently lost during recovery.
+        usageEventsCursor = 0L;
         bootstrapPending = true;
         recentSeenEvents.clear();
     }

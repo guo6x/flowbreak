@@ -229,6 +229,35 @@ public class ForegroundUsageDetectorTest {
         assertTrue(detector.wasLastLiveUsageQuerySuccessful());
     }
 
+    @Test public void liveQueryFailureForcesFullLookbackBootstrap() {
+        Context context = ApplicationProvider.getApplicationContext();
+        UsageStatsManager manager = context.getSystemService(UsageStatsManager.class);
+        final boolean[] fail = {false};
+        ForegroundUsageDetector detector = new ForegroundUsageDetector(
+                context,
+                new ForegroundAppTracker(),
+                ForegroundUsageDetector.INITIAL_EVENT_LOOKBACK_MS,
+                (begin, end) -> {
+                    if (fail[0]) throw new SecurityException("usage access revoked");
+                    return manager.queryEvents(begin, end);
+                }
+        );
+
+        long targetResume = NOW - 120_000L;
+        event("tv.danmaku.bili", "MainActivity", UsageEvents.Event.ACTIVITY_RESUMED, targetResume);
+        assertEquals("tv.danmaku.bili", detector.detect(NOW));
+
+        fail[0] = true;
+        assertEquals("", detector.detect(NOW + 90_000L));
+        assertEquals(0L, detector.getCursor());
+
+        fail[0] = false;
+        // No new event is added here. Recovery must rediscover the older
+        // foreground event from the full lookback window.
+        assertEquals("tv.danmaku.bili", detector.detect(NOW + 91_000L));
+        assertTrue(detector.wasLastLiveUsageQuerySuccessful());
+    }
+
     @Test public void nullLiveQueryFailsClosedWithSanitizedCategory() {
         Context context = ApplicationProvider.getApplicationContext();
         ForegroundUsageDetector detector = new ForegroundUsageDetector(
