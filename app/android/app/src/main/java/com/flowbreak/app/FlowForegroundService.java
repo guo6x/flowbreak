@@ -156,13 +156,15 @@ public class FlowForegroundService extends Service {
             // atomically with the service generation and only after tick()
             // returns successfully. A late old-instance callback can never
             // satisfy the current service's health check.
-            if (!monitorShutdownRequested
-                    && runtimeTracking.isCurrentServiceGeneration(serviceGeneration)) {
-                staticMonitorHeartbeat = new MonitorHeartbeat(
-                        serviceGeneration,
-                        endElapsed,
-                        endWall
-                );
+            synchronized (runtimeTracking) {
+                if (!monitorShutdownRequested
+                        && runtimeTracking.isCurrentServiceGeneration(serviceGeneration)) {
+                    staticMonitorHeartbeat = new MonitorHeartbeat(
+                            serviceGeneration,
+                            endElapsed,
+                            endWall
+                    );
+                }
             }
             if (!monitorShutdownRequested && monitorLoop != null) monitorLoop.scheduleNext();
         }
@@ -182,31 +184,37 @@ public class FlowForegroundService extends Service {
 
     @Override public void onCreate() {
         super.onCreate();
-        staticServiceRuntimeActive = false;
-        staticMonitorThreadRef = null;
-        staticMonitorHeartbeat = MonitorHeartbeat.EMPTY;
-        staticLastTickAt = 0L;
-        staticLastUsageEventAt = 0L;
-        staticForegroundPackage = "";
-        staticProtectionIntegrityFailureReason = "";
-        staticLiveUsageQueryFailureCount = 0L;
-        staticLastLiveUsageQueryFailureClass = "";
-        staticLastLiveUsageQuerySucceeded = false;
-        runtimeTracking.initializeProcessIdentity(
-                Process.myPid(),
-                SystemClock.elapsedRealtime(),
-                System.currentTimeMillis()
-        );
+        synchronized (runtimeTracking) {
+            staticServiceRuntimeActive = false;
+            staticMonitorThreadRef = null;
+            staticMonitorHeartbeat = MonitorHeartbeat.EMPTY;
+            staticLastTickAt = 0L;
+            staticLastUsageEventAt = 0L;
+            staticForegroundPackage = "";
+            staticProtectionIntegrityFailureReason = "";
+            staticLiveUsageQueryFailureCount = 0L;
+            staticLastLiveUsageQueryFailureClass = "";
+            staticLastLiveUsageQuerySucceeded = false;
+            runtimeTracking.initializeProcessIdentity(
+                    Process.myPid(),
+                    SystemClock.elapsedRealtime(),
+                    System.currentTimeMillis()
+            );
+        }
         Context applicationContext = getApplicationContext();
         staticServiceContext = applicationContext == null ? this : applicationContext;
-        livenessServiceGeneration = runtimeTracking.recordServiceCreate(
-                System.currentTimeMillis(),
-                SystemClock.elapsedRealtime()
-        );
+        synchronized (runtimeTracking) {
+            livenessServiceGeneration = runtimeTracking.recordServiceCreate(
+                    System.currentTimeMillis(),
+                    SystemClock.elapsedRealtime()
+            );
+        }
         monitorThread = new HandlerThread("FlowBreakMonitor", Process.THREAD_PRIORITY_DEFAULT);
         monitorThread.start();
         monitorHandler = new Handler(monitorThread.getLooper());
-        staticMonitorThreadRef = monitorThread;
+        synchronized (runtimeTracking) {
+            staticMonitorThreadRef = monitorThread;
+        }
         monitorLoop = new FlowMonitorLoop(
                 new HandlerScheduler(monitorHandler, livenessServiceGeneration),
                 monitor
@@ -261,7 +269,9 @@ public class FlowForegroundService extends Service {
         filter.addAction(Intent.ACTION_SCREEN_OFF);
         filter.addAction(Intent.ACTION_SCREEN_ON);
         registerReceiver(screenReceiver, filter);
-        staticServiceRuntimeActive = true;
+        synchronized (runtimeTracking) {
+            staticServiceRuntimeActive = true;
+        }
         // Establish the engine snapshot before any later service command can
         // reach the monitor owner (for example BEGIN_REST after a cold start).
         postMonitorCommand(this::load);
@@ -1357,21 +1367,38 @@ public class FlowForegroundService extends Service {
     public static long getLastUsageEventAt() { return staticLastUsageEventAt; }
     public static String getForegroundPackage() { return staticForegroundPackage; }
     public static boolean isProtectionServiceRuntimeActive() {
-        return staticServiceRuntimeActive;
+        synchronized (runtimeTracking) {
+            return staticServiceRuntimeActive;
+        }
     }
     public static boolean isMonitorThreadAlive() {
-        HandlerThread thread = staticMonitorThreadRef;
-        return staticServiceRuntimeActive && thread != null && thread.isAlive();
+        synchronized (runtimeTracking) {
+            HandlerThread thread = staticMonitorThreadRef;
+            return staticServiceRuntimeActive && thread != null && thread.isAlive();
+        }
     }
     public static ProtectionRuntimeHealthEvaluator.Result getCurrentProtectionRuntimeHealth() {
-        MonitorHeartbeat heartbeat = currentMonitorHeartbeat();
-        return ProtectionRuntimeHealthEvaluator.evaluate(
-                staticServiceRuntimeActive,
-                isMonitorThreadAlive(),
-                heartbeat.completedElapsedMs,
-                SystemClock.elapsedRealtime(),
-                staticProtectionIntegrityFailureReason
-        );
+        synchronized (runtimeTracking) {
+            long capturedServiceGeneration = runtimeTracking.currentServiceGeneration();
+            MonitorHeartbeat heartbeat = currentMonitorHeartbeatLocked(capturedServiceGeneration);
+            boolean serviceRuntimeActive = staticServiceRuntimeActive;
+            HandlerThread monitorThread = staticMonitorThreadRef;
+            boolean monitorThreadAlive = serviceRuntimeActive
+                    && monitorThread != null
+                    && monitorThread.isAlive();
+            long nowElapsedMs = SystemClock.elapsedRealtime();
+            String integrityFailureReason = staticProtectionIntegrityFailureReason;
+            return evaluateRuntimeHealthSnapshot(
+                    capturedServiceGeneration,
+                    runtimeTracking.currentServiceGeneration(),
+                    serviceRuntimeActive,
+                    monitorThreadAlive,
+                    heartbeat.serviceGeneration,
+                    heartbeat.completedElapsedMs,
+                    nowElapsedMs,
+                    integrityFailureReason
+            );
+        }
     }
     public static boolean isProtectionRuntimeHealthy() {
         return getCurrentProtectionRuntimeHealth().isHealthy();
@@ -1407,8 +1434,13 @@ public class FlowForegroundService extends Service {
     }
 
     private static MonitorHeartbeat currentMonitorHeartbeat() {
+        synchronized (runtimeTracking) {
+            return currentMonitorHeartbeatLocked(runtimeTracking.currentServiceGeneration());
+        }
+    }
+
+    private static MonitorHeartbeat currentMonitorHeartbeatLocked(long currentServiceGeneration) {
         MonitorHeartbeat heartbeat = staticMonitorHeartbeat;
-        long currentServiceGeneration = runtimeTracking.currentServiceGeneration();
         if (heartbeatElapsedForCurrentService(
                 heartbeat.serviceGeneration,
                 currentServiceGeneration,
@@ -1417,6 +1449,48 @@ public class FlowForegroundService extends Service {
             return MonitorHeartbeat.EMPTY;
         }
         return heartbeat;
+    }
+
+    static ProtectionRuntimeHealthEvaluator.Result evaluateRuntimeHealthSnapshot(
+            long capturedServiceGeneration,
+            long observedServiceGeneration,
+            boolean serviceRuntimeActive,
+            boolean monitorThreadAlive,
+            long heartbeatServiceGeneration,
+            long heartbeatElapsedMs,
+            long nowElapsedMs,
+            String integrityFailureReason
+    ) {
+        if (!isServiceGenerationStable(
+                capturedServiceGeneration,
+                observedServiceGeneration
+        )) {
+            return ProtectionRuntimeHealthEvaluator.evaluate(
+                    false,
+                    false,
+                    0L,
+                    nowElapsedMs,
+                    "SERVICE_GENERATION_CHANGED"
+            );
+        }
+        return ProtectionRuntimeHealthEvaluator.evaluate(
+                serviceRuntimeActive,
+                monitorThreadAlive,
+                heartbeatElapsedForCurrentService(
+                        heartbeatServiceGeneration,
+                        capturedServiceGeneration,
+                        heartbeatElapsedMs
+                ),
+                nowElapsedMs,
+                integrityFailureReason
+        );
+    }
+
+    static boolean isServiceGenerationStable(
+            long capturedServiceGeneration,
+            long observedServiceGeneration
+    ) {
+        return capturedServiceGeneration == observedServiceGeneration;
     }
 
     static long heartbeatElapsedForCurrentService(

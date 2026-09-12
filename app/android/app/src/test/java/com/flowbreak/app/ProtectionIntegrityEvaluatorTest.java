@@ -120,6 +120,22 @@ public class ProtectionIntegrityEvaluatorTest {
         assertEquals("HEARTBEAT_MISSING", result.reason);
     }
 
+    @Test public void runtimeHealthRejectsGenerationChangeAfterInputsAreRead() {
+        ProtectionRuntimeHealthEvaluator.Result result =
+                FlowForegroundService.evaluateRuntimeHealthSnapshot(
+                        1L,
+                        2L,
+                        true,
+                        true,
+                        1L,
+                        1_000L,
+                        1_000L,
+                        ""
+                );
+        assertFalse(result.isHealthy());
+        assertEquals("SERVICE_GENERATION_CHANGED", result.integrityFailureReason);
+    }
+
     @Test public void missingCorePermissionDegradesCoreProtection() {
         ProtectionStatusEvaluator.Result result = ProtectionStatusEvaluator.evaluate(
                 input(true, true, true, true, false, true, true, true, true, "")
