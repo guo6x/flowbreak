@@ -5,10 +5,10 @@
 
 ## 当前发布状态
 
-**RELEASE PREPARATION**（截至 2026-09-08；Redmi R1–R4 复测 2026-08-14 通过；GATE C 2026-08-15 通过；PR #20 已合并；GATE D final-scope acceptance 与 GATE G signed dry-run 已完成）
+**RELEASE PREPARATION**（截至 2026-09-11；Redmi R1–R4 复测 2026-08-14 通过；GATE C 2026-08-15 通过；PR #20 与 PR #26 已合并；GATE D final-scope acceptance、Gate E supported-scope closeout 与 GATE G signed dry-run 已完成）
 
 - 原 Redmi 验收阻塞项已消除：`FB-P1-01`、`FB-P1-02`、`FB-P1-03`、`FB-P2-01` 全部 RESOLVED（`KNOWN_ISSUES.md`）。`FB-P1-05` 保持 **OPEN — UNSUPPORTED IN V1.1.0**，不属于 v1.1.0 支持设备运行时。
-- 但 **RELEASE PREPARATION ≠ RELEASE APPROVED**：GATE C 与 GATE D 已通过；GATE E–I 仍 PENDING，当前不是 STORE READY，更不是 PRODUCTION RELEASE APPROVED。
+- 但 **RELEASE PREPARATION ≠ RELEASE APPROVED**：GATE C、GATE D 与 Gate E supported-scope decision 已通过；GATE F–I 仍 PENDING，当前不是 STORE READY，更不是 PRODUCTION RELEASE APPROVED。
 
 ## 发布门禁总览
 
@@ -18,7 +18,7 @@
 | GATE B | Redmi targeted P1/P2 revalidation | **PASS** |
 | GATE C | Artifact Provenance / Controlled Release Build | **PASS** |
 | GATE D | Supported OEM scope + fail-closed boundary | **PASS_SUPPORTED_SCOPE** |
-| GATE E | Usage accounting accuracy / blocking latency | **PENDING** |
+| GATE E | Usage accounting accuracy / blocking latency + documented Android execution boundary | **PASS_SUPPORTED_SCOPE_WITH_DOCUMENTED_PLATFORM_LIMITATION** |
 | GATE F | 24h stability + Protection Integrity | **PENDING** |
 | GATE G | Signing / Versioning / Publishable Build | **PENDING_CROSS_MACHINE_RECOVERY** |
 | GATE H | Store / Compliance Readiness | **PENDING** |
@@ -81,10 +81,17 @@ GATE C PASS 的范围（重要）：
 - 其他未完成真机验证的 OEM 不因未命中 fail-closed 集合而自动获得已验证声明，后续兼容性矩阵仍可独立扩展。
 - 同时决定 `COMPAT-001`（HyperOS best-effort BlockActivity 后台启动被拒）的处理方向：删除 `tryStartBlockActivity` / OEM 条件化 / 保留 best-effort。
 
-### GATE E — Usage accounting accuracy / blocking latency：PENDING
+### GATE E — Supported-scope usage / blocking evidence：PASS_SUPPORTED_SCOPE_WITH_DOCUMENTED_PLATFORM_LIMITATION
 
-- UsageStats 精度对照：与系统数字健康误差 ≤10%（多机型）。
-- blocking latency 对照：阻断触发延迟 ≤2s 实测。
+- `E1_USAGE_ACCOUNTING = PASS_CARRIED_FORWARD_WITH_EQUIVALENCE`：此前有效 Redmi 真机 PASS（`54f6c54a313e96fb374514b2bb4bac8bfd689545`）与当前 master normal-path equivalence。
+- `E2A_HEALTHY_RUNTIME_BLOCKING_LATENCY = PASS_CARRIED_FORWARD_WITH_EQUIVALENCE`：此前签名 Redmi 约 `361s` BLOCKED 证据（`c79fa0...`）与当前 master normal-path equivalence。
+- `E2B_EXECUTION_GAP_RECOVERY = PASS_CURRENT_SIGNED_DEVICE_INTEGRATION`：当前签名 `ccacb6738a44d3bc08da9a4ceac75766316b2521` 已在 Redmi 上实际执行 reconciliation path，并恢复非零 machine session。
+- `TEST_A_ACCOUNTING_PRECISION = INCONCLUSIVE`；`TEST_A_RECOVERY_SIGNAL = PASS`。精确 foreground transition timing 与 after-usage export 不完整，因此不称为 exact accounting PASS，也没有据此证明 overcount。
+- `REALTIME_ENFORCEMENT_DURING_OS_EXECUTION_SUSPENSION = NOT_GUARANTEED_PLATFORM_LIMITATION`：Android/OEM 不给 FlowBreak 进程或 worker 执行时间时，实时 overlay 与状态迁移不属于 v1.1.0 保证。
+
+本 Gate 不声称当前 master 独立重新执行了完整的 E1/E2 physical test sequence。Gate E 的结论是 documented supported-scope evidence carry-forward，加上当前签名 execution-gap recovery integration。
+
+本阶段不修改 Gate F 要求。由于 Gate F/G/H/I 仍 pending，发布仍为 **NOT APPROVED**。
 
 ### GATE F — 24h stability + Protection Integrity：PENDING
 
@@ -230,8 +237,8 @@ ORIGINAL_LAPTOP_RECOVERY = `NOT_YET_TESTED`
 ### 真机设备矩阵
 
 - [x] Redmi 精准复测 R1–R4（FB-P1-01/02/03、FB-P2-01）全部 PASS（GATE B）
-- [ ] 目标应用统计与系统数字健康误差 ≤10%（多机型，GATE E）
-- [ ] 阻断触发延迟 ≤2s（GATE E）
+- [x] Gate E supported-scope evidence：E1/E2A carry-forward equivalence、E2B current signed integration、Android execution suspension boundary 已记录；Test A exact accounting precision 保持 INCONCLUSIVE
+Optional / NON-BLOCKING future revalidation：a complete current-build E1/E2 physical rerun may be performed later, but is not required to retain the present Gate E supported-scope decision.
 - [ ] 连续运行 24 小时无时间暴涨、重复通知或 ANR，且无 silent protection drift（GATE F）
 - [x] v1.1.0 supported scope + vivo/iQOO fail-closed boundary 的最终真机检查（GATE D = `PASS_SUPPORTED_SCOPE`；iQOO fail-closed PASS，Redmi 新 signed smoke NOT_EXECUTED，既有 R1–R4 reference PASS）
 - [ ] 其他受支持范围候选 OEM：权限、后台限制、重启恢复实测（后续兼容性扩展）
@@ -250,9 +257,10 @@ ORIGINAL_LAPTOP_RECOVERY = `NOT_YET_TESTED`
 
 ## 下一步路线（建议排序）
 
-1. GATE E：UsageStats 精度对照 + blocking latency 对照
-2. GATE F：24h stability + Protection Integrity
-3. GATE G remaining：cross-machine recovery（完成后才可整体关闭 GATE G；formal tag/store release 另行执行）
-4. 受支持范围候选 OEM 的后续兼容性矩阵（不重新打开 vivo/iQOO 运行时支持）
-5. 小规模 Beta（GATE I）
-6. 商店正式发行准备（GATE H）
+1. Gate F — minimal stability / Protection Integrity closeout
+2. Gate H — actual first-release channel compliance/materials
+3. Gate I — small beta
+4. Gate G remaining — cross-machine recovery before production release
+5. Final RC / tag / release
+
+Other-OEM compatibility expansion is a parallel/beta follow-up, not a current release-blocking main-path gate.

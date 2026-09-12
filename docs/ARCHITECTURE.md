@@ -1,6 +1,6 @@
 # ARCHITECTURE — 当前技术架构
 
-> 只描述当前（基线 `99fdcc2f6f357e78fb70dd127adedfa31a098a71`）实际存在的架构。历史架构描述一律见 `docs/archive/`。
+> 只描述当前 master 实际存在的架构；具体验收基线见 `CURRENT_STATUS.md`。历史架构描述一律见 `docs/archive/`。
 > 业务状态语义见 `docs/PRODUCT.md`，本文档不重复业务规则。
 
 ## 1. 分层总览
@@ -18,7 +18,8 @@
 └───────────────┬─────────────────────────────────────────────┘
 ┌───────────────▼─────────────────────────────────────────────┐
 │ FlowForegroundService (前台服务, START_STICKY)               │
-│  每 2s tick：检测前台 → 累计会话 → 状态机 → 干预/通知/落库     │
+│  名义约 2s monitor cadence（获得调度时）：检测前台 → 累计会话   │
+│  → 状态机 → 干预/通知/落库                                  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -45,11 +46,30 @@ BlockStateMachine.update(targetInForeground, pkg, now, limitMs)
 - `ForegroundUsageDetector`：封装 UsageEvents 游标（首次回看 36 小时，之后增量；bootstrap 重试窗口 60s），异常安全，喂给 `ForegroundAppTracker`。
 - `ForegroundAppTracker`：按 **Activity 实例（package + className）** 跟踪前台；仅当前实例的 `MOVE_TO_BACKGROUND` / `ACTIVITY_PAUSED` / `ACTIVITY_STOPPED` 才清空前台，同包旧实例的 PAUSED/STOPPED 不清当前前台（`027af94`；历史缺陷 `FB-P1-01` 已 RESOLVED，见 `KNOWN_ISSUES.md`）。
 
+### 2.1.1 异常长间隔恢复
+
+```text
+持久化 monitor checkpoint
+        ↓
+异常执行间隔
+        ↓
+UsageEvents 已闭合安全窗口
+        ↓
+TargetSessionGapReconciler
+        ↓
+已验证的 machine/session + usage replay
+        ↓
+普通 live tail
+```
+
+- 历史 replay 是恢复逻辑，不是 scheduler 的替代品。
+- 只有 checkpoint 与 UsageEvents 足以可靠重建时，才回放已闭合窗口；否则恢复结果为 `INCOMPLETE`，不制造目标使用量。
+
 ### 2.2 状态机与累计（Source of Truth：原生）
 
 - `BlockStateMachine`：纯 Java 状态机（IDLE/PERCEPTION/COGNITION/BLOCKED/RESTING/GRACE），阈值 80/100/120%，`LEAVE_RESET_MS=30s` 仅重置尚未进入 BLOCKED 的连续会话；BLOCKED 豁免离开重置（sticky，`9c34fe9`；历史缺陷 `FB-P1-02` 已 RESOLVED，见 `KNOWN_ISSUES.md`）。
 - `UsageAccumulator`：单 tick 增量上限 10s，每 15s 批量落库（`USAGE_FLUSH_MS`）。
-- `FlowServiceStateStore`：状态快照的 SharedPreferences 持久化（blockState/sessionMs/graceUntil/emergencyUnlockDay 等）。
+- `FlowServiceStateStore`：状态快照与 monitor checkpoint 的 SharedPreferences 持久化（blockState/sessionMs/graceUntil/emergencyUnlockDay 等）。machine 与 checkpoint 通过同一个 SharedPreferences editor 一起写入；checkpoint 的 durable persistence 按节流策略执行，并在语义边界强制落盘。
 - `RestSessionManager` / `RestSessionValidator` / `RestCheatTracker`：休息会话的开始、完成校验（原生时间戳）、防作弊。
 - `EmergencyUnlockManager`：每日一次紧急解锁（自然日 + 单调时钟 + 60s 时钟偏移容差）。
 - `PullbackSessionCoordinator` / `PullbackOutcomeTracker`：休息后 10 分钟观察窗口与「成功拉回」判定。
@@ -77,8 +97,10 @@ BlockStateMachine.update(targetInForeground, pkg, now, limitMs)
 - `FlowForegroundService`：`onStartCommand` 返回 `START_STICKY`；`foregroundServiceType="specialUse"`（运行时显式传入 `FOREGROUND_SERVICE_TYPE_SPECIAL_USE`）；监听 `ACTION_SCREEN_OFF` / `ACTION_SCREEN_ON`（熄屏不累计、会话离开计时）。
 - `BootReceiver`：`BOOT_COMPLETED` / `QUICKBOOT_POWERON`，仅在 `serviceConfigured && monitoringEnabled` 时重启服务。
 - `MainActivity` / `BlockActivity`：`launchMode="singleTask"`；`BlockActivity` `exported=false`、`excludeFromRecents=true`。
-- 系统返回键桥接（`99fdcc2`）：`MainActivity.onBackPressed` 经 `evaluateJavascript` 询问 WebView 全局钩子 `window.__flowbreakHandleBack`；Target Apps 页存在未保存修改时弹「有未保存的修改」确认框并消费按键，无修改时保持系统默认退出。注意：前端改动后必须 `npm run build` → `npx cap sync android` 重新打包，否则 APK 内 Web bundle 缺少新钩子（产物溯源见 `TESTING.md`、`RELEASE.md` GATE C）。
+- 系统返回键桥接（当前实现）：`MainActivity.onBackPressed` 经 `evaluateJavascript` 询问 WebView 全局钩子 `window.__flowbreakHandleBack`；Target Apps 页存在未保存修改时弹「有未保存的修改」确认框并消费按键，无修改时保持系统默认退出。注意：前端改动后必须 `npm run build` → `npx cap sync android` 重新打包，否则 APK 内 Web bundle 缺少新钩子（产物溯源见 `TESTING.md`、`RELEASE.md` GATE C）。
 - 服务被杀重建：由 START_STICKY 拉起；休息会话通过持久化时间戳自动完成。
+
+Android/OEM 执行调度限制的产品语义见 `PRODUCT.md` 与 `KNOWN_ISSUES.md`：当进程或 worker 没有获得执行时间时，历史 replay 不能替代实时调度，也不能产生实时覆盖层。
 
 ## 3. Play / Domestic source set
 

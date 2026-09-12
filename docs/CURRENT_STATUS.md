@@ -7,18 +7,20 @@
 
 | 项 | 值 |
 | ---- | ---- |
-| Last verified date | **2026-09-08** |
-| 代码基线 | 当前 master：`2af5e93e88687cdb8b7903f270ae67380773a200` |
-| Master CI | **PASS** — Run `34227077948` |
-| Signed candidate | **PASS** — Run `34227560491`（verify + release） |
-| Signed Domestic APK SHA256 | `2ee7d2147b8d19a4f83e45dd85bc5eb3ea61504ab87e875260fedcdc1b0b1875` |
+| Last verified date | **2026-09-11** |
+| Gate E verified behavior baseline | `ccacb6738a44d3bc08da9a4ceac75766316b2521` |
+| Master CI | **PASS** — Run `34569928299` |
+| Signed candidate | **PASS** — Run `34570309806`（verify + release） |
+| Signed artifact | `flowbreak-signed-dry-run-v1.1.0-ccacb6738a44d3bc08da9a4ceac75766316b2521`（ID `10187690618`） |
+| Signed Domestic APK SHA256 | `24bcff9dbe365c5cbd0ee65c00999b904850885ee9472f542be3c05f1dfd29a1` |
+| Domestic certificate fingerprint | `8d69d1786ea63b05ff3b8d1f5a78266a2fa1eda7b823af0c295cbfdc10e77f20` |
 | 阶段 | **RELEASE PREPARATION**（不是 STORE READY，更不是 PRODUCTION RELEASE APPROVED） |
 | 支持参考设备 | **Xiaomi / Redmi**；R1–R4 **PASS** |
 | 新 Redmi signed smoke | **NOT_EXECUTED** |
 | 当前 P0 | **0** |
 | Supported-scope release-blocking P1 | **0** |
 | `FB-P1-05` | **P1 / OPEN_UNSUPPORTED_V1_1_0**（vivo/iQOO runtime 不支持，fail closed） |
-| 发布状态 | **GATE A/B/C PASS；GATE D PASS_SUPPORTED_SCOPE；GATE E/F/G/H/I PENDING** |
+| 发布状态 | **GATE A/B/C PASS；GATE D PASS_SUPPORTED_SCOPE；GATE E PASS_SUPPORTED_SCOPE_WITH_DOCUMENTED_PLATFORM_LIMITATION；GATE F/G/H/I PENDING** |
 
 ## 支持设备范围与最终范围验收
 
@@ -48,11 +50,22 @@
 
 ## 当前自动化验证
 
-- PR #20 合并后的自动化验证：**PASS**。
-- Frontend：**159 / 159 PASS**。
-- Release validation：**8 / 8 PASS**。
-- Full Android verify：Run `34227077948` **PASS**。
-- 精确 Android JVM 套件数量以 `TESTING.md` 为准；下方旧计数仅保留为历史记录。
+- Gate E verified behavior baseline `ccacb6738a44d3bc08da9a4ceac75766316b2521` 的自动化验证：**PASS**。
+- Master verify：Run `34569928299` **PASS**。
+- Signed workflow：Run `34570309806` verify + release **PASS**。
+- Signed artifact：`flowbreak-signed-dry-run-v1.1.0-ccacb6738a44d3bc08da9a4ceac75766316b2521`，ID `10187690618`。
+- 精确 Frontend / Android JVM 套件数量以 `TESTING.md` 为准；下方旧计数仅保留为历史记录。
+
+## Gate E 当前支持范围决策
+
+- `GATE_E = PASS_SUPPORTED_SCOPE_WITH_DOCUMENTED_PLATFORM_LIMITATION`。
+- `E1_USAGE_ACCOUNTING = PASS_CARRIED_FORWARD_WITH_EQUIVALENCE`：此前有效 Redmi 真机 PASS + 当前实现的 normal-path equivalence。
+- `E2A_HEALTHY_RUNTIME_BLOCKING_LATENCY = PASS_CARRIED_FORWARD_WITH_EQUIVALENCE`：此前签名 Redmi 约 `361s` BLOCKED 证据 + 当前实现的 normal-path equivalence。
+- `E2B_EXECUTION_GAP_RECOVERY = PASS_CURRENT_SIGNED_DEVICE_INTEGRATION`：当前签名 `ccacb6738a44d3bc08da9a4ceac75766316b2521` 在 Redmi 上实际执行 reconciliation path，并恢复非零 machine session。
+- Android/OEM execution suspension：`NOT_GUARANTEED_PLATFORM_LIMITATION`。进程或 worker 没有执行时间时，不保证实时 overlay 或状态迁移；这不是 HyperOS suspension 已修复的声明。
+- `FB-P1-07 = MITIGATED_ACCEPTED_PLATFORM_LIMITATION`：原始 P1 失败与严重性保留，缓解与可恢复影响已记录，残余实时调度边界不属于 v1.1.0 保证。
+- `FB-P2-02 = OPEN_NON_BLOCKING_V1_1_0`：recovered usage DB write 与 replay checkpoint durability 非 atomic；不重新打开 Gate E。
+- Test A：`TEST_A_RECOVERY_SIGNAL = PASS`；`TEST_A_ACCOUNTING_PRECISION = INCONCLUSIVE`。本次 Gate E closeout 未独立重跑完整 E1/E2 physical test sequence。
 
 ## 历史自动化快照（99fdcc2，2026-08-14）
 
@@ -79,11 +92,12 @@
 
 1. **`FB-P1-05`（P1 / OPEN_UNSUPPORTED_V1_1_0）**：vivo/iQOO native tick path 的原始兼容性缺陷未解决。v1.1.0 不支持 vivo/iQOO runtime，而是通过 `UNSUPPORTED_DEVICE_FOR_RELIABLE_MONITORING` fail closed；不得降级 severity，也不得标记为 RESOLVED。
 2. **`COMPAT-001`（NON-BLOCKING / COMPATIBILITY OBSERVATION，OPEN OBSERVATION）**：HyperOS 仍可能拒绝尽力而为的 `tryStartBlockActivity` 后台启动，但强阻断已不依赖它。
-3. **Gate E = PENDING**：Usage accounting accuracy / blocking latency。
-4. **Gate F = PENDING**：24h stability + Protection Integrity。
-5. **Gate G = PENDING_CROSS_MACHINE_RECOVERY**：跨机器恢复尚未完成。
-6. **Gate H = PENDING**：Store / Compliance Readiness。
-7. **Gate I = PENDING**：Small-scale Beta。
+3. **`FB-P1-07 / PLATFORM-EXEC-001`（P1 / MITIGATED_ACCEPTED_PLATFORM_LIMITATION）**：原始 Redmi execution gap 仍是历史有效失败；PR #26 提供历史恢复缓解，实时 enforcement 在 OS/OEM 不给执行时间期间不属于 v1.1.0 保证，不阻塞当前修订后的 Gate E 支持范围。
+4. **`FB-P2-02`（P2 / OPEN_NON_BLOCKING_V1_1_0）**：recovered usage DB write 与 replay checkpoint durability 非 atomic；不重新打开 Gate E。
+5. **Gate F = PENDING**：24h stability + Protection Integrity。
+6. **Gate G = PENDING_CROSS_MACHINE_RECOVERY**：跨机器恢复尚未完成。
+7. **Gate H = PENDING**：Store / Compliance Readiness。
+8. **Gate I = PENDING**：Small-scale Beta。
 
 > 历史 RELEASE ENGINEERING GAP（产物溯源）已关闭：曾出现「本地 APK 原生 dex 已更新、Web bundle 仍旧」的不一致产物与「CI 未持久上传 artifacts」两个缺口，已由 GATE C 实现并实测关闭（`RELEASE.md` GATE C = PASS，`TESTING.md` 产物溯源）。
 
@@ -116,8 +130,10 @@ TRUE_VERSION_UPGRADE = `NOT_TESTED_NO_VALID_LOWER_FINAL_SIGNED_BUILD`
 ## 发布状态边界（重要）
 
 - **RELEASE PREPARATION ≠ STORE READY ≠ PRODUCTION RELEASE APPROVED**。
-- 已完成：**GATE A / B / C / D**。Gate D 的 `PASS_SUPPORTED_SCOPE` 表示 Xiaomi/Redmi 支持参考有效，并且已知不可靠的 vivo/iQOO 在 v1.1.0 明确不支持且 fail closed。
-- 仍需完成：**GATE E / F / G / H / I**。其中 FB-P1-05 本身仍 OPEN，但不阻塞已定义支持范围的 Gate D。
+- 已完成：**GATE A / B / C / D / E（支持范围内）**。Gate E 的 `PASS_SUPPORTED_SCOPE_WITH_DOCUMENTED_PLATFORM_LIMITATION` 表示健康运行时与执行间隔恢复证据可接受，同时明确 Android/OEM 无执行时间期间不保证实时 enforcement。已知不可靠的 vivo/iQOO 在 v1.1.0 明确不支持且 fail closed。
+- 仍需完成：**GATE F / G / H / I**。
+- `FB-P1-05` 仍为 **P1 / OPEN_UNSUPPORTED_V1_1_0**；由于 vivo/iQOO 在 v1.1.0 明确不支持并 fail closed，它不阻塞 Gate D 或当前 v1.1.0 release scope，也不是 Gate E 问题。
+- `FB-P1-07` 仍为 **P1 / MITIGATED_ACCEPTED_PLATFORM_LIMITATION**；在修订后的执行调度边界下，它不阻塞 Gate E。`FB-P2-02` 为 non-blocking follow-up。
 
 ## 历史状态（2026-08-12 快照，不再代表当前）
 
@@ -126,11 +142,10 @@ TRUE_VERSION_UPGRADE = `NOT_TESTED_NO_VALID_LOWER_FINAL_SIGNED_BUILD`
 
 ## 下一路线（建议排序）
 
-1. GATE E：在已定义支持范围内完成 usage accounting accuracy + blocking latency
-2. GATE F：完成最小 stability / Protection Integrity closeout
-3. GATE H：完成首发渠道合规与发布材料
-4. GATE I：小规模 Beta
-5. GATE G remaining：完成 cross-machine recovery 后再进行 production release
-6. 最终 RC / tag / release
+1. Gate F — minimal stability / Protection Integrity closeout
+2. Gate H — actual first-release channel compliance/materials
+3. Gate I — small beta
+4. Gate G remaining — cross-machine recovery before production release
+5. Final RC / tag / release
 
-其他 OEM 扩展属于 v1.1.0 之后或 beta 工作，不是当前 release-blocking Gate D 工作。
+其他 OEM 兼容性扩展属于 parallel/beta follow-up，不是当前 release-blocking main-path gate。
