@@ -137,6 +137,7 @@ public class FlowForegroundService extends Service {
     private boolean checkpointInteractionAvailable;
     private String checkpointForegroundPackage = "";
     private boolean checkpointInitialized;
+    private boolean historicalGapIntegrityFailure;
     private long lastCheckpointPersistElapsedMs;
 
     private final Runnable monitor = new Runnable() {
@@ -613,7 +614,15 @@ public class FlowForegroundService extends Service {
         }
         if (targetSetEmpty) {
             runtimeTracking.recordTargetSetEmptyReturn();
-            resetMonitoringLifecycle(now, nowElapsed);
+            if (shouldResetMonitoringLifecycleForUnavailableTick(
+                    machine == null ? null : machine.getState())) {
+                resetMonitoringLifecycle(now, nowElapsed);
+            } else {
+                // Manual rest is independent from the configured target set.
+                // Keep an active RESTING session until the owner completes or
+                // cancels it, just as when monitoring is manually paused.
+                notificationController.updateServiceNotification(snapshot());
+            }
             postOverlayAction(() -> {
                 overlayController.dismissBlocker();
                 overlayController.dismissWarningBar();
@@ -677,6 +686,17 @@ public class FlowForegroundService extends Service {
             return false;
         }
         long verifiedGapSafeEndWallMs = reconcileHistoricalGap(now, nowElapsed);
+        if (historicalGapIntegrityFailure) {
+            // An incomplete historical interval is an integrity failure, not
+            // a successful no-op. Do not clear it with a later live query in
+            // this same tick; fail closed before foreground classification.
+            failClosedForIntegrity(
+                    "HISTORICAL_GAP_RECONCILIATION_INCOMPLETE",
+                    now,
+                    nowElapsed
+            );
+            return false;
+        }
         String previousForeground = staticForegroundPackage;
         String foreground = foregroundDetector.detect(now);
         syncLiveUsageDiagnostics();
@@ -839,6 +859,7 @@ public class FlowForegroundService extends Service {
     }
 
     private long reconcileHistoricalGap(long nowWallMs, long nowElapsedMs) {
+        historicalGapIntegrityFailure = false;
         if (!checkpointInitialized) return 0L;
 
         long gapMs = nowElapsedMs - checkpointElapsedMs;
@@ -1052,6 +1073,7 @@ public class FlowForegroundService extends Service {
     }
 
     private void markGapIncomplete(long gapMs) {
+        historicalGapIntegrityFailure = true;
         markGapResult("INCOMPLETE", 0L, 0L);
         staticLastGapMs = gapMs;
     }
@@ -1434,6 +1456,11 @@ public class FlowForegroundService extends Service {
         );
     }
     static boolean shouldResetMonitoringLifecycleForDisabledTick(
+            BlockStateMachine.State currentState
+    ) {
+        return shouldResetMonitoringLifecycleForUnavailableTick(currentState);
+    }
+    static boolean shouldResetMonitoringLifecycleForUnavailableTick(
             BlockStateMachine.State currentState
     ) {
         return currentState == null

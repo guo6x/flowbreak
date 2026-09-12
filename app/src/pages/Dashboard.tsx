@@ -6,6 +6,7 @@ import { useStore } from '../hooks/useStore';
 import { DailyReflection, getTodayActivities, getTodayReflection, saveTodayReflection } from '../backend/storage';
 import { Capacitor } from '@capacitor/core';
 import { NativeFlow, NativeProtectionStatus } from '../backend/nativeFlow';
+import { syncNativeMonitoring } from '../backend/nativeMonitoring';
 import { useNativePermissions } from '../hooks/useNativePermissions';
 import { getProtectionViewModel, formatRemainingTime, formatCountdown } from '../utils/protectionStatus';
 import {
@@ -245,6 +246,7 @@ export default function Dashboard() {
   const stats = useStore(s => s.todayStats);
   const isMonitoring = useStore(s => s.isMonitoring);
   const setMonitoring = useStore(s => s.setMonitoring);
+  const setServiceError = useStore(s => s.setServiceError);
   const score = useStore(s => s.fatigueScore);
   const level = useStore(s => s.fatigueLevel);
   const currentAppName = useStore(s => s.currentAppName);
@@ -383,10 +385,26 @@ export default function Dashboard() {
   const handleToggleMonitoring = async () => {
     if (toggling) return;
     if (noTargetApps || unsupportedDevice) return;
+    const nextMonitoring = !monitoringIntent;
     setToggling(true);
     try {
-      setMonitoring(!monitoringIntent);
-      await new Promise(r => setTimeout(r, 300));
+      // Native status is authoritative. If the local Zustand intent has
+      // diverged (for example after a rejected start), changing it to the
+      // already-current value would not trigger GlobalMonitor's effect.
+      // Invoke the native operation explicitly in that case.
+      if (isNative && isMonitoring !== monitoringIntent) {
+        await syncNativeMonitoring(nextMonitoring, profile.sessionLimit, profile.targetApps);
+        setServiceError('');
+      } else {
+        setMonitoring(nextMonitoring);
+        await new Promise(r => setTimeout(r, 300));
+      }
+    } catch (error) {
+      const message = error instanceof Error && error.message
+        ? error.message
+        : nextMonitoring ? '保护服务启动失败，请检查权限后重试。' : '保护服务停止失败，请重试。';
+      setServiceError(message);
+      if (isNative && nextMonitoring) setMonitoring(false);
     } finally {
       setToggling(false);
     }

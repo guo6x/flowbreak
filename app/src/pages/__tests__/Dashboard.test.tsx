@@ -21,6 +21,9 @@ vi.mock("../../backend/nativeFlow", () => ({
     getDashboardSummary: vi.fn().mockRejectedValue(new Error("not native")),
     saveDailyReflection: vi.fn(),
     getProtectionStatus: vi.fn(),
+    saveSettings: vi.fn().mockResolvedValue(undefined),
+    startService: vi.fn().mockResolvedValue(undefined),
+    stopService: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -401,6 +404,50 @@ describe("Dashboard", () => {
 
     await waitFor(() => expect(screen.getAllByText("正在确认").length).toBeGreaterThanOrEqual(1));
     expect(screen.queryByText("已开启")).toBeNull();
+  });
+
+  it("native status diverged from local intent invokes the native stop directly", async () => {
+    mockIsNative = true;
+    vi.mocked(NativeFlow.getProtectionStatus).mockResolvedValue(protectionStatus({
+      monitoringEnabled: true,
+    }));
+    renderDashboard({ isMonitoring: false, blockState: "IDLE" });
+
+    await waitFor(() => expect(screen.getByText("暂停保护")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("暂停保护"));
+
+    await waitFor(() => expect(NativeFlow.stopService).toHaveBeenCalledTimes(1));
+  });
+
+  it("native status diverged from local intent invokes the native start directly", async () => {
+    mockIsNative = true;
+    vi.mocked(NativeFlow.getProtectionStatus).mockResolvedValue(protectionStatus({
+      monitoringEnabled: false,
+      status: "PAUSED",
+      coreProtectionOperational: false,
+      serviceRuntimeActive: false,
+      monitorThreadAlive: false,
+      heartbeatFresh: false,
+    }));
+    vi.mocked(NativeFlow.saveSettings).mockClear();
+    vi.mocked(NativeFlow.startService).mockClear();
+    renderDashboard({ isMonitoring: true, blockState: "IDLE" });
+
+    await waitFor(() => expect(screen.getByText("开启保护")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("开启保护"));
+
+    await waitFor(() => {
+      expect(NativeFlow.saveSettings).toHaveBeenCalledWith({
+        limitMinutes: 15,
+        targetApps: ["com.test.app"],
+        monitoringEnabled: true,
+      });
+      expect(NativeFlow.startService).toHaveBeenCalledWith({
+        limitMinutes: 15,
+        apps: ["com.test.app"],
+        monitoringEnabled: true,
+      });
+    });
   });
 
   it("快速点击300ms内不重复切换", async () => {

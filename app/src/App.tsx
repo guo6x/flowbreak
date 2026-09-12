@@ -6,6 +6,7 @@ import { Capacitor } from '@capacitor/core';
 import { useStore } from './hooks/useStore';
 import { getLevelByPercent, InterventionLevel } from './backend/fatigueEngine';
 import { NativeFlow } from './backend/nativeFlow';
+import { syncNativeMonitoring } from './backend/nativeMonitoring';
 import { getAppName } from './backend/appNames';
 import { exportLegacyPayload } from './backend/storage';
 import InterventionOverlay from './components/InterventionOverlay';
@@ -145,18 +146,10 @@ function GlobalMonitor() {
     const syncService = async () => {
       try {
         if (isMonitoring) {
-          if (targetApps.length === 0) {
-            throw new Error('请先选择至少一个受限应用。');
-          }
-          await NativeFlow.saveSettings({ limitMinutes: profile.sessionLimit, targetApps });
-          await NativeFlow.startService({
-            limitMinutes: profile.sessionLimit,
-            apps: targetApps,
-            monitoringEnabled: true,
-          });
+          await syncNativeMonitoring(true, profile.sessionLimit, targetApps);
           useStore.getState().startSession();
         } else {
-          await NativeFlow.stopService();
+          await syncNativeMonitoring(false, profile.sessionLimit, targetApps);
         }
         if (!cancelled && isMonitoring) setServiceError('');
       } catch (error) {
