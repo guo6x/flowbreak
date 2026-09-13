@@ -926,6 +926,10 @@ public class FlowForegroundService extends Service {
             boolean targetSetEmpty,
             boolean interactionAvailableNow
     ) {
+        if (isPausedRestSafeNonTargetInterval(targetSetEmpty, interactionAvailableNow)) {
+            handlePausedRestSafeNonTargetInterval(now, nowElapsed);
+            return true;
+        }
         if (permissionManager == null) {
             failClosedForIntegrity(
                     "PAUSED_REST_PERMISSION_MANAGER_UNAVAILABLE",
@@ -949,18 +953,6 @@ public class FlowForegroundService extends Service {
         if (!hasUsageStats) {
             failClosedForIntegrity(
                     "PAUSED_REST_USAGE_ACCESS_MISSING",
-                    now,
-                    nowElapsed
-            );
-            return false;
-        }
-        if (targetSetEmpty) {
-            failClosedForIntegrity("PAUSED_REST_NO_TARGETS", now, nowElapsed);
-            return false;
-        }
-        if (!interactionAvailableNow) {
-            failClosedForIntegrity(
-                    "PAUSED_REST_INTERACTION_UNAVAILABLE",
                     now,
                     nowElapsed
             );
@@ -1066,6 +1058,26 @@ public class FlowForegroundService extends Service {
         notificationController.updateServiceNotification(snapshot());
         postOverlayAction(() -> overlayController.dismissBlocker());
         return true;
+    }
+
+    /**
+     * Keeps a paused manual REST valid when target-app cheating is impossible.
+     * This path intentionally avoids integrity-failure handling: it must not
+     * cancel REST or reset the cumulative anti-cheat tracker.
+     */
+    private void handlePausedRestSafeNonTargetInterval(long now, long nowElapsed) {
+        if (foregroundDetector != null) foregroundDetector.reset();
+        if (usageAccumulator != null) {
+            usageAccumulator.restoreObservationAnchor(now, "", false);
+        }
+        staticForegroundPackage = "";
+        pausedRestObservationAt = now;
+        notificationController.updateServiceNotification(snapshot());
+        postOverlayAction(() -> {
+            overlayController.dismissBlocker();
+            overlayController.dismissWarningBar();
+            overlayController.dismissGraceCountdown();
+        });
     }
 
     private static String safeExceptionName(Exception error) {
@@ -1713,6 +1725,12 @@ public class FlowForegroundService extends Service {
                 && hasTargets
                 && interactionAvailable
                 && usageQuerySucceeded;
+    }
+    static boolean isPausedRestSafeNonTargetInterval(
+            boolean targetSetEmpty,
+            boolean interactionAvailable
+    ) {
+        return targetSetEmpty || !interactionAvailable;
     }
     static boolean shouldCancelRestForIntegrityFailure(
             BlockStateMachine.State currentState

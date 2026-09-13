@@ -66,6 +66,23 @@ public class PausedRestIntegrityTest {
         ));
     }
 
+    @Test public void pausedEmptyTargetsAreSafeEvenWithoutUsageAccess() {
+        BlockStateMachine machine = restingMachine();
+        RestCheatTracker tracker = new RestCheatTracker();
+        tracker.observe(true, true, START, START + 3_000L);
+        long accumulatedBeforeSafeInterval = tracker.accumulatedMs();
+
+        assertTrue(FlowForegroundService.isPausedRestSafeNonTargetInterval(true, false));
+        assertEquals(BlockStateMachine.State.RESTING, machine.getState());
+        assertEquals(accumulatedBeforeSafeInterval, tracker.accumulatedMs());
+    }
+
+    @Test public void pausedScreenOffAndKeyguardAreSafeNonTargetIntervals() {
+        assertTrue(FlowForegroundService.isPausedRestSafeNonTargetInterval(false, false));
+        assertTrue(FlowForegroundService.isPausedRestSafeNonTargetInterval(false, false));
+        assertFalse(FlowForegroundService.isPausedRestSafeNonTargetInterval(false, true));
+    }
+
     @Test public void pausedTargetCheatRemainsCumulativeAcrossNonTargetGap() {
         BlockStateMachine machine = restingMachine();
         RestCheatTracker tracker = new RestCheatTracker();
@@ -83,6 +100,29 @@ public class PausedRestIntegrityTest {
         assertTrue(decision.cancelled);
         assertEquals(5_000L, decision.accumulatedMs);
         assertEquals(BlockStateMachine.State.IDLE, machine.getState());
+    }
+
+    @Test public void screenOffDurationIsNotCountedAsTargetTime() {
+        RestCheatTracker tracker = new RestCheatTracker();
+
+        tracker.observe(true, true, 0L, START);
+        tracker.observe(true, true, START, START + 2_000L);
+        long screenOn = START + 122_000L;
+        tracker.observe(true, true, 0L, screenOn);
+        tracker.observe(true, true, screenOn, screenOn + 2_000L);
+
+        assertEquals(4_000L, tracker.accumulatedMs());
+        assertFalse(tracker.triggered());
+    }
+
+    @Test public void addingTargetsDuringRestStartsFromFreshAnchor() {
+        RestCheatTracker tracker = new RestCheatTracker();
+
+        assertTrue(FlowForegroundService.isPausedRestSafeNonTargetInterval(true, false));
+        assertFalse(FlowForegroundService.isPausedRestSafeNonTargetInterval(false, true));
+        tracker.observe(true, true, 0L, START + 120_000L);
+
+        assertEquals(0L, tracker.accumulatedMs());
     }
 
     private static BlockStateMachine restingMachine() {
