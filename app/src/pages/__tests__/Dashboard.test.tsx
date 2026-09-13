@@ -450,6 +450,26 @@ describe("Dashboard", () => {
     });
   });
 
+  it("native PAUSED remains paused in the UI until the owner starts it", async () => {
+    mockIsNative = true;
+    vi.mocked(NativeFlow.getProtectionStatus).mockResolvedValue(protectionStatus({
+      status: "PAUSED",
+      reason: "MONITORING_DISABLED",
+      monitoringEnabled: false,
+      coreProtectionOperational: false,
+      serviceRuntimeActive: false,
+      monitorThreadAlive: false,
+      heartbeatFresh: false,
+    }));
+    vi.mocked(NativeFlow.startService).mockClear();
+    renderDashboard({ isMonitoring: false, blockState: "IDLE" });
+
+    await waitFor(() => expect(screen.getByText("开启保护")).toBeInTheDocument());
+    expect(screen.queryByText("暂停保护")).toBeNull();
+    expect(screen.queryByText("已开启")).toBeNull();
+    expect(NativeFlow.startService).not.toHaveBeenCalled();
+  });
+
   it("快速点击300ms内不重复切换", async () => {
     renderDashboard();
     const btn = screen.getByText("暂停保护");

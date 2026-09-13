@@ -139,6 +139,9 @@ public class FlowForegroundService extends Service {
     private boolean checkpointInitialized;
     private boolean historicalGapIntegrityFailure;
     private long lastCheckpointPersistElapsedMs;
+    private long pausedRestObservationAt;
+    private boolean monitoringLifecycleClean;
+    private boolean monitoringLifecycleInitialized;
 
     private final Runnable monitor = new Runnable() {
         @Override public void run() {
@@ -339,6 +342,9 @@ public class FlowForegroundService extends Service {
         } else if (ACTION_CANCEL_REST.equals(action)) {
             machine.cancelRest(limitMinutes * 60_000L);
             stateStore.clearActiveRestSession();
+            pausedRestObservationAt = 0L;
+            monitoringLifecycleClean = !monitoringEnabled
+                    && machine.getState() == BlockStateMachine.State.IDLE;
             anchorCheckpointToNow(
                     checkpointTargetActive,
                     checkpointInteractionAvailable,
@@ -363,7 +369,11 @@ public class FlowForegroundService extends Service {
     private void stopMonitoring(int startId) {
         stopMonitorLoop(MonitorLivenessDiagnostics.LOOP_REASON_USER_STOP);
         monitoringEnabled = false;
-        resetMonitoringLifecycle(System.currentTimeMillis(), SystemClock.elapsedRealtime());
+        if (!monitoringLifecycleClean
+                || machine == null
+                || machine.getState() != BlockStateMachine.State.IDLE) {
+            resetMonitoringLifecycle(System.currentTimeMillis(), SystemClock.elapsedRealtime());
+        }
         stateStore.setMonitoringEnabled(false);
         postOverlayAction(() -> overlayController.dismissBlocker());
         mainHandler.post(() -> {
@@ -398,6 +408,8 @@ public class FlowForegroundService extends Service {
             usageAccumulator.restoreObservationAnchor(nowWallMs, "", false);
         }
         clearIntegrityFailureIfCurrent();
+        pausedRestObservationAt = 0L;
+        monitoringLifecycleClean = true;
         if (machine != null) {
             recordCheckpoint(nowWallMs, nowElapsedMs, false, false, "");
             lastAnnouncedState = BlockStateMachine.State.IDLE;
@@ -424,6 +436,7 @@ public class FlowForegroundService extends Service {
         if (foregroundDetector != null) foregroundDetector.reset();
         if (usageAccumulator != null) usageAccumulator.resetObservation(nowWallMs);
         if (restCheatTracker != null) restCheatTracker.reset();
+        pausedRestObservationAt = 0L;
         staticForegroundPackage = "";
         if (machine != null) {
             if (shouldCancelRestForIntegrityFailure(machine.getState())) {
@@ -441,6 +454,8 @@ public class FlowForegroundService extends Service {
         }
         if (machine != null) {
             recordCheckpoint(nowWallMs, nowElapsedMs, false, false, "");
+            monitoringLifecycleClean = !monitoringEnabled
+                    && machine.getState() == BlockStateMachine.State.IDLE;
             persistState(true);
         }
         postOverlayAction(() -> {
@@ -507,6 +522,8 @@ public class FlowForegroundService extends Service {
     private void load() {
         FlowServiceRecoveryCoordinator.Result result =
                 FlowServiceRecoveryCoordinator.restore(stateStore, System.currentTimeMillis());
+        boolean previousMonitoringEnabled = monitoringEnabled;
+        boolean lifecycleWasInitialized = monitoringLifecycleInitialized;
         Set<String> loadedTargets = result.config.targetApps;
         Set<String> runtimeTargets = loadedTargets == null
                 ? Collections.emptySet()
@@ -538,6 +555,21 @@ public class FlowForegroundService extends Service {
             usageAccumulator.resetObservation(System.currentTimeMillis());
         }
         restorePullbackTrackerFromSnapshot(result.pullbackSnapshot);
+        if (!lifecycleWasInitialized) {
+            monitoringLifecycleClean = !monitoringEnabled
+                    && machine.getState() == BlockStateMachine.State.IDLE;
+        } else if (previousMonitoringEnabled != monitoringEnabled) {
+            // A real config transition needs one fresh cleanup decision. A
+            // repeated reload in the same paused mode must not force a write
+            // on every monitor tick.
+            monitoringLifecycleClean = false;
+        } else if (!monitoringEnabled
+                && machine.getState() != BlockStateMachine.State.RESTING
+                && machine.getState() != BlockStateMachine.State.IDLE) {
+            monitoringLifecycleClean = false;
+        }
+        monitoringLifecycleInitialized = true;
+        pausedRestObservationAt = 0L;
         lastAnnouncedState = machine.getState();
         publishState();
     }
@@ -576,14 +608,20 @@ public class FlowForegroundService extends Service {
         }
         stateStore.persistBeginRest(decision.startedAt, decision.requiredMs, decision.sessionId);
         machine.beginRest();
+        pausedRestObservationAt = 0L;
+        monitoringLifecycleClean = false;
         anchorCheckpointToNow(false, false, "");
         persistState(true);
     }
 
     private boolean tick(long now, long nowElapsed) {
         boolean targetSetEmpty = targetApps == null || targetApps.isEmpty();
-        boolean interactionAvailableNow = monitoringEnabled
-                && !targetSetEmpty
+        boolean pausedResting = shouldRunPausedRestIntegrityTick(
+                monitoringEnabled,
+                machine == null ? null : machine.getState()
+        );
+        boolean interactionAvailableNow = !targetSetEmpty
+                && (monitoringEnabled || pausedResting)
                 && isInteractionAvailable();
         runtimeTracking.recordTick(
                 now,
@@ -600,7 +638,16 @@ public class FlowForegroundService extends Service {
         }
         if (!monitoringEnabled) {
             runtimeTracking.recordMonitoringDisabledReturn();
-            if (shouldResetMonitoringLifecycleForDisabledTick(
+            if (pausedResting) {
+                return tickPausedRestIntegrity(
+                        now,
+                        nowElapsed,
+                        targetSetEmpty,
+                        interactionAvailableNow
+                );
+            }
+            if (shouldResetMonitoringLifecycle(
+                    monitoringLifecycleClean,
                     machine == null ? null : machine.getState())) {
                 resetMonitoringLifecycle(now, nowElapsed);
             } else {
@@ -614,7 +661,8 @@ public class FlowForegroundService extends Service {
         }
         if (targetSetEmpty) {
             runtimeTracking.recordTargetSetEmptyReturn();
-            if (shouldResetMonitoringLifecycleForUnavailableTick(
+            if (shouldResetMonitoringLifecycle(
+                    monitoringLifecycleClean,
                     machine == null ? null : machine.getState())) {
                 resetMonitoringLifecycle(now, nowElapsed);
             } else {
@@ -629,6 +677,10 @@ public class FlowForegroundService extends Service {
             });
             return true;
         }
+        // The canonical paused marker is only valid until a normal configured
+        // monitoring cycle becomes active again. Otherwise a later target-set
+        // loss could incorrectly preserve a stale non-IDLE machine state.
+        monitoringLifecycleClean = false;
         if (!interactionAvailableNow) {
             runtimeTracking.recordInteractionUnavailableReturn();
             trackPullbackOutcome(false, 0L, now);
@@ -858,6 +910,166 @@ public class FlowForegroundService extends Service {
         return true;
     }
 
+    /**
+     * Verifies a manually started REST session while the normal monitor is
+     * paused. This deliberately does not run the normal state-machine or
+     * usage-accounting path: it only supplies a trustworthy foreground
+     * observation to the rest anti-cheat tracker.
+     */
+    private boolean tickPausedRestIntegrity(
+            long now,
+            long nowElapsed,
+            boolean targetSetEmpty,
+            boolean interactionAvailableNow
+    ) {
+        if (permissionManager == null) {
+            failClosedForIntegrity(
+                    "PAUSED_REST_PERMISSION_MANAGER_UNAVAILABLE",
+                    now,
+                    nowElapsed
+            );
+            return false;
+        }
+
+        boolean hasUsageStats;
+        try {
+            hasUsageStats = permissionManager.hasUsageStats();
+        } catch (Exception error) {
+            failClosedForIntegrity(
+                    "PAUSED_REST_USAGE_ACCESS_CHECK_" + safeExceptionName(error),
+                    now,
+                    nowElapsed
+            );
+            return false;
+        }
+        if (!hasUsageStats) {
+            failClosedForIntegrity(
+                    "PAUSED_REST_USAGE_ACCESS_MISSING",
+                    now,
+                    nowElapsed
+            );
+            return false;
+        }
+        if (targetSetEmpty) {
+            failClosedForIntegrity("PAUSED_REST_NO_TARGETS", now, nowElapsed);
+            return false;
+        }
+        if (!interactionAvailableNow) {
+            failClosedForIntegrity(
+                    "PAUSED_REST_INTERACTION_UNAVAILABLE",
+                    now,
+                    nowElapsed
+            );
+            return false;
+        }
+        if (foregroundDetector == null
+                || targetClassifier == null
+                || stateStore == null
+                || restCheatTracker == null) {
+            failClosedForIntegrity(
+                    "PAUSED_REST_DETECTOR_UNAVAILABLE",
+                    now,
+                    nowElapsed
+            );
+            return false;
+        }
+
+        String foreground;
+        try {
+            foreground = foregroundDetector.detect(now);
+            syncLiveUsageDiagnostics();
+        } catch (Exception error) {
+            failClosedForIntegrity(
+                    "PAUSED_REST_DETECTOR_" + safeExceptionName(error),
+                    now,
+                    nowElapsed
+            );
+            return false;
+        }
+        if (!isPausedRestIntegrityObservationTrustworthy(
+                hasUsageStats,
+                !targetSetEmpty,
+                interactionAvailableNow,
+                foregroundDetector.wasLastLiveUsageQuerySuccessful()
+        )) {
+            String failureClass = foregroundDetector.getLastLiveUsageQueryFailureClass();
+            failClosedForIntegrity(
+                    "PAUSED_REST_LIVE_USAGE_QUERY_"
+                            + (failureClass == null || failureClass.isEmpty()
+                            ? "FAILED"
+                            : failureClass),
+                    now,
+                    nowElapsed
+            );
+            return false;
+        }
+
+        clearIntegrityFailureIfCurrent();
+        foreground = foreground == null ? "" : foreground;
+        staticLastUsageEventAt = Math.max(staticLastUsageEventAt, foregroundDetector.getLastUsageEventAt());
+        staticForegroundPackage = foreground;
+        boolean isTarget = targetClassifier.isTarget(
+                foreground,
+                targetApps,
+                stateStore.isWechatInVideoChannel(),
+                stateStore.wechatInVideoChannelAt(),
+                now
+        );
+        restCheatTracker.observe(
+                true,
+                isTarget,
+                pausedRestObservationAt,
+                now
+        );
+        pausedRestObservationAt = now;
+
+        if (restCheatTracker.triggered()) {
+            RestCheatReplay.Decision liveRestCheat = RestCheatReplay.cancelTriggered(
+                    machine,
+                    restCheatTracker,
+                    limitMinutes * 60_000L
+            );
+            if (liveRestCheat.cancelled) {
+                machine.seedCheckpoint(now, false);
+                usageAccumulator.restoreObservationAnchor(now, "", false);
+                recordCheckpoint(now, nowElapsed, false, false, "");
+                handleRestCheatCancellation(
+                        foreground,
+                        liveRestCheat.accumulatedMs,
+                        false,
+                        0L,
+                        0L,
+                        false,
+                        false,
+                        ""
+                );
+                pausedRestObservationAt = 0L;
+                monitoringLifecycleClean = !monitoringEnabled
+                        && machine.getState() == BlockStateMachine.State.IDLE;
+                persistState(true);
+                notificationController.updateServiceNotification(snapshot());
+                postOverlayAction(() -> {
+                    overlayController.dismissBlocker();
+                    overlayController.dismissWarningBar();
+                    overlayController.dismissGraceCountdown();
+                });
+                return true;
+            }
+        }
+
+        // A valid paused tick refreshes the process-local monitor heartbeat,
+        // but never increments normal session or usage accounting.
+        notificationController.updateServiceNotification(snapshot());
+        postOverlayAction(() -> overlayController.dismissBlocker());
+        return true;
+    }
+
+    private static String safeExceptionName(Exception error) {
+        if (error == null || error.getClass() == null) return "FAILED";
+        String name = error.getClass().getSimpleName();
+        return name == null || name.isEmpty() ? "FAILED" : name;
+    }
+
     private long reconcileHistoricalGap(long nowWallMs, long nowElapsedMs) {
         historicalGapIntegrityFailure = false;
         if (!checkpointInitialized) return 0L;
@@ -1059,6 +1271,9 @@ public class FlowForegroundService extends Service {
         alert("休息已取消", "检测到在休息期间使用目标应用，未完成本次休息。");
         // The live branch returns before the normal state-change announcer;
         // historical replay must preserve that behavior as well.
+        pausedRestObservationAt = 0L;
+        monitoringLifecycleClean = !monitoringEnabled
+                && machine.getState() == BlockStateMachine.State.IDLE;
         lastAnnouncedState = machine.getState();
     }
 
@@ -1122,6 +1337,7 @@ public class FlowForegroundService extends Service {
         interactionAvailable = false;
         foregroundDetector.reset();
         usageAccumulator.resetObservation(now);
+        pausedRestObservationAt = 0L;
         staticForegroundPackage = "";
         if (machine != null) {
             machine.onScreenOff(now);
@@ -1140,6 +1356,7 @@ public class FlowForegroundService extends Service {
         interactionAvailable = false;
         foregroundDetector.reset();
         foregroundDetector.resetCursor(Math.max(0, now - ForegroundUsageDetector.INITIAL_EVENT_LOOKBACK_MS));
+        pausedRestObservationAt = 0L;
         if (machine != null) {
             machine.onScreenOn(now);
             recordCheckpoint(now, SystemClock.elapsedRealtime(), false, false, "");
@@ -1460,11 +1677,35 @@ public class FlowForegroundService extends Service {
     ) {
         return shouldResetMonitoringLifecycleForUnavailableTick(currentState);
     }
+    static boolean shouldResetMonitoringLifecycle(
+            boolean lifecycleClean,
+            BlockStateMachine.State currentState
+    ) {
+        return !lifecycleClean
+                && shouldResetMonitoringLifecycleForUnavailableTick(currentState);
+    }
     static boolean shouldResetMonitoringLifecycleForUnavailableTick(
             BlockStateMachine.State currentState
     ) {
         return currentState == null
                 || currentState != BlockStateMachine.State.RESTING;
+    }
+    static boolean shouldRunPausedRestIntegrityTick(
+            boolean monitoringEnabled,
+            BlockStateMachine.State currentState
+    ) {
+        return !monitoringEnabled && currentState == BlockStateMachine.State.RESTING;
+    }
+    static boolean isPausedRestIntegrityObservationTrustworthy(
+            boolean hasUsageStats,
+            boolean hasTargets,
+            boolean interactionAvailable,
+            boolean usageQuerySucceeded
+    ) {
+        return hasUsageStats
+                && hasTargets
+                && interactionAvailable
+                && usageQuerySucceeded;
     }
     static boolean shouldCancelRestForIntegrityFailure(
             BlockStateMachine.State currentState

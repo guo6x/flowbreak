@@ -228,6 +228,76 @@ public class FlowForegroundServiceRuntimeTrackingTest {
         assertTrue(FlowForegroundService.shouldResetMonitoringLifecycleForDisabledTick(null));
     }
 
+    @Test public void pausedLifecycleResetIsIdempotentAfterOneTransition() {
+        boolean lifecycleClean = false;
+        int resetCount = 0;
+        for (int i = 0; i < 10; i++) {
+            if (FlowForegroundService.shouldResetMonitoringLifecycle(
+                    lifecycleClean,
+                    BlockStateMachine.State.IDLE
+            )) {
+                resetCount++;
+                lifecycleClean = true;
+            }
+        }
+
+        assertEquals(1, resetCount);
+        assertFalse(FlowForegroundService.shouldResetMonitoringLifecycle(
+                true,
+                BlockStateMachine.State.IDLE
+        ));
+        assertFalse(FlowForegroundService.shouldResetMonitoringLifecycle(
+                false,
+                BlockStateMachine.State.RESTING
+        ));
+    }
+
+    @Test public void pausedRestIntegrityTickRequiresEveryLiveInput() {
+        assertTrue(FlowForegroundService.shouldRunPausedRestIntegrityTick(
+                false,
+                BlockStateMachine.State.RESTING
+        ));
+        assertFalse(FlowForegroundService.shouldRunPausedRestIntegrityTick(
+                true,
+                BlockStateMachine.State.RESTING
+        ));
+        assertFalse(FlowForegroundService.shouldRunPausedRestIntegrityTick(
+                false,
+                BlockStateMachine.State.IDLE
+        ));
+
+        assertTrue(FlowForegroundService.isPausedRestIntegrityObservationTrustworthy(
+                true,
+                true,
+                true,
+                true
+        ));
+        assertFalse(FlowForegroundService.isPausedRestIntegrityObservationTrustworthy(
+                false,
+                true,
+                true,
+                true
+        ));
+        assertFalse(FlowForegroundService.isPausedRestIntegrityObservationTrustworthy(
+                true,
+                false,
+                true,
+                true
+        ));
+        assertFalse(FlowForegroundService.isPausedRestIntegrityObservationTrustworthy(
+                true,
+                true,
+                false,
+                true
+        ));
+        assertFalse(FlowForegroundService.isPausedRestIntegrityObservationTrustworthy(
+                true,
+                true,
+                true,
+                false
+        ));
+    }
+
     @Test public void unavailableRuntimeTickPreservesAnActiveRestSession() {
         assertFalse(FlowForegroundService.shouldResetMonitoringLifecycleForUnavailableTick(
                 BlockStateMachine.State.RESTING
