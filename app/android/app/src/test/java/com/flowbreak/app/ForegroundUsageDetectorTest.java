@@ -104,6 +104,15 @@ public class ForegroundUsageDetectorTest {
         assertEquals("com.example.video", detector.detect(NOW + 3_000L));
     }
 
+    @Test public void integrityResetForcesFullLookbackBootstrap() {
+        ForegroundUsageDetector detector = detector();
+        detector.resetCursor(NOW);
+
+        detector.resetForIntegrityFailure();
+
+        assertEquals(0L, detector.getCursor());
+    }
+
     @Test public void crossPackageSwitchUpdatesForeground() {
         event("com.example.video", "MainActivity", UsageEvents.Event.ACTIVITY_RESUMED, NOW - 20_000L);
         event("com.example.video", "MainActivity", UsageEvents.Event.ACTIVITY_PAUSED, NOW - 15_000L);

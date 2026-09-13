@@ -125,6 +125,15 @@ public final class ForegroundUsageDetector {
         recentSeenEvents.clear();
     }
 
+    /**
+     * Resets live detection after an integrity failure and forces the next
+     * recovery query to use the full initial lookback window.
+     */
+    void resetForIntegrityFailure() {
+        reset();
+        usageEventsCursor = 0L;
+    }
+
     /** 设置游标到指定时间（screen on 后回看 36 小时；post-unlock 回看 60 秒）。 */
     public void resetCursor(long cursor) {
         usageEventsCursor = cursor;

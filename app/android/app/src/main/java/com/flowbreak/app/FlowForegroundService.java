@@ -426,14 +426,18 @@ public class FlowForegroundService extends Service {
         String normalizedReason = reason == null || reason.isEmpty()
                 ? "PROTECTION_INTEGRITY_FAILURE"
                 : reason;
+        boolean forcePersistence;
         synchronized (runtimeTracking) {
             if (!runtimeTracking.isCurrentServiceGeneration(livenessServiceGeneration)) return;
+            forcePersistence = shouldForceIntegrityFailurePersist(
+                    staticProtectionIntegrityFailureReason
+            );
             staticProtectionIntegrityFailureReason = normalizedReason;
         }
         if (usageAccumulator != null && stateStore != null && repository != null) {
-            flushPendingUsage(true);
+            flushPendingUsage(forcePersistence);
         }
-        if (foregroundDetector != null) foregroundDetector.reset();
+        if (foregroundDetector != null) foregroundDetector.resetForIntegrityFailure();
         if (usageAccumulator != null) usageAccumulator.resetObservation(nowWallMs);
         if (restCheatTracker != null) restCheatTracker.reset();
         pausedRestObservationAt = 0L;
@@ -456,7 +460,7 @@ public class FlowForegroundService extends Service {
             recordCheckpoint(nowWallMs, nowElapsedMs, false, false, "");
             monitoringLifecycleClean = !monitoringEnabled
                     && machine.getState() == BlockStateMachine.State.IDLE;
-            persistState(true);
+            persistState(forcePersistence);
         }
         postOverlayAction(() -> {
             overlayController.dismissBlocker();
@@ -1683,6 +1687,9 @@ public class FlowForegroundService extends Service {
     ) {
         return !lifecycleClean
                 && shouldResetMonitoringLifecycleForUnavailableTick(currentState);
+    }
+    static boolean shouldForceIntegrityFailurePersist(String previousFailureReason) {
+        return previousFailureReason == null || previousFailureReason.isEmpty();
     }
     static boolean shouldResetMonitoringLifecycleForUnavailableTick(
             BlockStateMachine.State currentState

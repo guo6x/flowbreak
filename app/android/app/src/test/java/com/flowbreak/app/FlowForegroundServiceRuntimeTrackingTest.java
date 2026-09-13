@@ -298,6 +298,14 @@ public class FlowForegroundServiceRuntimeTrackingTest {
         ));
     }
 
+    @Test public void repeatedIntegrityFailuresOnlyForceInitialPersistence() {
+        assertTrue(FlowForegroundService.shouldForceIntegrityFailurePersist(null));
+        assertTrue(FlowForegroundService.shouldForceIntegrityFailurePersist(""));
+        assertFalse(FlowForegroundService.shouldForceIntegrityFailurePersist(
+                "PAUSED_REST_USAGE_ACCESS_MISSING"
+        ));
+    }
+
     @Test public void unavailableRuntimeTickPreservesAnActiveRestSession() {
         assertFalse(FlowForegroundService.shouldResetMonitoringLifecycleForUnavailableTick(
                 BlockStateMachine.State.RESTING
