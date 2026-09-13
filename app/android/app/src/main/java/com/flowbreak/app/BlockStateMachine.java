@@ -218,6 +218,23 @@ public final class BlockStateMachine {
         return completeRest(now, graceMs);
     }
 
+    /**
+     * Ends the user's monitoring lifecycle without touching historical usage.
+     * Unlike the ordinary leave reset, this also clears GRACE/RESTING and
+     * advances the observation clock so a later restart cannot resurrect an
+     * old protection state.
+     */
+    public State stopMonitoring(long now) {
+        state = State.IDLE;
+        sessionMs = 0;
+        graceUntil = 0;
+        lastCheckAt = Math.max(0, now);
+        leftTargetsAt = 0;
+        blockedPackage = "";
+        targetActive = false;
+        return state;
+    }
+
     public void reset() {
         state = State.IDLE;
         sessionMs = 0;

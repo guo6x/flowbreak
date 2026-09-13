@@ -45,14 +45,8 @@ public final class NativeFlowPermissionManager {
     /** 与原 NativeFlowPlugin.permissionState() 字段、顺序、语义完全一致。 */
     public JSObject permissionState() {
         JSObject result = new JSObject();
-        AppOpsManager ops = (AppOpsManager) context.getSystemService(Context.APP_OPS_SERVICE);
-        boolean usage = ops != null && ops.checkOpNoThrow(
-                AppOpsManager.OPSTR_GET_USAGE_STATS,
-                android.os.Process.myUid(),
-                context.getPackageName()
-        ) == AppOpsManager.MODE_ALLOWED;
-        boolean overlay = Build.VERSION.SDK_INT < Build.VERSION_CODES.M
-                || Settings.canDrawOverlays(context);
+        boolean usage = hasUsageStats();
+        boolean overlay = hasOverlay();
         PowerManager power = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
         boolean battery = Build.VERSION.SDK_INT < Build.VERSION_CODES.M
                 || (power != null && power.isIgnoringBatteryOptimizations(context.getPackageName()));
@@ -63,7 +57,7 @@ public final class NativeFlowPermissionManager {
         result.put("hasOverlay", overlay);
         result.put("isIgnoringBattery", battery);
         result.put("hasNotification", notification);
-        result.put("hasAccessibility", isAccessibilityEnabled());
+        result.put("hasAccessibility", hasAccessibility());
         result.put("isDomestic", "domestic".equals(BuildConfig.CHANNEL));
         result.put("channel", BuildConfig.CHANNEL);
         result.put("manufacturer", Build.MANUFACTURER == null
@@ -72,6 +66,41 @@ public final class NativeFlowPermissionManager {
         result.put("unsupportedDevice", unsupported);
         result.put("protectionRuntimeAvailable", !unsupported);
         return result;
+    }
+
+    /** Returns the current Usage Access app-op without requiring JSObject parsing. */
+    public boolean hasUsageStats() {
+        AppOpsManager ops = (AppOpsManager) context.getSystemService(Context.APP_OPS_SERVICE);
+        return ops != null && ops.checkOpNoThrow(
+                AppOpsManager.OPSTR_GET_USAGE_STATS,
+                android.os.Process.myUid(),
+                context.getPackageName()
+        ) == AppOpsManager.MODE_ALLOWED;
+    }
+
+    /** Returns the current overlay capability without requiring JSObject parsing. */
+    public boolean hasOverlay() {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.M
+                || Settings.canDrawOverlays(context);
+    }
+
+    /** Returns the current Domestic Accessibility enhancement state. */
+    public boolean hasAccessibility() {
+        return isAccessibilityEnabled();
+    }
+
+    /** Evaluates only the hard core prerequisites; service health is separate. */
+    public ProtectionPrerequisiteGate.Result evaluateCorePrerequisites(
+            boolean monitoringEnabled,
+            int targetCount
+    ) {
+        return ProtectionPrerequisiteGate.evaluate(
+                isProtectionRuntimeAvailable(),
+                monitoringEnabled,
+                targetCount > 0,
+                hasUsageStats(),
+                hasOverlay()
+        );
     }
 
     /**

@@ -21,6 +21,34 @@ export interface PermissionState {
   protectionRuntimeAvailable: boolean;
 }
 
+export type NativeProtectionStatusName =
+  | 'PAUSED'
+  | 'UNCONFIGURED'
+  | 'UNSUPPORTED'
+  | 'STARTING_OR_UNCONFIRMED'
+  | 'ACTIVE'
+  | 'DEGRADED';
+
+export interface NativeProtectionStatus {
+  status: NativeProtectionStatusName;
+  reason: string;
+  coreProtectionOperational: boolean;
+  strongBlockingRequested: boolean;
+  strongBlockingOperational: boolean;
+  strongBlockingDegradedReason: string;
+  monitoringConfigured: boolean;
+  monitoringEnabled: boolean;
+  targetCount: number;
+  serviceRuntimeActive: boolean;
+  monitorThreadAlive: boolean;
+  heartbeatFresh: boolean;
+  currentServiceHeartbeatAt: number;
+  accessibilityEnabledInSettings: boolean;
+  accessibilityRuntimeConnected: boolean;
+  protectionRuntimeAvailable: boolean;
+  permissions: PermissionState;
+}
+
 export interface NativeSettings {
   limitMinutes: number;
   restDuration: number;
@@ -70,6 +98,12 @@ export interface RuntimeTrackingDiagnostics {
   runtimeTargetsMatchPersisted: boolean;
   monitorThreadAlive: boolean;
   monitorLooperIsMain: boolean;
+  lastCompletedMonitorTickElapsedMs?: number;
+  lastCompletedMonitorTickWallMs?: number;
+  protectionIntegrityFailureReason?: string;
+  liveUsageQueryFailureCount?: number;
+  lastLiveUsageQueryFailureClass?: string;
+  lastLiveUsageQuerySucceeded?: boolean;
   timing: {
     lastTickExecutionMs: number;
     maxTickExecutionMs: number;
@@ -113,6 +147,7 @@ export interface NativeFlowPlugin {
   cancelRest(): Promise<void>;
   getCurrentApp(): Promise<{ packageName: string }>;
   getCurrentFatigueLevel(): Promise<{ level: number; minutes: number }>;
+  getProtectionStatus(): Promise<NativeProtectionStatus>;
   getBlockState(): Promise<{
     state: BlockState;
     sessionSeconds: number;
@@ -192,6 +227,7 @@ export interface NativeFlowPlugin {
     databaseVersion: number;
     serviceAlive: boolean;
     serviceHeartbeatAt: number;
+    persistedServiceHeartbeatAt?: number;
     lastUsageEventAt: number;
     state: BlockState;
     sessionSeconds: number;
@@ -205,6 +241,10 @@ export interface NativeFlowPlugin {
     latestEventAt: number;
     permissions: PermissionState;
     runtimeTracking: RuntimeTrackingDiagnostics;
+    protectionIntegrityFailureReason?: string;
+    liveUsageQueryFailureCount?: number;
+    lastLiveUsageQueryFailureClass?: string;
+    lastLiveUsageQuerySucceeded?: boolean;
   }>;
   exportDiagnostics(): Promise<{ json: string }>;
   shareDiagnostics(): Promise<void>;

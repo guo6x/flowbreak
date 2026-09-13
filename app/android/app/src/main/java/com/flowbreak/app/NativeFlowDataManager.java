@@ -41,20 +41,24 @@ public final class NativeFlowDataManager {
 
     /** 诊断 JSON 对象，包含 formatVersion=1 和所有运行状态字段。 */
     public JSObject diagnostics(SharedPreferences prefs) {
-        long now = System.currentTimeMillis();
         FlowDao dao = FlowDatabase.get(context).flowDao();
-        long heartbeat = Math.max(
-                FlowForegroundService.getLastTickAt(),
-                prefs.getLong("serviceHeartbeatAt", 0L)
-        );
+        ProtectionRuntimeHealthEvaluator.Result runtimeHealth =
+                FlowForegroundService.getCurrentProtectionRuntimeHealth();
+        long currentHeartbeat = FlowForegroundService.getLastCompletedMonitorTickWallMs();
+        boolean serviceAlive = runtimeHealth.isHealthy();
         JSObject result = new JSObject();
         result.put("versionName", BuildConfig.VERSION_NAME);
         result.put("versionCode", BuildConfig.VERSION_CODE);
         result.put("channel", BuildConfig.CHANNEL);
         result.put("packageName", context.getPackageName());
         result.put("databaseVersion", 3);
-        result.put("serviceAlive", heartbeat > 0L && now - heartbeat < 45_000L);
-        result.put("serviceHeartbeatAt", heartbeat);
+        result.put("serviceAlive", serviceAlive);
+        result.put("serviceHeartbeatAt", currentHeartbeat);
+        result.put("persistedServiceHeartbeatAt", prefs.getLong("serviceHeartbeatAt", 0L));
+        result.put("coreRuntimeHealthy", runtimeHealth.isHealthy());
+        result.put("coreRuntimeHealthReason", runtimeHealth.reason);
+        result.put("coreRuntimeHealthCheckedAtElapsedMs", runtimeHealth.nowElapsedMs);
+        result.put("heartbeatFresh", runtimeHealth.heartbeatFresh);
         result.put("lastUsageEventAt", FlowForegroundService.getLastUsageEventAt());
         result.put("state", FlowForegroundService.getState().name());
         result.put("sessionSeconds", FlowForegroundService.getSessionSeconds());
@@ -67,6 +71,14 @@ public final class NativeFlowDataManager {
         result.put("eventCount", dao.eventCount());
         result.put("usageRowCount", dao.usageRowCount());
         result.put("latestEventAt", dao.latestEventAt());
+        result.put("protectionIntegrityFailureReason",
+                FlowForegroundService.getProtectionIntegrityFailureReason());
+        result.put("liveUsageQueryFailureCount",
+                FlowForegroundService.getLiveUsageQueryFailureCount());
+        result.put("lastLiveUsageQueryFailureClass",
+                FlowForegroundService.getLastLiveUsageQueryFailureClass());
+        result.put("lastLiveUsageQuerySucceeded",
+                FlowForegroundService.wasLastLiveUsageQuerySuccessful());
         result.put("runtimeTracking", FlowForegroundService.getRuntimeTrackingDiagnostics(prefs));
         return result;
     }

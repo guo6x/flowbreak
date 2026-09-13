@@ -114,4 +114,76 @@ public class RestCompletionIntegrityGateTest {
         assertEquals(RestCompletionIntegrityGate.Decision.DEFER, attempt.decision);
         assertEquals(0, graceCommits.get());
     }
+
+    @Test
+    public void activeIntegrityFailureDefersEvenWhenHeartbeatIsFresh() throws Exception {
+        AtomicInteger completions = new AtomicInteger();
+        ProtectionRuntimeHealthEvaluator.Result runtimeHealth =
+                ProtectionRuntimeHealthEvaluator.evaluate(
+                        true,
+                        true,
+                        10_000L,
+                        12_000L,
+                        "LIVE_USAGE_QUERY_SECURITY"
+                );
+
+        RestCompletionIntegrityGate.Attempt<String> attempt =
+                RestCompletionIntegrityGate.execute(
+                        RESTING,
+                        runtimeHealth,
+                        () -> {
+                            completions.incrementAndGet();
+                            return "must-not-commit";
+                        }
+                );
+
+        assertEquals(RestCompletionIntegrityGate.Decision.DEFER, attempt.decision);
+        assertEquals(0, completions.get());
+        assertEquals(null, attempt.value);
+    }
+
+    @Test
+    public void missingRuntimeHealthSnapshotDefersRestCompletion() throws Exception {
+        AtomicInteger completions = new AtomicInteger();
+        RestCompletionIntegrityGate.Attempt<String> attempt =
+                RestCompletionIntegrityGate.execute(
+                        RESTING,
+                        null,
+                        () -> {
+                            completions.incrementAndGet();
+                            return "must-not-commit";
+                        }
+                );
+
+        assertEquals(RestCompletionIntegrityGate.Decision.DEFER, attempt.decision);
+        assertEquals(0, completions.get());
+        assertEquals(null, attempt.value);
+    }
+
+    @Test
+    public void currentHealthyRuntimeAllowsCompletionThroughSnapshotGate() throws Exception {
+        AtomicInteger completions = new AtomicInteger();
+        ProtectionRuntimeHealthEvaluator.Result runtimeHealth =
+                ProtectionRuntimeHealthEvaluator.evaluate(
+                        true,
+                        true,
+                        10_000L,
+                        12_000L,
+                        ""
+                );
+
+        RestCompletionIntegrityGate.Attempt<String> attempt =
+                RestCompletionIntegrityGate.execute(
+                        RESTING,
+                        runtimeHealth,
+                        () -> {
+                            completions.incrementAndGet();
+                            return "completed";
+                        }
+                );
+
+        assertEquals(RestCompletionIntegrityGate.Decision.ALLOW, attempt.decision);
+        assertEquals(1, completions.get());
+        assertEquals("completed", attempt.value);
+    }
 }

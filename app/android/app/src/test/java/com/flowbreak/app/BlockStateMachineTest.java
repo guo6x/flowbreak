@@ -170,6 +170,25 @@ public class BlockStateMachineTest {
         assertEquals(BlockStateMachine.State.GRACE, machine.update(true, "one", 20_000, LIMIT));
     }
 
+    @Test public void stoppingMonitoringClearsAllLiveLifecycleState() {
+        BlockStateMachine machine = new BlockStateMachine(
+                BlockStateMachine.State.BLOCKED,
+                120_000L,
+                0L,
+                80_000L,
+                "one"
+        );
+        machine.seedCheckpoint(90_000L, true);
+
+        assertEquals(BlockStateMachine.State.IDLE, machine.stopMonitoring(100_000L));
+        assertEquals(0L, machine.getSessionMs());
+        assertEquals(0L, machine.getGraceUntil());
+        assertEquals(0L, machine.getLeftTargetsAt());
+        assertEquals("", machine.getBlockedPackage());
+        assertEquals(false, machine.getTargetActive());
+        assertEquals(100_000L, machine.getLastCheckAt());
+    }
+
     @Test public void verifiedHistoryCrossingGraceExpiryCountsOnlyPostGraceTargetTime() {
         long checkpoint = 1_000_000L;
         BlockStateMachine machine = new BlockStateMachine(
