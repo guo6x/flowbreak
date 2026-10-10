@@ -58,6 +58,11 @@ final class RestCheatEvidence {
         lastObservationAt = Math.max(0L, observedAt);
     }
 
+    /** Replay data is REST anti-cheat evidence only when REST was active. */
+    static boolean shouldRecordHistoricalReplay(boolean wasResting, long verifiedTargetMs) {
+        return wasResting && verifiedTargetMs > 0L;
+    }
+
     synchronized void recordHistoricalReplay(
             long verifiedTargetMs,
             long accumulatedMs,
