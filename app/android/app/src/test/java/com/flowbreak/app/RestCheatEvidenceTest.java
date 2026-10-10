@@ -64,6 +64,24 @@ public class RestCheatEvidenceTest {
         assertEquals(5_500L, nextSession.lastCancelledAccumulatedMs);
     }
 
+    @Test public void historicalTargetOutsideRestIsNotAcceptedAsCheatEvidence() {
+        assertFalse(RestCheatEvidence.shouldRecordHistoricalReplay(false, 10_000L));
+        assertFalse(RestCheatEvidence.shouldRecordHistoricalReplay(false, 0L));
+        assertFalse(RestCheatEvidence.shouldRecordHistoricalReplay(true, 0L));
+        assertTrue(RestCheatEvidence.shouldRecordHistoricalReplay(true, 5_000L));
+
+        RestCheatEvidence evidence = new RestCheatEvidence();
+        evidence.onRestStarted();
+        long ordinaryTargetMs = 10_000L;
+        if (RestCheatEvidence.shouldRecordHistoricalReplay(false, ordinaryTargetMs)) {
+            evidence.recordHistoricalReplay(ordinaryTargetMs, ordinaryTargetMs, 6_000L);
+        }
+        RestCheatEvidence.Snapshot snapshot = evidence.snapshot();
+        assertEquals(0L, snapshot.sessionHistoricalReplayMs);
+        assertEquals(0L, snapshot.maxAccumulatedMs);
+        assertEquals("AWAITING_NATIVE_OBSERVATION", snapshot.lastSource);
+    }
+
     @Test public void historicalReplayRecordsOnlyVerifiedMillisAndSnapshotIsImmutable() {
         RestCheatEvidence evidence = new RestCheatEvidence();
         evidence.onRestStarted();
