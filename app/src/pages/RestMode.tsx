@@ -98,7 +98,12 @@ export default function RestMode() {
         // its promise resolution (or the old persisted BLOCKED snapshot) as
         // proof that the native REST session has started.
         await NativeFlow.beginRest();
-        for (let attempt = 0; attempt < 24 && active; attempt++) {
+        let attempt = 0;
+        // The monitor worker has no strict six-second completion bound: it
+        // may be busy reconciling a verified Android execution gap. Keep
+        // waiting for authoritative native RESTING until this screen exits.
+        // Back off after initial retries to avoid busy polling indefinitely.
+        while (active) {
           const state = await NativeFlow.getBlockState();
           if (!active) return;
           if (state.state === 'RESTING'
@@ -107,12 +112,17 @@ export default function RestMode() {
             const endsAt = state.restStartedAt + state.restRequiredSeconds * 1000;
             setRestEndsAt(endsAt);
             setTimeLeft(Math.max(0, Math.ceil((endsAt - Date.now()) / 1000)));
+            setOperationError('');
             setRestReady(true);
             return;
           }
-          await new Promise<void>(resolve => window.setTimeout(resolve, 250));
+          if (attempt === 24) {
+            setOperationError('原生休息仍在启动，正在等待确认。');
+          }
+          const intervalMs = attempt < 24 ? 250 : 2_000;
+          attempt++;
+          await new Promise<void>(resolve => window.setTimeout(resolve, intervalMs));
         }
-        if (active) setOperationError('暂未确认原生休息已启动，请返回后重试。');
       } catch {
         if (active) setOperationError('休息模式启动失败，请返回后重试。');
       }
