@@ -1,0 +1,35 @@
+# One-time, branch-scoped lockfile generation; remove after successful PR creation.
+# No production-signing environment or release permissions are accessible.
+name: Security lock refresh
+on:
+  push:
+    branches:
+      - fix/security-capacitor-ghsa-rvm3
+permissions:
+  contents: write
+jobs:
+  lock:
+    if: github.repository == 'guo6x/flowbreak'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.23.1
+      - name: Generate npm lockfile from pinned, audited versions
+        working-directory: app
+        run: |
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org
+          node -e "const a=require('./package-lock.json'); for(const p of ['android','core','cli']) { const v=a.packages['node_modules/@capacitor/'+p]?.version; if(v!=='8.4.3') throw Error(p+' version='+v) }"
+      - name: Commit generated lockfile to this branch only
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/fix/security-capacitor-ghsa-rvm3"
+          git add app/package-lock.json
+          if git diff --cached --quiet; then
+            echo "Lockfile unchanged"; exit 0
+          fi
+          git -c user.name=github-actions -c user.email=41898282+github-actions[bot]@users.noreply.github.com commit -m "chore(security): regenerate npm lockfile for Capacitor 8.4.3"
+          git push origin HEAD:refs/heads/fix/security-capacitor-ghsa-rvm3
