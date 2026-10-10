@@ -94,15 +94,25 @@ export default function RestMode() {
     let active = true;
     const restoreOrStartRest = async () => {
       try {
+        // beginRest() only enqueues an Android service command. Do not treat
+        // its promise resolution (or the old persisted BLOCKED snapshot) as
+        // proof that the native REST session has started.
         await NativeFlow.beginRest();
-        const state = await NativeFlow.getBlockState();
-        if (!active) return;
-        const requiredSeconds = state.restRequiredSeconds || profile.restDuration || 180;
-        const startedAt = state.restStartedAt || Date.now();
-        const endsAt = startedAt + requiredSeconds * 1000;
-        setRestEndsAt(endsAt);
-        setTimeLeft(Math.max(0, Math.ceil((endsAt - Date.now()) / 1000)));
-        setRestReady(true);
+        for (let attempt = 0; attempt < 24 && active; attempt++) {
+          const state = await NativeFlow.getBlockState();
+          if (!active) return;
+          if (state.state === 'RESTING'
+              && state.restStartedAt > 0
+              && state.restRequiredSeconds > 0) {
+            const endsAt = state.restStartedAt + state.restRequiredSeconds * 1000;
+            setRestEndsAt(endsAt);
+            setTimeLeft(Math.max(0, Math.ceil((endsAt - Date.now()) / 1000)));
+            setRestReady(true);
+            return;
+          }
+          await new Promise<void>(resolve => window.setTimeout(resolve, 250));
+        }
+        if (active) setOperationError('暂未确认原生休息已启动，请返回后重试。');
       } catch {
         if (active) setOperationError('休息模式启动失败，请返回后重试。');
       }
@@ -125,7 +135,9 @@ export default function RestMode() {
     let active = true;
     let checking = false;
     const reconcileNativeRest = async () => {
-      if (!active || checking || document.visibilityState === 'hidden') return;
+      if (!active || checking || completedRestRef.current
+          || completionInFlightRef.current || cancelledRestRef.current
+          || document.visibilityState === 'hidden') return;
       checking = true;
       try {
         const nativeState = await NativeFlow.getBlockState();
