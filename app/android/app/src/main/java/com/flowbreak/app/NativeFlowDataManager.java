@@ -61,6 +61,12 @@ public final class NativeFlowDataManager {
         result.put("heartbeatFresh", runtimeHealth.heartbeatFresh);
         result.put("lastUsageEventAt", FlowForegroundService.getLastUsageEventAt());
         result.put("state", FlowForegroundService.getState().name());
+        // The current in-memory state and the persisted REST state are both
+        // needed to distinguish a native cancellation from stale WebView UI.
+        result.put("persistedBlockState", prefs.getString("blockState", "IDLE"));
+        result.put("persistedRestSessionPresent",
+                prefs.getLong(FlowForegroundService.PREF_REST_STARTED_AT, 0L) > 0L
+                && prefs.getLong(FlowForegroundService.PREF_REST_REQUIRED_MS, 0L) > 0L);
         result.put("sessionSeconds", FlowForegroundService.getSessionSeconds());
         result.put("graceUntil", FlowForegroundService.getGraceUntil());
         result.put("monitoringConfigured", prefs.getBoolean("serviceConfigured", false));
