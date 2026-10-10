@@ -56,10 +56,6 @@ jobs:
           # Legacy SDK 'tools' no longer exists; avoid the v3 default.
           packages: 'platform-tools'
       - run: npm ci
-      - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
-      - name: Audit all dependencies for critical vulnerabilities
-        run: npm audit --audit-level=critical
       - run: npm test
       - run: npm run test:provenance
       - run: npm run test:release
@@ -68,6 +64,12 @@ jobs:
         run: |
           & ../tools/tests/Test-SEC-PORTABILITY-001.ps1
       - run: npm run build
+      # Both security audits still gate CI and release; running tests and
+      # typechecking first preserves regression evidence during advisories.
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: Audit all dependencies for critical vulnerabilities
+        run: npm audit --audit-level=critical
       - name: Generate build provenance
         run: node scripts/generate-build-provenance.mjs dist
       - run: npx cap sync android
