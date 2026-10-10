@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, render } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import RestMode from '../RestMode';
 import { NativeFlow } from '../../backend/nativeFlow';
@@ -33,7 +33,8 @@ vi.mock('../rest-mode/ambientAudio', () => ({
 }));
 
 vi.mock('../rest-mode/RestActivityView', () => ({
-  default: () => <div data-testid="rest-view" />,
+  default: ({ operationError }: { operationError: string }) =>
+    <div data-testid="rest-view">{operationError}</div>,
 }));
 
 vi.mock('../rest-mode/RestCompleteView', () => ({
@@ -101,6 +102,30 @@ describe('RestMode native REST reconciliation', () => {
       await vi.advanceTimersByTimeAsync(300);
     });
     expect(NativeFlow.getBlockState).toHaveBeenCalledTimes(2);
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('continues checking when native BEGIN_REST takes more than six seconds', async () => {
+    let checks = 0;
+    vi.mocked(NativeFlow.getBlockState).mockImplementation(async () => {
+      checks++;
+      return checks <= 25
+        ? { ...resting, state: 'BLOCKED', restStartedAt: 0, restRequiredSeconds: 0 }
+        : resting;
+    });
+    await mountRest();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_500);
+    });
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(screen.getByText('原生休息仍在启动，正在等待确认。')).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(checks).toBeGreaterThan(25);
+    expect(screen.queryByText('原生休息仍在启动，正在等待确认。')).toBeNull();
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
