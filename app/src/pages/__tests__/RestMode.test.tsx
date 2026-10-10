@@ -74,6 +74,36 @@ describe('RestMode native REST reconciliation', () => {
     vi.useRealTimers();
   });
 
+  it('waits for the service command to establish RESTING before showing countdown', async () => {
+    vi.mocked(NativeFlow.getBlockState)
+      .mockResolvedValueOnce({ ...resting, state: 'BLOCKED', restStartedAt: 0, restRequiredSeconds: 0 })
+      .mockResolvedValue(resting);
+    await mountRest();
+    expect(NativeFlow.getBlockState).toHaveBeenCalledTimes(1);
+    // The first response is a stale persisted BLOCKED state, not a cancel.
+    expect(mockNavigate).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    expect(NativeFlow.getBlockState).toHaveBeenCalledTimes(2);
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('does not trust a native RESTING state without a committed start timestamp', async () => {
+    vi.mocked(NativeFlow.getBlockState)
+      .mockResolvedValueOnce({ ...resting, restStartedAt: 0 })
+      .mockResolvedValue(resting);
+    await mountRest();
+    expect(NativeFlow.getBlockState).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(NativeFlow.getBlockState).toHaveBeenCalledTimes(2);
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
   it('leaves the stale countdown when native anti-cheat already cancelled REST', async () => {
     vi.mocked(NativeFlow.getBlockState)
       .mockResolvedValueOnce(resting)
