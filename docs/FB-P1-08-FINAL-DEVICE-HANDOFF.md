@@ -1,56 +1,63 @@
-# FB-P1-08 / Gate F 设备验收交接
+# FB-P1-08 — Final short device handoff (GATE F remains FAIL)
 
-**状态：NOT_EXECUTED · Gate F = FAIL · Issue #28 = OPEN。** 本文件是证据收集与判读协议，不是验收报告，也不表示有可用手机、已安装最终候选或已通过设备测试。
+**Scope:** Redmi Note 13 Pro 5G / Android 16 / HyperOS, Domestic channel, v1.1.0 supported-scope only. This document is a test recipe, **not** evidence of success.
 
-## 当前已知事实
+## 0. No-phone work already prepared (2026-10-10)
 
-- Issue #28 标记为 P1 / `OPEN_SUPPORTED_SCOPE_RELEASE_BLOCKER`。
-- 历史真实设备摘要记录：在 REST 期间将 Bilibili 保持在前台约 33 秒后，FlowBreak 仍显示 REST 倒计时。
-- 当时摘要未附原生持久状态、服务 tick、前台分类器或取消判定。因此尚不能区分「原生仍处于 RESTING」与「原生状态已变、Web 画面仍显示旧倒计时」。不得将其概括为已证实的 `cancelRest` 原生失败。
-- 设备型号、系统/OEM 版本、安装渠道、签名/构建来源与设备复现包 SHA 在当前摘要中没有可核验记录。不得从其他 Redmi 复测或相邻 CI 中推测并补入。
-- GitHub Issue 中记录的权限/UI、UsageEvents 旧前台事实、停止监控后无障碍沿用 BLOCKED 状态是独立代码审计子项；它们不等于同一设备上的全部复现结果。
-- 当前集成源代码尚无 `restCheatEvidence` 字段实现。脱敏诊断分享通过白名单过滤，**不包含 `runtimeTracking`，也不包含 `restCheatEvidence`**。完整本地数据导出是另一种导出，不能当成脱敏诊断。
-- 本轮没有真实手机；可使用 AVD 做可重复的权限、UI、状态和恢复检查，但 AVD 不能验证 Redmi/HyperOS 后台调度或关闭 Gate F。
+- PR #29: native REST UI reconciliation; asynchronous BEGIN_REST acknowledgment; passive, package-free native anti-cheat diagnostic counters and persisted REST status; deterministic Robolectric UsageEvents integration tests for approximately 33 seconds of Bilibili foreground usage.
+- PR #31: patched Capacitor 8.4.3 security upgrade, separate PR with successful complete CI, still unmerged.
+- Validation-only PR #32: PR #29 overlaid with PR #31's npm manifest/lockfile so the security audit stays enforced. **CI success on this branch is not Gate F device approval**.
+- Existing UI: Profile → 效果验证与运行诊断 → 导出脱敏诊断. Plugin API: `shareDiagnostics()`. This exports the new fields; there is no need to create or permission an additional data-collection application.
+- **Never treat** `assemblePlayDebugAndroidTest` as executed instrumentation tests; it only assembles an APK.
 
-## 开始前必须冻结的证据身份
+## 1. Preconditions for an eventual true-device run
 
-在开始设备验收之前，先在 `CURRENT_STATUS.md` 与 `TESTING.md` 写明并互相核对：
+Do **not** consume the user's phone yet. Before booking a short test slot:
 
-1. 最终候选 Git SHA（包括干净工作区与差异审阅结果）。
-2. 由该 SHA 构建的 APK 文件名、渠道、版本、SHA-256、provenance 与签名证书指纹。
-3. 设备型号、Android/OEM 版本、系统安全补丁日期、安装渠道、安装前后数据保留情况。
-4. 实际执行日期/时区、所需权限与设置、每项用例结果及原始证据存放位置。
+1. Confirm the *exact approved source commit* and recorded CI run, including PR #29 changes and patched Capacitor dependencies. Verify `sourceGitSha` / artifact-manifest, APK web-asset provenance, binary version and package identity all refer to that source. A PR32 **unsigned** artifact is not installable as a production replacement.
+2. Build/sign the Domestic APK using the established **final production signing identity** in the authorized signing environment only. Verify certificate SHA-256 with `apksigner verify --print-certs` against both the already-installed application's certificate and the repository's signing allowlist. Never upload the key, passwords, recovery archive, or signing environment to this repo, chats or a public CI job.
+3. Check installed versionCode and new versionCode; use a legitimate non-downgrading, same-package replacement. Preserve Room and SharedPreferences. **Do not** `adb uninstall`, `pm clear`, `adb install -r -d`, or change user permissions/security/target-app configuration to make a test pass.
+4. Keep raw local device evidence outside GitHub. Only include minimized redacted diagnostic fields and observed state transitions in an issue comment.
 
-缺少任一身份字段时，将运行标记为 **INCOMPLETE / NOT_EVALUATED**，不能拼接其他 SHA、签名包、CI run 或旧设备报告作为补齐。
+If any precondition fails, result = `NOT_EXECUTED`, not PASS.
 
-## 无手机期间的 AVD 范围
+## 2. Short, user-authorized device session
 
-当前可在 Android 虚拟设备上验证与 Gate F 相关的可控子集：权限缺失/恢复时 UI 是否如实降级、REST 命令是否等到原生确认再展示倒计时、前台/返回/取消后的页面对账、服务可用性读失败时是否 fail closed、设置变更是否及时反映。记录 AVD 型号、API 版本、包身份和截图。
+Record the device time and APK SHA/certificate. Note the existing list of selected target apps, particularly whether `tv.danmaku.bili` is present. Confirm Usage Access, overlay permissions and service/runtime health without changing them.
 
-这些结果应标为 **AVD / CONTROLLED TEST**，不可称为真机、OEM 或 Protection Integrity 通过，也不可替代 24 小时连续运行。虚拟设备无法证明物理系统调度真实发生，不能解除 Issue #28 的 OPEN 状态。
+1. Open FlowBreak, begin a *verified* native REST session; only count the test once `state == RESTING`, `persistedBlockState == RESTING` and `persistedRestSessionPresent == true`.
+2. Capture a baseline sanitized diagnostics export and the REST countdown (timestamps).
+3. While still resting, open Bilibili as the actual foreground app for **at least 15 seconds** (33 seconds can be used to reproduce the original failure). Return to FlowBreak and immediately capture the visible state and a new sanitized diagnostics export.
+4. For cumulative behavior, perform a *fresh* rest: target app → safe non-target foreground for a real interval → target app again, totaling more than 5 seconds of target-foreground observations. Record the observed native cancellation and export, not merely the UI countdown.
+5. Recheck prior Gate F passing scenarios (screen off, keyguard, safe non-target interval, Usage Access fail-closed) using the established acceptance criteria. A 24-hour stability PASS additionally requires real elapsed, device-backed evidence; automated CI cannot establish it.
 
-## 真实设备复验协议（设备可用后）
+The run may be split into separately documented device sessions rather than monopolizing the user's phone. Stop immediately if the user needs the device or any installation/permission check cannot be satisfied.
 
-使用设备负责人授权且可安全恢复的测试设备；仅安装通过审阅、与已有数据兼容的精确候选包。不要清数据、改写偏好/数据库、伪造系统事件、导出不必要的私人内容或触碰签名密钥。
+## 3. How to interpret evidence
 
-1. **建立基线**：记录设备/包/provenance 身份。分别确认使用情况访问、悬浮窗和服务/监控状态；记录界面状态及可通过当前正式 UI 获得的诊断摘要。
-2. **缺失硬权限**：在授权测试设备上撤销 Usage Access 或 Overlay 后，确认 Dashboard/设置页不再承诺当前不可执行的保护，并确认不可用状态不会沿用旧前台包名继续计时。按批准的权限操作恢复后，确认状态变化来自新的成功读取而非旧缓存。
-3. **REST 目标使用**：进入一段有效 REST，在可控目标应用前台运行足以超过实现的检测阈值的短时窗口；记录准确时间、屏幕上显示和应用返回后的状态。若需要复现旧现象，另单独记录约 33 秒窗口，不要将历史摘要冒充新运行。
-4. **安全非目标与累计窗口**：若本版本的产品语义及获批设备方案支持，执行目标 → 安全非目标 → 目标场景；记录各段时间及状态。将 UI 倒计时变化与设备上当前可见的原生状态证据逐项对照。
-5. **停止保护时的无障碍**（仅 Domestic 且无障碍已由用户明确授权）：在目标设备上先处于 BLOCKED，再通过正式 UI 停止监控；确认不会继续触发 HOME/阻断横幅。Play 渠道不含无障碍服务，不适用该项。
-6. **保守判读**：若现有 UI/分享诊断没有需要的原生状态字段，标记为 `INSUFFICIENT_EVIDENCE`；不得假设脱敏诊断包含 `runtimeTracking` 或不存在的 `restCheatEvidence`。不要为满足旧交接文档而恢复整段运行时间线分享。
-7. **Gate F 稳定性**：完成经批准的候选后另开 24 小时连续运行观察，覆盖状态变化、前后台、屏幕/锁屏、通知和故障注入矩阵；记录时间暴涨、重复通知、ANR、状态漂移和任何采样缺失。未完整运行 24 小时即为 `NOT_EXECUTED` 或 `INCOMPLETE`，不得标 PASS。
+The root JSON includes `state`, `persistedBlockState`, `persistedRestSessionPresent`, `serviceAlive`, `monitoringEnabled`, `targetCount` and `runtimeTracking`.
 
-## 判读规则
+Within `runtimeTracking`, inspect:
+- `tickCount`, `monitorThreadAlive`, `heartbeatFresh`, `scheduler`, `lastLiveUsageQuerySucceeded`: was the monitor actually running reliably?
+- `runtimeTargetsMatchPersisted`, `reasonCounters.foregroundInRuntimeTargetTickCount`, `reasonCounters.classifierFalseForegroundInRuntimeTargetCount`: was Bilibili in the real runtime target set and actually classified?
+- `restCheatEvidence.sessionObservations`, `sessionPausedObservations`, `sessionTargetObservations`, `lastForegroundInTargets`, `lastIsTarget`: did the *paused vs active* REST inspection path see it?
+- `restCheatEvidence.lastAccumulatedMs`, `maxAccumulatedMs`, `thresholdMs` (expected 5000), `sessionHistoricalReplayMs`: did cumulative verified time reach the threshold?
+- `restCheatEvidence.cancellationCount`, `lastCancelledAccumulatedMs`, `lastCancellationAt`: did the native cancel path run?
 
-| 观察 | 可支持的结论 | 不能据此声称 |
-| --- | --- | --- |
-| 保护服务或硬权限不可用，而 UI 仍显示“已开启” | `FB-P1-08` 对应的 UI/能力一致性仍失败 | 问题已由 AVD 或静态测试解决 |
-| REST 期间目标使用后设备显示已离开 RESTING，但 UI 仍倒计时 | 页面与原生状态不同步的证据 | 原生取消逻辑失败 |
-| REST 期间目标使用后原生状态仍为 RESTING，且设备证据完整 | 该候选/设备的保护完整性复现证据；需定位差异 | 所有设备/渠道上都以相同方式失败 |
-| 运行时间、服务状态或原始诊断不可用 | `INSUFFICIENT_EVIDENCE` | PASS 或明确根因 |
-| AVD 自动化或模拟 UsageEvents 用例通过 | 相应受控代码路径通过该回归 | HyperOS/OEM 实机调度或 Gate F PASS |
+Use **changes relative to the baseline** to avoid accidentally attributing an older session's lifetime cancellation counter to the current run. This diagnostic is in-memory process-local, not a persistent forensic journal; if the process is restarted, record that as an integrity/liveness event rather than claiming that zero counters prove no prior cancellation.
 
-## 关闭条件
+| Observation | Next owner / action |
+| --- | --- |
+| Missing/stale monitoring ticks or unsuccessful UsageEvents query | Monitor lifecycle / Android scheduler / usage permissions; don't accuse tracker |
+| Healthy ticks but Bilibili not recognized or runtime targets differ | ForegroundUsageDetector / target snapshot / configuration |
+| Foreground belongs to runtime targets but target classifier false | TargetAppClassifier / channel-specific branch |
+| Repeated target observations but cumulative stays below 5000 | Observation timestamps, paused/normal path and execution gaps |
+| Cumulative reaches 5000, cancellation count does not advance, REST remains persisted | RestCheatReplay → BlockStateMachine → Service cancellation integration |
+| Native cancellation advances and persisted state leaves RESTING, but old countdown is visible | WebView REST UI and resume reconciliation |
+| Data unavailable, test not signed with approved key, or results ambiguous | `INCONCLUSIVE`; collect a second short run, **never PASS by inference** |
 
-`FB-P1-08` 只能在修复按项目规则合并、最终候选 SHA 的自动化和独立审阅通过、适配问题类型的真实设备复测完成并证据可复核后，才可按缺陷台账规则讨论关闭。Gate F 还必须完成 24 小时稳定性运行。任何一项没有证据时，保持 `OPEN` / `FAIL`；当前最终候选 SHA 与 APK SHA 均为 **TBD**。
+## 4. Release decision
+
+After actual device revalidation, attach a signed-source SHA, exact installed binary SHA-256 and certificate comparison, minimized diagnostic deltas, short timeline and scenario-by-scenario PASS/FAIL/NOT_EXECUTED table to Issue #28. **Only with real accepted evidence** may the release commander reconsider `FB-P1-08` and GATE F. Do not merge PR #29, publish to a store, or declare GATE F complete based on this handoff or Android JVM/CI tests.
+
+The official current decision is `GATE_F=FAIL`, `PR29_MERGE=WAIT_FOR_COMMANDER`, `PRODUCTION_RELEASE=NOT_APPROVED`.
