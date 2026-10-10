@@ -97,6 +97,7 @@ public class FlowForegroundService extends Service {
     private static volatile String staticLastGapQueryFailureClass = "";
     private static volatile long staticHistoricalTargetMsRecovered;
     private static final RuntimeTrackingCounters runtimeTracking = new RuntimeTrackingCounters();
+    private static final RestCheatEvidence restCheatEvidence = new RestCheatEvidence();
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private HandlerThread monitorThread;
@@ -612,6 +613,7 @@ public class FlowForegroundService extends Service {
         }
         stateStore.persistBeginRest(decision.startedAt, decision.requiredMs, decision.sessionId);
         machine.beginRest();
+        restCheatEvidence.onRestStarted();
         pausedRestObservationAt = 0L;
         monitoringLifecycleClean = false;
         anchorCheckpointToNow(false, false, "");
@@ -815,6 +817,16 @@ public class FlowForegroundService extends Service {
                 prevObservedAt,
                 now
         );
+        if (currentState == BlockStateMachine.State.RESTING) {
+            restCheatEvidence.recordLive(
+                    false,
+                    foregroundPresent,
+                    foregroundInRuntimeTargets,
+                    isTarget,
+                    restCheatTracker.accumulatedMs(),
+                    now
+            );
+        }
         if (restCheatTracker.triggered()) {
             RestCheatReplay.Decision liveRestCheat = RestCheatReplay.cancelTriggered(
                     machine,
@@ -1017,6 +1029,14 @@ public class FlowForegroundService extends Service {
                 pausedRestObservationAt,
                 now
         );
+        restCheatEvidence.recordLive(
+                true,
+                !foreground.isEmpty(),
+                targetApps.contains(foreground),
+                isTarget,
+                restCheatTracker.accumulatedMs(),
+                now
+        );
         pausedRestObservationAt = now;
 
         if (restCheatTracker.triggered()) {
@@ -1158,6 +1178,13 @@ public class FlowForegroundService extends Service {
                 result.historicalTargetMsRecovered,
                 limitMinutes * 60_000L
         );
+        if (result.historicalTargetMsRecovered > 0L) {
+            restCheatEvidence.recordHistoricalReplay(
+                    result.historicalTargetMsRecovered,
+                    historicalRestCheat.accumulatedMs,
+                    nowWallMs
+            );
+        }
         if (historicalRestCheat.cancelled) {
             handleRestCheatCancellation(
                     historicalRestCheatPackage(result),
@@ -1277,6 +1304,7 @@ public class FlowForegroundService extends Service {
             );
         }
         stateStore.clearActiveRestSession();
+        restCheatEvidence.recordCancellation(cheatAccumulated, System.currentTimeMillis());
         repository.log(
                 "rest_cheat",
                 packageName == null ? "" : packageName,
@@ -1877,6 +1905,27 @@ public class FlowForegroundService extends Service {
         result.put("runtimeTargetCount", snapshot.runtimeTargetCount);
         result.put("persistedTargetCount", snapshot.persistedTargetCount);
         result.put("runtimeTargetsMatchPersisted", snapshot.runtimeTargetsMatchPersisted);
+
+        // Passive in-memory REST telemetry. Package names and UsageEvents are
+        // deliberately excluded from the export.
+        RestCheatEvidence.Snapshot cheat = restCheatEvidence.snapshot();
+        JSObject cheatEvidence = new JSObject();
+        cheatEvidence.put("sessionObservations", cheat.sessionObservations);
+        cheatEvidence.put("sessionTargetObservations", cheat.sessionTargetObservations);
+        cheatEvidence.put("sessionPausedObservations", cheat.sessionPausedObservations);
+        cheatEvidence.put("sessionHistoricalReplayMs", cheat.sessionHistoricalReplayMs);
+        cheatEvidence.put("lastAccumulatedMs", cheat.lastAccumulatedMs);
+        cheatEvidence.put("maxAccumulatedMs", cheat.maxAccumulatedMs);
+        cheatEvidence.put("thresholdMs", RestCheatTracker.CHEAT_THRESHOLD_MS);
+        cheatEvidence.put("lastObservationAt", cheat.lastObservationAt);
+        cheatEvidence.put("cancellationCount", cheat.cancellationCount);
+        cheatEvidence.put("lastCancellationAt", cheat.lastCancellationAt);
+        cheatEvidence.put("lastCancelledAccumulatedMs", cheat.lastCancelledAccumulatedMs);
+        cheatEvidence.put("lastForegroundPresent", cheat.lastForegroundPresent);
+        cheatEvidence.put("lastForegroundInTargets", cheat.lastForegroundInTargets);
+        cheatEvidence.put("lastIsTarget", cheat.lastIsTarget);
+        cheatEvidence.put("lastSource", cheat.lastSource);
+        result.put("restCheatEvidence", cheatEvidence);
 
         JSObject timing = new JSObject();
         timing.put("lastTickExecutionMs", snapshot.lastTickExecutionMs);
