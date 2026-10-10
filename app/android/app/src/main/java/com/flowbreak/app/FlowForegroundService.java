@@ -107,6 +107,7 @@ public class FlowForegroundService extends Service {
     private static volatile String staticLastGapQueryFailureClass = "";
     private static volatile long staticHistoricalTargetMsRecovered;
     private static final RuntimeTrackingCounters runtimeTracking = new RuntimeTrackingCounters();
+    private static final RestCheatEvidence restCheatEvidence = new RestCheatEvidence();
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private HandlerThread monitorThread;
@@ -819,6 +820,7 @@ public class FlowForegroundService extends Service {
         restHistoryReplayPending = false;
         restCompletionPending = false;
         restCheatTimelineAppliedThisTick = false;
+        restCheatEvidence.onRestStarted();
         pausedRestObservationAt = 0L;
         pausedRestObservationTargetActive = false;
         monitoringLifecycleClean = false;
@@ -1036,6 +1038,16 @@ public class FlowForegroundService extends Service {
                 now
         );
         restCheatTimelineAppliedThisTick = false;
+        if (currentState == BlockStateMachine.State.RESTING) {
+            restCheatEvidence.recordLive(
+                    false,
+                    foregroundPresent,
+                    foregroundInRuntimeTargets,
+                    isTarget,
+                    restCheatTracker.accumulatedMs(),
+                    now
+            );
+        }
         if (restCheatTracker.triggered()) {
             RestCheatReplay.Decision liveRestCheat = RestCheatReplay.cancelTriggered(
                     machine,
@@ -1281,6 +1293,14 @@ public class FlowForegroundService extends Service {
                 now
         );
         restCheatTimelineAppliedThisTick = false;
+        restCheatEvidence.recordLive(
+                true,
+                !foreground.isEmpty(),
+                targetApps.contains(foreground),
+                isTarget,
+                restCheatTracker.accumulatedMs(),
+                now
+        );
         pausedRestObservationAt = now;
         pausedRestObservationTargetActive = isRestTarget;
 
@@ -1476,6 +1496,13 @@ public class FlowForegroundService extends Service {
                     restTargetMs,
                     limitMinutes * 60_000L
             );
+            if (restTargetMs > 0L) {
+                restCheatEvidence.recordHistoricalReplay(
+                        restTargetMs,
+                        historicalRestCheat.accumulatedMs,
+                        nowWallMs
+                );
+            }
             if (historicalRestCheat.cancelled) {
                 handleRestCheatCancellation(
                         historicalRestCheatPackage(restResult),
@@ -1666,6 +1693,7 @@ public class FlowForegroundService extends Service {
         }
         stateStore.clearActiveRestSession();
         clearActiveRestWindow();
+        restCheatEvidence.recordCancellation(cheatAccumulated, System.currentTimeMillis());
         repository.log(
                 "rest_cheat",
                 packageName == null ? "" : packageName,
