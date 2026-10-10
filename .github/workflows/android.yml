@@ -81,6 +81,13 @@ jobs:
         run: |
           & ../tools/tests/Test-SEC-PORTABILITY-001.ps1
       - run: npm run build
+      # Keep security audits observable even when an earlier regression step fails.
+      - name: Re-run production dependency audit after regression checks
+        if: ${{ !cancelled() }}
+        run: npm audit --omit=dev --audit-level=high
+      - name: Re-run critical dependency audit after regression checks
+        if: ${{ !cancelled() }}
+        run: npm audit --audit-level=critical
       - name: Install browser for web preview regression
         run: npx playwright install --with-deps chromium
       - name: Check every web preview page
@@ -416,6 +423,13 @@ jobs:
           echo "VERSION_POLICY=PASS"
           grep -E '^(VERSION_NAME|VERSION_CODE)=' "$GITHUB_ENV"
       - run: npm run build
+      # Keep security audits observable even when an earlier regression step fails.
+      - name: Re-run production dependency audit after regression checks
+        if: ${{ !cancelled() }}
+        run: npm audit --omit=dev --audit-level=high
+      - name: Re-run critical dependency audit after regression checks
+        if: ${{ !cancelled() }}
+        run: npm audit --audit-level=critical
       - name: Generate build provenance
         run: node scripts/generate-build-provenance.mjs dist
       - run: npx cap sync android
