@@ -1496,7 +1496,7 @@ public class FlowForegroundService extends Service {
                     restTargetMs,
                     limitMinutes * 60_000L
             );
-            if (restTargetMs > 0L) {
+            if (RestCheatEvidence.shouldRecordHistoricalReplay(true, restTargetMs)) {
                 restCheatEvidence.recordHistoricalReplay(
                         restTargetMs,
                         historicalRestCheat.accumulatedMs,
