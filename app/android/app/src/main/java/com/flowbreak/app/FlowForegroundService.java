@@ -1172,13 +1172,17 @@ public class FlowForegroundService extends Service {
         // authority for the final ten-second tail.
         machine.seedCheckpoint(checkpointWallMs, checkpointTargetActive);
         applyVerifiedGap(result);
+        // The replay may represent normal use after a completed rest.
+        // Capture the pre-replay state: applyVerifiedTargetMs may cancel REST.
+        boolean replayWasResting = machine.getState() == BlockStateMachine.State.RESTING;
         RestCheatReplay.Decision historicalRestCheat = RestCheatReplay.applyVerifiedTargetMs(
                 machine,
                 restCheatTracker,
                 result.historicalTargetMsRecovered,
                 limitMinutes * 60_000L
         );
-        if (result.historicalTargetMsRecovered > 0L) {
+        if (RestCheatEvidence.shouldRecordHistoricalReplay(
+                replayWasResting, result.historicalTargetMsRecovered)) {
             restCheatEvidence.recordHistoricalReplay(
                     result.historicalTargetMsRecovered,
                     historicalRestCheat.accumulatedMs,
