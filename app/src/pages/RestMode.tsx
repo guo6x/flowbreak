@@ -116,6 +116,49 @@ export default function RestMode() {
     };
   }, []);
 
+  // The native service may cancel REST while the WebView is backgrounded
+  // (e.g. target-app cheating or loss of integrity). The wall-clock countdown
+  // is not authoritative: reconcile with the persisted native state on resume
+  // and while the rest screen is visible.
+  useEffect(() => {
+    if (!isNative || !restReady || showReward) return;
+    let active = true;
+    let checking = false;
+    const reconcileNativeRest = async () => {
+      if (!active || checking || document.visibilityState === 'hidden') return;
+      checking = true;
+      try {
+        const nativeState = await NativeFlow.getBlockState();
+        if (!active) return;
+        if (nativeState.state !== 'RESTING') {
+          // A native cancellation/transition has already happened. Do not
+          // dispatch another CANCEL_REST from the unmount cleanup: that could
+          // overwrite a legitimate transition such as GRACE.
+          cancelledRestRef.current = true;
+          setBlockState(nativeState.state, nativeState.graceUntil, nativeState.blockedPackage);
+          navigate('/dashboard', { replace: true });
+        }
+      } catch {
+        if (active) setOperationError('暂时无法确认休息状态，请返回后重试。');
+      } finally {
+        checking = false;
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void reconcileNativeRest();
+    };
+    const onFocus = () => { void reconcileNativeRest(); };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('focus', onFocus);
+    const timer = window.setInterval(() => { void reconcileNativeRest(); }, 2_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [isNative, restReady, showReward, navigate, setBlockState]);
+
   // ===== Static activity & derived visuals =====
   const activity = getActivityByIndex(activityIdx);
   const ambientParticles = useMemo(
