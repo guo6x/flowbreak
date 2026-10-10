@@ -94,15 +94,35 @@ export default function RestMode() {
     let active = true;
     const restoreOrStartRest = async () => {
       try {
+        // beginRest() only enqueues an Android service command. Do not treat
+        // its promise resolution (or the old persisted BLOCKED snapshot) as
+        // proof that the native REST session has started.
         await NativeFlow.beginRest();
-        const state = await NativeFlow.getBlockState();
-        if (!active) return;
-        const requiredSeconds = state.restRequiredSeconds || profile.restDuration || 180;
-        const startedAt = state.restStartedAt || Date.now();
-        const endsAt = startedAt + requiredSeconds * 1000;
-        setRestEndsAt(endsAt);
-        setTimeLeft(Math.max(0, Math.ceil((endsAt - Date.now()) / 1000)));
-        setRestReady(true);
+        let attempt = 0;
+        // The monitor worker has no strict six-second completion bound: it
+        // may be busy reconciling a verified Android execution gap. Keep
+        // waiting for authoritative native RESTING until this screen exits.
+        // Back off after initial retries to avoid busy polling indefinitely.
+        while (active) {
+          const state = await NativeFlow.getBlockState();
+          if (!active) return;
+          if (state.state === 'RESTING'
+              && state.restStartedAt > 0
+              && state.restRequiredSeconds > 0) {
+            const endsAt = state.restStartedAt + state.restRequiredSeconds * 1000;
+            setRestEndsAt(endsAt);
+            setTimeLeft(Math.max(0, Math.ceil((endsAt - Date.now()) / 1000)));
+            setOperationError('');
+            setRestReady(true);
+            return;
+          }
+          if (attempt === 24) {
+            setOperationError('原生休息仍在启动，正在等待确认。');
+          }
+          const intervalMs = attempt < 24 ? 250 : 2_000;
+          attempt++;
+          await new Promise<void>(resolve => window.setTimeout(resolve, intervalMs));
+        }
       } catch {
         if (active) setOperationError('休息模式启动失败，请返回后重试。');
       }
@@ -115,6 +135,51 @@ export default function RestMode() {
       }
     };
   }, []);
+
+  // The native service may cancel REST while the WebView is backgrounded
+  // (e.g. target-app cheating or loss of integrity). The wall-clock countdown
+  // is not authoritative: reconcile with the persisted native state on resume
+  // and while the rest screen is visible.
+  useEffect(() => {
+    if (!isNative || !restReady || showReward) return;
+    let active = true;
+    let checking = false;
+    const reconcileNativeRest = async () => {
+      if (!active || checking || completedRestRef.current
+          || completionInFlightRef.current || cancelledRestRef.current
+          || document.visibilityState === 'hidden') return;
+      checking = true;
+      try {
+        const nativeState = await NativeFlow.getBlockState();
+        if (!active) return;
+        if (nativeState.state !== 'RESTING') {
+          // A native cancellation/transition has already happened. Do not
+          // dispatch another CANCEL_REST from the unmount cleanup: that could
+          // overwrite a legitimate transition such as GRACE.
+          cancelledRestRef.current = true;
+          setBlockState(nativeState.state, nativeState.graceUntil, nativeState.blockedPackage);
+          navigate('/dashboard', { replace: true });
+        }
+      } catch {
+        if (active) setOperationError('暂时无法确认休息状态，请返回后重试。');
+      } finally {
+        checking = false;
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void reconcileNativeRest();
+    };
+    const onFocus = () => { void reconcileNativeRest(); };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('focus', onFocus);
+    const timer = window.setInterval(() => { void reconcileNativeRest(); }, 2_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [isNative, restReady, showReward, navigate, setBlockState]);
 
   // ===== Static activity & derived visuals =====
   const activity = getActivityByIndex(activityIdx);

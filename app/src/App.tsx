@@ -6,7 +6,8 @@ import { Capacitor } from '@capacitor/core';
 import { useStore } from './hooks/useStore';
 import { getLevelByPercent, InterventionLevel } from './backend/fatigueEngine';
 import { NativeFlow } from './backend/nativeFlow';
-import { getAppName } from './backend/appNames';
+import { syncNativeMonitoring } from './backend/nativeMonitoring';
+import { startNativeStatePolling } from './backend/nativeStateSync';
 import { exportLegacyPayload } from './backend/storage';
 import InterventionOverlay from './components/InterventionOverlay';
 import BottomNav from './components/BottomNav';
@@ -47,13 +48,11 @@ function GlobalMonitor() {
   const snoozeUntil = useStore(s => s.snoozeUntil);
   const logIntervention = useStore(s => s.logIntervention);
   const setFatigue = useStore(s => s.setFatigue);
-  const setCurrentAppName = useStore(s => s.setCurrentAppName);
   const setSnoozeUntil = useStore(s => s.setSnoozeUntil);
   const continuousSeconds = useStore(s => s.continuousSessionSeconds);
   const incrementContinuousSession = useStore(s => s.incrementContinuousSession);
   const resetContinuousSession = useStore(s => s.resetContinuousSession);
   const snoozeContinuousSession = useStore(s => s.snoozeContinuousSession);
-  const setBlockState = useStore(s => s.setBlockState);
   const setServiceError = useStore(s => s.setServiceError);
   const targetApps = profile.targetApps || [];
 
@@ -145,18 +144,10 @@ function GlobalMonitor() {
     const syncService = async () => {
       try {
         if (isMonitoring) {
-          if (targetApps.length === 0) {
-            throw new Error('请先选择至少一个受限应用。');
-          }
-          await NativeFlow.saveSettings({ limitMinutes: profile.sessionLimit, targetApps });
-          await NativeFlow.startService({
-            limitMinutes: profile.sessionLimit,
-            apps: targetApps,
-            monitoringEnabled: true,
-          });
+          await syncNativeMonitoring(true, profile.sessionLimit, targetApps);
           useStore.getState().startSession();
         } else {
-          await NativeFlow.stopService();
+          await syncNativeMonitoring(false, profile.sessionLimit, targetApps);
         }
         if (!cancelled && isMonitoring) setServiceError('');
       } catch (error) {
@@ -178,45 +169,7 @@ function GlobalMonitor() {
   // state so the UI never starts a second competing usage tracker.
   useEffect(() => {
     if (Capacitor.isNativePlatform()) {
-      if (!isMonitoring) return;
-      let active = true;
-      const syncNativeState = async () => {
-        try {
-          const [app, result, block] = await Promise.all([
-            NativeFlow.getCurrentApp(),
-            NativeFlow.getUsageStats(),
-            NativeFlow.getBlockState(),
-          ]);
-          if (!active) return;
-          setCurrentAppName(getAppName(app.packageName));
-          const safeTotal = Math.max(0, result.screenTimeSeconds);
-          const currentStats = useStore.getState().todayStats;
-          if (safeTotal !== currentStats.totalScreenTime) {
-            useStore.getState().setScreenTime(safeTotal);
-          }
-          const levelMap: Partial<Record<typeof block.state, InterventionLevel>> = {
-            PERCEPTION: 'PERCEPTION',
-            COGNITION: 'COGNITION',
-            BLOCKED: 'ACTION',
-          };
-          // Sync native level and continuous seconds to store
-          const normalizedScore = Math.min(
-            1,
-            Math.max(0, block.sessionSeconds / 60 / Math.max(1, profile.sessionLimit)),
-          );
-          setFatigue(normalizedScore, levelMap[block.state] || 'NONE');
-          useStore.getState().setContinuousSessionSeconds(block.sessionSeconds);
-          setBlockState(block.state, block.graceUntil, block.blockedPackage);
-        } catch {
-          // Permission and service startup can briefly lag the WebView.
-        }
-      };
-      void syncNativeState();
-      const timer = setInterval(() => { void syncNativeState(); }, 10_000);
-      return () => {
-        active = false;
-        clearInterval(timer);
-      };
+      return startNativeStatePolling(profile.sessionLimit);
     }
 
     // Web fallback
@@ -244,19 +197,16 @@ function GlobalMonitor() {
     incrementContinuousSession,
     isDocumentVisible,
     profile.sessionLimit,
-    setCurrentAppName,
     setFatigue,
-    setBlockState,
   ]);
 
   // Compute fatigue from continuous session time (NOT total screen time)
   // Web-only logic: Native uses polling from getCurrentFatigueLevel above
   useEffect(() => {
-    if (!isMonitoring || Capacitor.isNativePlatform()) {
-      if (!isMonitoring) {
-        setFatigue(0, 'NONE');
-        prevLevelRef.current = 'NONE';
-      }
+    if (Capacitor.isNativePlatform()) return;
+    if (!isMonitoring) {
+      setFatigue(0, 'NONE');
+      prevLevelRef.current = 'NONE';
       return;
     }
     const mins = continuousSeconds / 60;

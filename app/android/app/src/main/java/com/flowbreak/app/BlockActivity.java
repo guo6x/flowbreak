@@ -22,6 +22,10 @@ public class BlockActivity extends Activity {
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (!canContinueBlockedEntry()) {
+            finish();
+            return;
+        }
         getWindow().setStatusBarColor(Color.rgb(245, 248, 245));
         getWindow().setNavigationBarColor(Color.rgb(245, 248, 245));
         String packageName = getIntent().getStringExtra("blockedPackage");
@@ -51,6 +55,13 @@ public class BlockActivity extends Activity {
         rest.setTextSize(17);
         rest.setBackgroundColor(Color.rgb(50, 145, 87));
         rest.setOnClickListener(v -> {
+            // The activity may outlive the monitor tick that caused it to be
+            // shown. Revalidate immediately before entering RestMode so a
+            // stale persisted BLOCKED state cannot become RESTING.
+            if (!canContinueBlockedEntry()) {
+                finish();
+                return;
+            }
             Intent intent = new Intent(this, MainActivity.class);
             intent.putExtra("navigateTo", "rest");
             startActivity(intent);
@@ -92,6 +103,14 @@ public class BlockActivity extends Activity {
         setContentView(root);
     }
 
+    @Override protected void onResume() {
+        super.onResume();
+        // Dismiss an already-created fallback activity as soon as it becomes
+        // visible after the current core runtime has gone stale or the
+        // BLOCKED state has been resolved elsewhere.
+        if (!canContinueBlockedEntry()) finish();
+    }
+
     @Override public void onBackPressed() {
         moveTaskToBack(true);
     }
@@ -121,5 +140,23 @@ public class BlockActivity extends Activity {
 
     private int dp(int value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    /** Package-private seam keeps the lifecycle/action gate deterministic in JVM tests. */
+    boolean currentCoreRuntimeHealthy() {
+        return FlowForegroundService.isProtectionRuntimeHealthy();
+    }
+
+    private boolean canContinueBlockedEntry() {
+        SharedPreferences prefs = getSharedPreferences(
+                FlowServiceStateStore.PREFS,
+                Context.MODE_PRIVATE
+        );
+        String state = prefs.getString(
+                "blockState",
+                BlockStateMachine.State.IDLE.name()
+        );
+        return BlockStateMachine.State.BLOCKED.name().equals(state)
+                && BlockedRestEntryGate.isAllowed(state, currentCoreRuntimeHealthy());
     }
 }
