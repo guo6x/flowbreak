@@ -89,3 +89,14 @@ test('rejects unquoted absolute and quoted scheme-relative HTML URLs', () => {
     assert.equal(result.violations.filter(x => x.type === 'external-html-asset').length, 2);
   } finally { cleanup(); }
 });
+
+test('rejects protocol-relative CSS import and background URL', () => {
+  const { result, cleanup } = scenario('<html></html>', '', [
+    '@import url("//cdn.example.net/theme.css");',
+    '.hero { background: url(//cdn.example.net/hero.png); }',
+  ].join('\n'));
+  try {
+    assert.ok(result.violations.some(x => x.type === 'external-css-import'));
+    assert.ok(result.violations.some(x => x.type === 'external-css-url'));
+  } finally { cleanup(); }
+});
