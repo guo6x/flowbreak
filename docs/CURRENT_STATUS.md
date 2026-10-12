@@ -5,6 +5,23 @@
 
 ## 当前状态速览
 
+## 2026-10-12 最新状态（取代下方 2026-09-11 历史快照的“当前”口径）
+
+| 项 | 当前可验证状态 |
+| --- | --- |
+| master | `f9ef7a1f0cbcb3925eb87cd9bd16032428054fde`，PR #31 Capacitor 安全升级已合并；master [CI 38205826590](https://github.com/guo6x/flowbreak/actions/runs/38205826590) **SUCCESS** |
+| PR #29 | `b00b9cc75073e77759e28ba5b71f960033cbf1d5`，OPEN，原生 REST 防作弊修复候选和取证文件仍未合并 |
+| Gate F | **FAIL**：之前 Redmi 约 33 秒 B站前台使用未能通过保护完整性验证；新候选尚无物理实测；24h 稳定性未完 |
+| PR #32 | 验证专用 PR，**CLOSED/UNMERGED**；[CI 38053274608](https://github.com/guo6x/flowbreak/actions/runs/38053274608) 只能证明模拟链与构建成功 |
+| PR #33 | 无手机 Gate H/G 准备 + 国内无障碍独立告知；**审查/CI 中，不代表已上架** |
+| Gate G | **PENDING_CROSS_MACHINE_RECOVERY**；真实版本升级另需实测 |
+| Gate H | **PENDING**；草案和官方依据已形成，公开身份/邮箱/URL、截图、审核、备案等未完成 |
+| Gate I | **PENDING**；真实 Beta 未完成 |
+| 发布 | `RELEASE_PREPARATION`，**STORE_READY=NO / PRODUCTION_RELEASE_APPROVED=NO** |
+
+下方“当前状态速览”保留的是旧版本设备与已签名构建历史证据，不得用它替代本节的 2026-10-12 事实。
+
+
 | 项 | 值 |
 | ---- | ---- |
 | Last verified date | **2026-09-11** |
