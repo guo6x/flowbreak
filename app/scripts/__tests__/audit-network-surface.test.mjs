@@ -5,12 +5,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { auditNetworkSurface } from '../audit-network-surface.mjs';
 
-function scenario(indexHtml, appSource = '') {
+function scenario(indexHtml, appSource = '', cssSource = '') {
   const root = mkdtempSync(join(tmpdir(), 'flowbreak-network-static-'));
   mkdirSync(join(root, 'src'), { recursive: true });
   mkdirSync(join(root, 'android/app/src/main'), { recursive: true });
   writeFileSync(join(root, 'index.html'), indexHtml);
   writeFileSync(join(root, 'src', 'main.ts'), appSource);
+  writeFileSync(join(root, 'src', 'App.css'), cssSource);
   writeFileSync(join(root, 'android/app/src/main/AndroidManifest.xml'),
     '<manifest><uses-permission android:name="android.permission.INTERNET"/></manifest>');
   return {
@@ -44,7 +45,7 @@ test('rejects hardcoded outgoing JavaScript network calls', () => {
 });
 
 test('rejects external stylesheet imports', () => {
-  const { result, cleanup } = scenario('<html></html>', '@import url("https://fonts.example/style.css")');
+  const { result, cleanup } = scenario('<html></html>', '', '@import url("https://fonts.example/style.css")');
   try {
     assert.ok(result.violations.some(x => x.type === 'external-css-import'));
   } finally { cleanup(); }
