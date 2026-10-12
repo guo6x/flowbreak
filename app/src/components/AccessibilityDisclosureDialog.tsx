@@ -23,6 +23,7 @@ export default function AccessibilityDisclosureDialog({
         </h2>
         <p className="text-[13px] leading-relaxed text-gray-700">
           这是国内版的可选辅助阻断功能。启用后，FlowBreak 通过 Android 无障碍服务监听窗口切换事件中的应用包名，以及必要时用于识别特定页面的窗口类名，
+          遇到微信窗口时，FlowBreak 会根据窗口类名在本机保存“是否为视频号页面”的判断值及最近检测时间，用于短时间内的目标识别；不保存页面文字。
           仅在命中你选定的受限应用且已达到阻断条件时，尝试返回桌面并显示阻断提示。
           不会读取、保存或上传页面文字、聊天内容或输入内容。你可以拒绝，基础保护设置仍可使用；
           也可以随时从 Android 系统设置关闭。具体效果受系统与设备后台限制影响。
