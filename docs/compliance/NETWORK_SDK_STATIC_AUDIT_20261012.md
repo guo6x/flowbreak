@@ -20,7 +20,7 @@
 - tests against a simulated Google Fonts HTML link, CSS @import and literal fetch, asserting rejection;
 - verifies the current first-party HTML/CSS/JS/TS/Java do not include obvious third-party bootstrap or literal outbound clients;
 - reports `androidInternetPermission:true` rather than falsely claiming zero network privileges;
-- marks its output `STATIC_ONLY_NOT_RUNTIME_NETWORK_PROOF`.
+- marks its output `NOT_RUNTIME_NETWORK_PROOF` and reports Android INTERNET permission; it is static only.
 
 This check runs in ordinary GitHub Android `verify`, which contains **no production signing secrets** and builds both channels. It does not simulate Android Usage Access, signed upgrade, HyperOS background execution, or third-party socket activity.
 
@@ -35,7 +35,7 @@ This check runs in ordinary GitHub Android `verify`, which contains **no product
 ## Decision
 
 - `SOURCE_REMOTE_GOOGLE_FONTS=REMOVED_IN_PR`
-- `STATIC_EXTERNAL_BOOTSTRAP_GATE=AUTOMATED` (upon CI pass)
+- `STATIC_EXTERNAL_BOOTSTRAP_GATE=AUTOMATED` (upon CI pass); the scan covers complete HTML tags including newline attributes and unquoted/protocol-relative URLs, obvious browser clients and CSS remote resources, **not** dynamic obfuscation or transitively linked SDK network activity.
 - `ANDROID_INTERNET_PERMISSION=PRESENT`
 - `FINAL_BINARY_NETWORK_CAPTURE=NOT_EXECUTED`
 - `FINAL_SDK_AND_DATA_SAFETY_APPROVAL=NOT_EXECUTED`
