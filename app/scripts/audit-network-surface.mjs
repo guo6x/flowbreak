@@ -13,27 +13,27 @@ import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = resolve(HERE, '..');
 
+// Check whole source / complete tags: newline-wrapped attributes are ordinary HTML.
 const probes = [
-  {
-    id: 'external-html-asset',
-    pattern: /<(?:script|link)\b[^>]*\b(?:src|href)\s*=\s*["']https?:\/\//i,
-  },
-  {
-    id: 'external-css-import',
-    pattern: /@import\s+(?:url\()?\s*["']?https?:\/\//i,
-  },
-  {
-    id: 'external-css-url',
-    pattern: /url\s*\(\s*["']?https?:\/\//i,
-  },
-  {
-    id: 'literal-js-network-client',
-    pattern: /(?:\bfetch|\bWebSocket|\bEventSource)\s*\(\s*["`]https?:\/\//i,
-  },
-  {
-    id: 'literal-native-network-client',
-    pattern: /(?:new\s+(?:URL|HttpURLConnection|OkHttpClient)|openConnection\s*\(|HttpClient\.newHttpClient\s*\()/,
-  },
+  { id: 'external-html-asset', kind: 'html-tag',
+    pattern: /<(?:script|link|iframe)\b[\s\S]*?>/gi,
+    attribute: /\b(?:src|href)\s*=\s*["']https?:\/\//i },
+  { id: 'external-css-import', kind: 'html-css',
+    pattern: /@import\s+(?:url\()?[\s"'\\]*https?:\/\//gi },
+  { id: 'external-css-url', kind: 'html-css',
+    pattern: /url\s*\(\s*["']?https?:\/\//gi },
+  { id: 'browser-network-client', kind: 'script',
+    pattern: /\b(?:fetch|WebSocket|EventSource|XMLHttpRequest|sendBeacon)\s*\(/g },
+  { id: 'browser-http-library', kind: 'script',
+    pattern: /\baxios\s*\.\s*(?:get|post|put|patch|delete|request)\s*\(/g },
+  { id: 'external-dynamic-resource', kind: 'script',
+    pattern: /\.(?:src|href)\s*=\s*["']https?:\/\//g },
+  { id: 'remote-dynamic-import', kind: 'script',
+    pattern: /\bimport\s*\(\s*["']https?:\/\//g },
+  { id: 'native-network-client', kind: 'java',
+    pattern: /\b(?:HttpURLConnection|OkHttpClient|Socket|openConnection)\b/g },
+  { id: 'native-remote-url', kind: 'java',
+    pattern: /new\s+URL\s*\(\s*["']https?:\/\//g },
 ];
 
 const allowedExt = new Set(['.ts', '.tsx', '.js', '.jsx', '.css', '.html', '.java']);
@@ -56,15 +56,23 @@ export function auditNetworkSurface(appRoot = APP_ROOT) {
   for (const file of files) {
     if (!existsSync(file)) continue;
     const source = readFileSync(file, 'utf8');
-    source.split(/\r?\n/).forEach((line, lineNumber) => {
-      for (const probe of probes) {
-        if (probe.pattern.test(line)) violations.push({
+    const ext = extname(file);
+    for (const probe of probes) {
+      const compatible = probe.kind === 'html-tag' ? ext === '.html'
+        : probe.kind === 'html-css' ? (ext === '.html' || ext === '.css')
+        : probe.kind === 'java' ? ext === '.java'
+        : (ext === '.ts' || ext === '.tsx' || ext === '.js' || ext === '.jsx');
+      if (!compatible) continue;
+      for (const match of source.matchAll(probe.pattern)) {
+        if (probe.attribute && !probe.attribute.test(match[0])) continue;
+        const line = source.slice(0, match.index).split(/\r?\n/).length;
+        violations.push({
           source: relative(appRoot, file).replaceAll('\\', '/'),
-          line: lineNumber + 1,
+          line,
           type: probe.id,
         });
       }
-    });
+    }
   }
   const manifest = join(appRoot, 'android/app/src/main/AndroidManifest.xml');
   const androidInternetPermission = existsSync(manifest) &&
