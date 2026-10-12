@@ -54,6 +54,8 @@ describe("BlockingSettings", () => {
     mockPermissions(false, false);
     vi.mocked(NativeFlow.requestAccessibilityPermission).mockReset();
     vi.mocked(NativeFlow.requestAccessibilityPermission).mockResolvedValue();
+    vi.mocked(NativeFlow.saveSettings).mockReset();
+    vi.mocked(NativeFlow.saveSettings).mockResolvedValue();
     vi.mocked(NativeFlow.loadSettings).mockReset();
     vi.mocked(NativeFlow.loadSettings).mockResolvedValue({
       limitMinutes: 15,
@@ -132,6 +134,32 @@ describe("BlockingSettings", () => {
     fireEvent.click(accessButton);
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(NativeFlow.requestAccessibilityPermission).not.toHaveBeenCalled();
+  });
+
+  it("不支持的设备仍能修改普通设置且不会索要无障碍权限", async () => {
+    mockPermissions(true, true, true);
+    vi.mocked(NativeFlow.loadSettings).mockResolvedValue({
+      limitMinutes: 15,
+      restDuration: 120,
+      allowEmergencyUnlock: false,
+      strongBlockingEnabled: true,
+    } as Awaited<ReturnType<typeof NativeFlow.loadSettings>>);
+    renderBlockingSettings();
+
+    await waitFor(() => {
+      expect(screen.getByRole("switch", { name: "无障碍强阻断" })).toHaveAttribute("aria-checked", "true");
+    });
+    expect(screen.getByRole("switch", { name: "无障碍强阻断" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("switch", { name: "允许每日一次紧急使用" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+    await waitFor(() => {
+      expect(NativeFlow.saveSettings).toHaveBeenCalledWith(expect.objectContaining({
+        allowEmergencyUnlock: true,
+        strongBlockingEnabled: true,
+      }));
+    });
+    expect(NativeFlow.requestAccessibilityPermission).not.toHaveBeenCalled();
+    expect(screen.queryByText("开启强阻断前，请先授权无障碍服务。")).toBeNull();
   });
 
   it("保存按钮存在", () => {
