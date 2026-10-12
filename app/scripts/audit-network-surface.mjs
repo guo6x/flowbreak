@@ -17,7 +17,7 @@ const APP_ROOT = resolve(HERE, '..');
 const probes = [
   { id: 'external-html-asset', kind: 'html-tag',
     pattern: /<(?:script|link|iframe)\b[\s\S]*?>/gi,
-    attribute: /\b(?:src|href)\s*=\s*["']https?:\/\//i },
+    attribute: /\b(?:src|href)\s*=\s*["']?(?:https?:\/\/|\/\/)/i },
   { id: 'external-css-import', kind: 'html-css',
     pattern: /@import\s+(?:url\()?[\s"'\\]*https?:\/\//gi },
   { id: 'external-css-url', kind: 'html-css',
