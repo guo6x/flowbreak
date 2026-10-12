@@ -16,6 +16,13 @@ public class ProtectionSettingsSaveGateTest {
         assertFalse(ProtectionSettingsSaveGate.requiresActivationCheck(true, false));
     }
 
+    @Test public void passiveSettingsCannotCreateBootConfiguredState() {
+        assertFalse(ProtectionSettingsSaveGate.shouldMarkConfigured(false, true));
+        assertFalse(ProtectionSettingsSaveGate.shouldMarkConfigured(false, false));
+        assertFalse(ProtectionSettingsSaveGate.shouldMarkConfigured(true, false));
+        assertTrue(ProtectionSettingsSaveGate.shouldMarkConfigured(true, true));
+    }
+
     @Test public void neverReloadWhenOemUnsupportedOrStabilityUnsatisfied() {
         assertFalse(ProtectionSettingsSaveGate.mayReload(true, false, true));
         assertFalse(ProtectionSettingsSaveGate.mayReload(true, true, false));
