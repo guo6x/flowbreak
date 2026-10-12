@@ -315,7 +315,8 @@ public class NativeFlowPlugin extends Plugin {
         // unsupported OEMs must retain the ability to edit limits and rest settings
         // without being asked to grant an unavailable protection permission.
         // Explicit monitoring activation still goes through the strict fail-closed gate.
-        if (data.has("monitoringEnabled")
+        if (ProtectionSettingsSaveGate.requiresActivationCheck(
+                data.has("monitoringEnabled"), monitoringEnabled)
                 && rejectMonitoringActivation(call, monitoringEnabled)) return;
         boolean wasConfigured = current.getBoolean("serviceConfigured", false);
         SharedPreferences.Editor editor = current.edit().putBoolean("serviceConfigured", true);
@@ -347,8 +348,10 @@ public class NativeFlowPlugin extends Plugin {
         try {
             // Do not send a reload/start command from a settings-only save
             // when this device cannot run a supported protection service.
-            if (wasConfigured && permissions.isProtectionRuntimeAvailable()
-                    && permissions.isBackgroundStabilitySatisfied()) {
+            if (ProtectionSettingsSaveGate.mayReload(
+                    wasConfigured,
+                    permissions.isProtectionRuntimeAvailable(),
+                    permissions.isBackgroundStabilitySatisfied())) {
                 serviceController.sendAction(FlowForegroundService.ACTION_RELOAD);
             }
             call.resolve();
