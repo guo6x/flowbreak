@@ -311,7 +311,12 @@ public class NativeFlowPlugin extends Plugin {
         boolean monitoringEnabled = data.has("monitoringEnabled")
                 ? call.getBoolean("monitoringEnabled", true)
                 : current.getBoolean("monitoringEnabled", true);
-        if (rejectMonitoringActivation(call, monitoringEnabled)) return;
+        // Editing an existing config is not an activation request. In particular,
+        // unsupported OEMs must retain the ability to edit limits and rest settings
+        // without being asked to grant an unavailable protection permission.
+        // Explicit monitoring activation still goes through the strict fail-closed gate.
+        if (data.has("monitoringEnabled")
+                && rejectMonitoringActivation(call, monitoringEnabled)) return;
         boolean wasConfigured = current.getBoolean("serviceConfigured", false);
         SharedPreferences.Editor editor = current.edit().putBoolean("serviceConfigured", true);
         if (data.has("limitMinutes")) editor.putInt(
@@ -340,7 +345,12 @@ public class NativeFlowPlugin extends Plugin {
         }
         editor.apply();
         try {
-            if (wasConfigured) serviceController.sendAction(FlowForegroundService.ACTION_RELOAD);
+            // Do not send a reload/start command from a settings-only save
+            // when this device cannot run a supported protection service.
+            if (wasConfigured && permissions.isProtectionRuntimeAvailable()
+                    && permissions.isBackgroundStabilitySatisfied()) {
+                serviceController.sendAction(FlowForegroundService.ACTION_RELOAD);
+            }
             call.resolve();
         } catch (Exception error) {
             call.reject("保存设置失败", error);
