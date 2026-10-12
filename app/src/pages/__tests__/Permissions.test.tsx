@@ -137,7 +137,7 @@ describe("Permissions", () => {
   it("国内版无障碍权限在独立说明确认前不得打开系统设置", async () => {
     renderPermissions({ isNative: true, isDomestic: true });
     fireEvent.click(screen.getByText("提升后台稳定性（可稍后设置）"));
-    fireEvent.click(screen.getAllByRole("button", { name: "设置" }).at(-1)!);
+    fireEvent.click(screen.getAllByRole("button", { name: "设置" }).slice(-1)[0]);
     expect(screen.getByRole("dialog", { name: "开启无障碍强阻断前，请了解用途" })).toBeInTheDocument();
     expect(screen.getByText(/不会读取、保存或上传页面文字/)).toBeInTheDocument();
     expect(NativeFlow.requestAccessibilityPermission).not.toHaveBeenCalled();
@@ -150,7 +150,7 @@ describe("Permissions", () => {
   it("确认国内版独立无障碍说明后才打开 Android 系统设置", async () => {
     renderPermissions({ isNative: true, isDomestic: true });
     fireEvent.click(screen.getByText("提升后台稳定性（可稍后设置）"));
-    fireEvent.click(screen.getAllByRole("button", { name: "设置" }).at(-1)!);
+    fireEvent.click(screen.getAllByRole("button", { name: "设置" }).slice(-1)[0]);
     fireEvent.click(screen.getByRole("button", { name: "我理解，前往系统设置" }));
 
     await waitFor(() => {
