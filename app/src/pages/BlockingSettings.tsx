@@ -124,9 +124,9 @@ export default function BlockingSettings() {
 
         {permissions.isDomestic && (
           <div className="pt-2 border-t border-gray-300/40">
-            <Toggle label="无障碍强阻断" description="命中已阻断应用时返回桌面并显示阻断页，不读取页面内容。" value={strong} onChange={setStrong} />
-            <button onClick={openAccessibility} disabled={checking} className="mt-3 w-full py-3 rounded-xl bg-secondary/10 text-secondary text-[13px] font-medium disabled:opacity-60">
-              {checking ? '正在检测...' : permissions.hasAccessibility ? '无障碍服务已授权' : '前往授权无障碍服务'}
+            <Toggle label="无障碍强阻断" description={permissions.unsupportedDevice === true ? "当前设备不支持可靠的保护运行时，保留原有配置但不启用强阻断。" : "命中已阻断应用时返回桌面并显示阻断页，不读取页面内容。"} value={strong} onChange={setStrong} disabled={!isNative || permissions.unsupportedDevice === true} />
+            <button onClick={openAccessibility} disabled={checking || !isNative || permissions.unsupportedDevice === true} className="mt-3 w-full py-3 rounded-xl bg-secondary/10 text-secondary text-[13px] font-medium disabled:opacity-60">
+              {permissions.unsupportedDevice === true ? '当前设备不支持无障碍强阻断' : checking ? '正在检测...' : permissions.hasAccessibility ? '无障碍服务已授权' : '前往授权无障碍服务'}
             </button>
             <div className="mt-3 p-3 rounded-xl bg-gray-50 text-[11px] text-gray-500 leading-relaxed space-y-1">
               <p>· 仅监听「窗口切换」事件，用于判断前台应用是否为已阻断的目标。</p>
@@ -158,14 +158,15 @@ export default function BlockingSettings() {
   );
 }
 
-function Toggle({ label, description, value, onChange }: {
+function Toggle({ label, description, value, onChange, disabled = false }: {
   label: string;
   description: string;
   value: boolean;
   onChange: (value: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
-    <button onClick={() => onChange(!value)} className="w-full flex items-center gap-4 text-left" role="switch" aria-checked={value} aria-label={label}>
+    <button onClick={() => onChange(!value)} disabled={disabled} className="w-full flex items-center gap-4 text-left disabled:opacity-50" role="switch" aria-checked={value} aria-label={label}>
       <div className="flex-1">
         <p className="text-[14px] font-medium">{label}</p>
         <p className="text-[12px] text-gray-500 mt-1">{description}</p>
