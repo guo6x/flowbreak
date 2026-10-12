@@ -15,7 +15,7 @@
 | 脱敏诊断 | 原生 `getDiagnostics/shareDiagnostics` 显示心跳、状态机、Permission、计数、restCheatEvidence；不导出目标包名/UsageEvents 明细；可能包含设备环境与精确诊断时间 | 不能将“脱敏”等同“不可关联”或“绝对无敏感信息”；用户选择分享后接收方可能获得数据 |
 | Android Manifest | 通用 INTERNET、PACKAGE_USAGE_STATS、SYSTEM_ALERT_WINDOW、RECEIVE_BOOT_COMPLETED、FOREGROUND_SERVICE、FOREGROUND_SERVICE_SPECIAL_USE、POST_NOTIFICATIONS、VIBRATE；`app/android/app/src/main/AndroidManifest.xml` | 声明与实际用途逐项复核；INTERNET 存在不等于确有数据上传 |
 | FGS | `FlowForegroundService` 声明 `specialUse`，manifest 的 subtype 字符串为“健康提醒：监控连续使用时长” | 须提供 Play 特殊用途说明、用户可感知通知、演示视频、任务推迟/中断影响；**PLAY_APPROVAL=UNVERIFIED** |
-| Accessibility | **仅 Domestic manifest** 声明 FlowAccessibilityService；Play manifest 应当完全不包含该 service | 国内版要对实际用途做明显、独立、可拒绝的说明；不能把辅助阻断表述为残障辅助工具；最终两渠道 manifest CI 审核 |
+| Accessibility | **仅 Domestic manifest** 声明 FlowAccessibilityService；Play manifest 应当完全不包含该 service。实际 service 读取窗口切换事件中的 `packageName` 与必要的 `className`；针对微信视频号从类名派生 `wechatInVideoChannel` 布尔值并在 SharedPreferences 保留检测时间戳（不获取页面文字、聊天内容或输入文本） | 国内版须独立明确披露窗口类名及本地派生信号；不能把辅助阻断表述为残障辅助工具；最终两渠道 manifest CI 审核 |
 | 设备支持边界 | v1.1.0 Redmi/Xiaomi 为已测参考；vivo/iQOO 明确 fail-closed 不支持；其他 OEM 无全面支持承诺 | 商店文案不得宣称支持全部 Android 手机/后台始终运行 |
 | 隐私政策 | 仓库 `PRIVACY.md` 已有中文文稿，但**公开可访问 URL 与公开支持邮箱均缺失** | 必须补齐发行主体核验、公开 URL 和联系方式，再填 Console |
 | 合规资质 | APP 主办者、账号/实体、版权授权、备案编号、渠道材料均未由当前仓库提供 | **OWNER_REQUIRED**；不得伪造备案号、应用资质、主体或审核截图 |
@@ -36,7 +36,7 @@
 ### 前台服务声明（specialUse）
 
 - 当前声明目的：在用户主动启用后，持续观察用户选择的应用使用情况，提示长时间使用并维持正在运行的保护状态通知。
-- 不能承诺“永久后台运行/永不被系统杀死”；Android/OEM 限制会使前台服务延迟、中断，UI 必须真实说明保护能力。
+- 不能承诺“永久后台运行/永不被系统杀死”；Android/OEM 限制会使前台服务延迟、中断。**当前 master 的 Dashboard 可仍基于监控意图显示“监控中”，并未证明实时 worker/heartbeat 健康提示。** 该完整性属于未合并的 PR #29 和 Gate F 物理验收，因此提交 FGS 声明前不得把“每次恢复时自动准确报告故障”作为已交付能力。
 - Play Console 中要解释为何这项任务需要前台服务、任务延迟或中断的实际影响，并提供操作演示视频（由**真实可发行包/模拟器录屏**，不能将静态图冒充视频）。
 - `specialUse` 是需 Google Play 审查的类型，不因为项目的 Manifest/CI PASS 就代表获批。
 - Google Play 版应维持**无 AccessibilityService 申报**，与实际打包 Manifest 对照。
@@ -65,7 +65,7 @@
 | FGS `specialUse` 说明 | 理由与中断影响及录屏脚本 | DRAFT_UNVERIFIED | 录制/上传真实视频、Play 审查 |
 | 用户隐私政策 | 现有政策已写，发布审核差异清单 | REVIEW_REQUIRED | 发行方提供公开联系方式与 URL |
 | Store listing 文案与画面清单 | 文稿与逐屏取材说明 | DRAFT | 合法商店后台与真实截图 |
-| 国内版无障碍披露 | 权限用途与单独告知要求已确定 | NEEDS_IMPLEMENTATION/REVIEW | 确保实现独立显著告知与确认（PR 单独验证） |
+| 国内版无障碍披露 | 两个 UI 入口已在 PR #33 中使用共享独立告知及明确选择，含窗口类名用途 | IMPLEMENTED_IN_PR_PENDING_CI_REVIEW | 通过 CI/独立复审后合并；不等于国内商店审核批准 |
 | APP 备案、主体、版权、资质 | 官方要求与待提交材料清单 | OWNER_REQUIRED | 发行主体/渠道决定并提供真实证据 |
 | 商店账号、审核结果 | 无权代替用户核实账号、支付或申请 | NOT_EXECUTED | 发行方授权并完成申报/审批 |
 
