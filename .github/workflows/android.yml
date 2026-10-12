@@ -63,6 +63,8 @@ jobs:
       - run: npm test
       - run: npm run test:provenance
       - run: npm run test:release
+      - name: Audit first-party network surface (static only)
+        run: npm run test:privacy-static
       - name: Targeted portable signing security regression
         shell: pwsh
         run: |
