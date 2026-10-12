@@ -39,7 +39,10 @@ export default function BlockingSettings() {
   }, [isNative]);
 
   const save = async () => {
-    if (permissions.isDomestic && strong && !permissions.hasAccessibility) {
+    // An unsupported OEM never activates strong blocking. Existing settings
+    // may still be edited without requiring an impossible Accessibility grant.
+    if (permissions.isDomestic && permissions.unsupportedDevice !== true
+        && strong && !permissions.hasAccessibility) {
       setError('开启强阻断前，请先授权无障碍服务。');
       return;
     }
