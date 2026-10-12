@@ -100,6 +100,7 @@ describe("BlockingSettings", () => {
     renderBlockingSettings();
     fireEvent.click(screen.getByRole("button", { name: "前往授权无障碍服务" }));
     expect(screen.getByRole("dialog", { name: "开启无障碍强阻断前，请了解用途" })).toBeInTheDocument();
+    expect(screen.getByText(/判断值及最近检测时间/)).toBeInTheDocument();
     expect(NativeFlow.requestAccessibilityPermission).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "暂不开启" }));
     expect(screen.queryByRole("dialog")).toBeNull();
