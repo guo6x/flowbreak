@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { BrowserRouter } from "react-router";
 import Permissions from "../Permissions";
+import { NativeFlow } from "../../backend/nativeFlow";
 import { useNativePermissions } from "../../hooks/useNativePermissions";
 
 const mockNavigate = vi.fn();
@@ -60,6 +61,8 @@ describe("Permissions", () => {
   beforeEach(() => {
     mockNavigate.mockClear();
     mockRefresh.mockClear();
+    vi.mocked(NativeFlow.requestAccessibilityPermission).mockReset();
+    vi.mocked(NativeFlow.requestAccessibilityPermission).mockResolvedValue();
   });
 
   it("两个必需权限都开启时可继续", () => {
@@ -129,6 +132,40 @@ describe("Permissions", () => {
     renderPermissions({ isNative: true, isDomestic: true });
     fireEvent.click(screen.getByText("提升后台稳定性（可稍后设置）"));
     expect(screen.getByText("通知权限")).toBeInTheDocument();
+  });
+
+  it("国内版无障碍权限在独立说明确认前不得打开系统设置", async () => {
+    renderPermissions({ isNative: true, isDomestic: true });
+    fireEvent.click(screen.getByText("提升后台稳定性（可稍后设置）"));
+    fireEvent.click(screen.getAllByRole("button", { name: "设置" }).slice(-1)[0]);
+    expect(screen.getByRole("dialog", { name: "开启无障碍强阻断前，请了解用途" })).toBeInTheDocument();
+    expect(screen.getByText(/判断值及最近检测时间/)).toBeInTheDocument();
+    expect(screen.getByText(/不会读取、保存或上传页面文字/)).toBeInTheDocument();
+    expect(NativeFlow.requestAccessibilityPermission).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "暂不开启" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(NativeFlow.requestAccessibilityPermission).not.toHaveBeenCalled();
+  });
+
+  it("确认国内版独立无障碍说明后才打开 Android 系统设置", async () => {
+    renderPermissions({ isNative: true, isDomestic: true });
+    fireEvent.click(screen.getByText("提升后台稳定性（可稍后设置）"));
+    fireEvent.click(screen.getAllByRole("button", { name: "设置" }).slice(-1)[0]);
+    fireEvent.click(screen.getByRole("button", { name: "我理解，前往系统设置" }));
+
+    await waitFor(() => {
+      expect(NativeFlow.requestAccessibilityPermission).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("Play 版没有国内无障碍授权入口", () => {
+    renderPermissions({ isNative: true, isDomestic: false });
+    fireEvent.click(screen.getByText("提升后台稳定性（可稍后设置）"));
+    expect(screen.queryByText("无障碍强阻断")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(NativeFlow.requestAccessibilityPermission).not.toHaveBeenCalled();
   });
 
   it("手动重新检测调用refresh", () => {

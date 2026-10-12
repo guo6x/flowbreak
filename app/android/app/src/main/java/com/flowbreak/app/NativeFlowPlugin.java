@@ -311,9 +311,19 @@ public class NativeFlowPlugin extends Plugin {
         boolean monitoringEnabled = data.has("monitoringEnabled")
                 ? call.getBoolean("monitoringEnabled", true)
                 : current.getBoolean("monitoringEnabled", true);
-        if (rejectMonitoringActivation(call, monitoringEnabled)) return;
+        // Editing an existing config is not an activation request. In particular,
+        // unsupported OEMs must retain the ability to edit limits and rest settings
+        // without being asked to grant an unavailable protection permission.
+        // Explicit monitoring activation still goes through the strict fail-closed gate.
+        if (ProtectionSettingsSaveGate.requiresActivationCheck(
+                data.has("monitoringEnabled"), monitoringEnabled)
+                && rejectMonitoringActivation(call, monitoringEnabled)) return;
         boolean wasConfigured = current.getBoolean("serviceConfigured", false);
-        SharedPreferences.Editor editor = current.edit().putBoolean("serviceConfigured", true);
+        SharedPreferences.Editor editor = current.edit();
+        if (ProtectionSettingsSaveGate.shouldMarkConfigured(
+                data.has("monitoringEnabled"), monitoringEnabled)) {
+            editor.putBoolean("serviceConfigured", true);
+        }
         if (data.has("limitMinutes")) editor.putInt(
                 "limitMinutes", Math.max(1, call.getInt("limitMinutes", 25))
         );
@@ -340,7 +350,14 @@ public class NativeFlowPlugin extends Plugin {
         }
         editor.apply();
         try {
-            if (wasConfigured) serviceController.sendAction(FlowForegroundService.ACTION_RELOAD);
+            // Do not send a reload/start command from a settings-only save
+            // when this device cannot run a supported protection service.
+            if (ProtectionSettingsSaveGate.mayReload(
+                    wasConfigured,
+                    permissions.isProtectionRuntimeAvailable(),
+                    permissions.isBackgroundStabilitySatisfied())) {
+                serviceController.sendAction(FlowForegroundService.ACTION_RELOAD);
+            }
             call.resolve();
         } catch (Exception error) {
             call.reject("保存设置失败", error);

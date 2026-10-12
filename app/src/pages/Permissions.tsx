@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { motion } from 'framer-motion';
 import { Accessibility, ArrowLeft, Battery, Bell, ChevronDown, ChevronUp, Clock, Eye, Power, RefreshCw, Shield } from 'lucide-react';
 import { NativeFlow } from '../backend/nativeFlow';
+import AccessibilityDisclosureDialog from '../components/AccessibilityDisclosureDialog';
 import { useNativePermissions } from '../hooks/useNativePermissions';
 import {
   requiresBackgroundStabilityPermission,
@@ -50,6 +51,7 @@ export default function Permissions() {
   const [actionError, setActionError] = useState('');
   const [autoStartOpened, setAutoStartOpened] = useState(false);
   const [optionalExpanded, setOptionalExpanded] = useState(false);
+  const [accessibilityDisclosureOpen, setAccessibilityDisclosureOpen] = useState(false);
 
 
   const manufacturer = state.manufacturer;
@@ -117,7 +119,12 @@ export default function Permissions() {
       else if (key === 'overlay') await NativeFlow.requestOverlayPermission();
       else if (key === 'notification') await NativeFlow.requestNotificationPermission();
       else if (key === 'battery') await NativeFlow.requestIgnoreBatteryOptimizations();
-      else if (key === 'accessibility') await NativeFlow.requestAccessibilityPermission();
+      else if (key === 'accessibility') {
+        // Disclosure must precede leaving the app for Android settings.
+        // Do not request Accessibility on this preliminary click.
+        setAccessibilityDisclosureOpen(true);
+        return;
+      }
       else if (key === 'autostart') {
         await NativeFlow.openAutoStartSettings();
         setAutoStartOpened(true);
@@ -125,6 +132,21 @@ export default function Permissions() {
       window.setTimeout(refreshPermissions, 500);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : '权限请求失败，请稍后重试。');
+    } finally {
+      setRequesting(null);
+    }
+  };
+
+  const confirmAccessibilityDisclosure = async () => {
+    if (requesting || !isNative || !state.isDomestic || unsupportedDevice) return;
+    setActionError('');
+    setRequesting('accessibility');
+    try {
+      await NativeFlow.requestAccessibilityPermission();
+      setAccessibilityDisclosureOpen(false);
+      window.setTimeout(refreshPermissions, 500);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : '无法打开无障碍设置，请重试。');
     } finally {
       setRequesting(null);
     }
@@ -268,6 +290,14 @@ export default function Permissions() {
             </div>
           )}
         </div>}
+
+        <AccessibilityDisclosureDialog
+          open={accessibilityDisclosureOpen && isNative && state.isDomestic && !unsupportedDevice}
+          busy={requesting !== null}
+          onDecline={() => setAccessibilityDisclosureOpen(false)}
+          onConfirm={() => void confirmAccessibilityDisclosure()}
+          error={actionError}
+        />
 
         {(checkError || actionError) && <p className="text-[12px] text-error text-center mb-3">{actionError || checkError}</p>}
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ArrowLeft, ShieldCheck } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { NativeFlow } from '../backend/nativeFlow';
+import AccessibilityDisclosureDialog from '../components/AccessibilityDisclosureDialog';
 import { useStore } from '../hooks/useStore';
 import { useNativePermissions } from '../hooks/useNativePermissions';
 import { translateLimit } from '../utils/protectionStatus';
@@ -18,6 +19,8 @@ export default function BlockingSettings() {
   const [loading, setLoading] = useState(isNative);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [accessibilityDisclosureOpen, setAccessibilityDisclosureOpen] = useState(false);
+  const [accessibilityBusy, setAccessibilityBusy] = useState(false);
 
   const times = translateLimit(limit);
 
@@ -36,7 +39,10 @@ export default function BlockingSettings() {
   }, [isNative]);
 
   const save = async () => {
-    if (permissions.isDomestic && strong && !permissions.hasAccessibility) {
+    // An unsupported OEM never activates strong blocking. Existing settings
+    // may still be edited without requiring an impossible Accessibility grant.
+    if (permissions.isDomestic && permissions.unsupportedDevice !== true
+        && strong && !permissions.hasAccessibility) {
       setError('开启强阻断前，请先授权无障碍服务。');
       return;
     }
@@ -65,13 +71,26 @@ export default function BlockingSettings() {
     }
   };
 
-  const openAccessibility = async () => {
+  const openAccessibility = () => {
+    if (!isNative || !permissions.isDomestic || permissions.unsupportedDevice === true) return;
     setError('');
+    // All Accessibility entry points require an independent affirmative choice.
+    setAccessibilityDisclosureOpen(true);
+  };
+
+  const confirmAccessibilityDisclosure = async () => {
+    if (accessibilityBusy || !isNative || !permissions.isDomestic
+        || permissions.unsupportedDevice === true) return;
+    setError('');
+    setAccessibilityBusy(true);
     try {
       await NativeFlow.requestAccessibilityPermission();
+      setAccessibilityDisclosureOpen(false);
       window.setTimeout(refresh, 500);
     } catch {
-      setError('无法打开无障碍设置，请从系统设置中手动进入。');
+      setError('无法打开无障碍设置，请重试或稍后从系统设置中手动进入。');
+    } finally {
+      setAccessibilityBusy(false);
     }
   };
 
@@ -108,13 +127,13 @@ export default function BlockingSettings() {
 
         {permissions.isDomestic && (
           <div className="pt-2 border-t border-gray-300/40">
-            <Toggle label="无障碍强阻断" description="命中已阻断应用时返回桌面并显示阻断页，不读取页面内容。" value={strong} onChange={setStrong} />
-            <button onClick={openAccessibility} disabled={checking} className="mt-3 w-full py-3 rounded-xl bg-secondary/10 text-secondary text-[13px] font-medium disabled:opacity-60">
-              {checking ? '正在检测...' : permissions.hasAccessibility ? '无障碍服务已授权' : '前往授权无障碍服务'}
+            <Toggle label="无障碍强阻断" description={permissions.unsupportedDevice === true ? "当前设备不支持可靠的保护运行时，保留原有配置但不启用强阻断。" : "命中已阻断应用时返回桌面并显示阻断页，不读取页面内容。"} value={strong} onChange={setStrong} disabled={!isNative || permissions.unsupportedDevice === true} />
+            <button onClick={openAccessibility} disabled={checking || !isNative || permissions.unsupportedDevice === true} className="mt-3 w-full py-3 rounded-xl bg-secondary/10 text-secondary text-[13px] font-medium disabled:opacity-60">
+              {permissions.unsupportedDevice === true ? '当前设备不支持无障碍强阻断' : checking ? '正在检测...' : permissions.hasAccessibility ? '无障碍服务已授权' : '前往授权无障碍服务'}
             </button>
             <div className="mt-3 p-3 rounded-xl bg-gray-50 text-[11px] text-gray-500 leading-relaxed space-y-1">
               <p>· 仅监听「窗口切换」事件，用于判断前台应用是否为已阻断的目标。</p>
-              <p>· 不读取屏幕内容、不记录输入、不收集任何个人信息。</p>
+              <p>· 此服务不读取页面文字、不记录输入，也不通过无障碍服务上传页面内容。</p>
               <p>· 仅在「连续使用达到限额并进入阻断状态」时执行返回桌面动作。</p>
               <p>· 可随时在系统设置中关闭，关闭后仅回退到悬浮窗阻断。</p>
             </div>
@@ -126,6 +145,14 @@ export default function BlockingSettings() {
         <ShieldCheck className="text-primary shrink-0" size={20} />
         <p className="text-[12px] text-gray-600">完整休息后连续计时归零，并固定开放 10 分钟访问窗口。</p>
       </div>
+      <AccessibilityDisclosureDialog
+        open={accessibilityDisclosureOpen && isNative && permissions.isDomestic
+          && permissions.unsupportedDevice !== true}
+        busy={accessibilityBusy}
+        onDecline={() => setAccessibilityDisclosureOpen(false)}
+        onConfirm={() => void confirmAccessibilityDisclosure()}
+        error={error}
+      />
       {(error || permissionError) && <p className="text-[12px] text-error text-center mt-4">{error || permissionError}</p>}
       <button onClick={save} disabled={loading || saving} className="btn-primary w-full mt-7 disabled:opacity-50">
         {saving ? '正在保存...' : '保存设置'}
@@ -134,14 +161,15 @@ export default function BlockingSettings() {
   );
 }
 
-function Toggle({ label, description, value, onChange }: {
+function Toggle({ label, description, value, onChange, disabled = false }: {
   label: string;
   description: string;
   value: boolean;
   onChange: (value: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
-    <button onClick={() => onChange(!value)} className="w-full flex items-center gap-4 text-left" role="switch" aria-checked={value} aria-label={label}>
+    <button onClick={() => onChange(!value)} disabled={disabled} className="w-full flex items-center gap-4 text-left disabled:opacity-50" role="switch" aria-checked={value} aria-label={label}>
       <div className="flex-1">
         <p className="text-[14px] font-medium">{label}</p>
         <p className="text-[12px] text-gray-500 mt-1">{description}</p>
