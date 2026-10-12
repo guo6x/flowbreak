@@ -119,3 +119,34 @@ test('rejects scheme-relative dynamic script and backtick remote assignment', ()
     assert.equal(result.violations.filter(x => x.type === 'external-dynamic-resource').length, 2);
   } finally { cleanup(); }
 });
+
+test('rejects quoted Capacitor url after nested objects and dynamic server spreads', () => {
+  const cases = [
+    "export default { server: { nested: { enabled: true }, 'url': 'https://remote.example' } };",
+    "export default { server: { ...remoteConfig } };",
+    "export default { server: remoteConfig };",
+    "export default { server: { url } };",
+  ];
+  for (const config of cases) {
+    const { result, cleanup } = scenario('<html></html>', '', '', config);
+    try {
+      assert.ok(result.violations.some(x => x.type === 'capacitor-remote-server'), config);
+    } finally { cleanup(); }
+  }
+});
+
+test('permits nonremote Capacitor server options without server URL', () => {
+  const { result, cleanup } = scenario('<html></html>', '', '',
+    "export default { server: { cleartext: false, androidScheme: 'https' } };");
+  try {
+    assert.deepEqual(result.violations, []);
+  } finally { cleanup(); }
+});
+
+test('rejects whitespace between dot and dynamic resource property', () => {
+  const { result, cleanup } = scenario('<html></html>',
+    'script . src = `https://cdn.example.net/app.js`;');
+  try {
+    assert.ok(result.violations.some(x => x.type === 'external-dynamic-resource'));
+  } finally { cleanup(); }
+});
