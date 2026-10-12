@@ -17,7 +17,7 @@ FlowBreak 是一款帮助你更有意识地使用手机的本地数字健康工�
 **由你自主设置**
 - 自己决定哪些应用需要提醒或限制，以及使用时长。
 - 在系统设置中自行授权或撤销使用情况访问、悬浮窗和通知等能力。
-- 如保护服务被系统限制或所需权限失效，应用应提示当前能力状态，而不是假装一直有效。
+- 如果 Android/OEM 系统限制了后台运行，提醒与拦截可能延迟或暂时不可用；返回应用可检查所需权限和保护配置。当前版本的运行健康提示仍在 Gate F 验证中，不宣传“所有中断都会被即时告知”。
 
 **注重本地数据**
 - 使用记录、设置、休息与反馈主要保存在设备本地，不要求注册账号。
@@ -49,7 +49,7 @@ FlowBreak 支持由用户选择需要限制的应用、设定使用时长，并�
 
 **Why does deferring the task matter?** Delaying the task may make a configured time threshold or reminder late or miss it entirely; the on-screen promise must reflect actual detection ability. Delaying tasks is not a critical safety hazard and should not be described as an emergency use case.
 
-**What happens if interrupted?** Android/OEM restrictions can temporarily stop the monitor. When opened, the app checks runtime health and permissions, reports unavailable or degraded protection and resumes legally when possible. It must not claim protection operated continuously while the OS suspended execution.
+**What happens if interrupted?** Android/OEM restrictions can delay or suspend monitoring, so reminders and blocking may be late or unavailable. **Current release master does not yet provide fully proven UI runtime-health reporting**: its Dashboard can still display configured monitoring intent without checking live worker/heartbeat health. Runtime-state truthfulness is part of the unmerged PR #29 and the failed Gate F physical verification. Until that is independently approved, the Play submission must not claim that reopening the app always diagnoses or immediately reports every degraded state. Never claim monitoring continued when the OS suspended execution.
 
 **User initiated and perceptible:** The user explicitly selects targets and enables protection; the ongoing foreground notification indicates that monitoring is active. Revoking usage/overlay privileges removes necessary protection capabilities; user-visible status must be accurate.
 
@@ -61,7 +61,7 @@ FGS subtype manifest currently says “健康提醒：监控连续使用时长�
 
 **标题：** 选择是否开启无障碍强阻断
 
-**独立说明：** 如果你选择开启，FlowBreak 会通过 Android 无障碍服务监听前台窗口对应的应用包名。只有当它属于你主动设置的受限应用，且保护达到阻断条件时，才会尝试返回桌面并显示阻断页面。这不是读取屏幕文字的工具；FlowBreak 不会借此读取、保存或上传聊天消息、输入内容或网页正文。你可以拒绝，其他基础保护设置仍可继续；也可以随时在系统无障碍设置中关闭。部分手机可能限制这项功能，不能保证一定阻断。
+**独立说明：** 如果你选择开启，FlowBreak 会通过 Android 无障碍服务监听前台窗口切换事件中的应用包名以及必要的窗口类名（用于识别特定页面，所导出的相关信号仅为本机状态和时间戳）。只有当窗口属于你主动设置的受限应用，且保护达到阻断条件时，才会尝试返回桌面并显示阻断页面。这不是读取屏幕文字的工具；FlowBreak 不会借此读取、保存或上传聊天消息、输入内容或网页正文。你可以拒绝，其他基础保护设置仍可继续；也可以随时在系统无障碍设置中关闭。部分手机可能限制这项功能，不能保证一定阻断。
 
 **确认按钮：** 「我理解，前往系统设置」 / 「暂不开启」。必须在用户主动确认后打开系统设置；不得预勾选、静默开启或用隐私政策链接代替此项告知。此项只是披露/用户选择，不会绕过 Android 系统的无障碍权限界面。
 
