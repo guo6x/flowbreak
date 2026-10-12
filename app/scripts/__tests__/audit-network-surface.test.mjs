@@ -5,13 +5,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { auditNetworkSurface } from '../audit-network-surface.mjs';
 
-function scenario(indexHtml, appSource = '', cssSource = '') {
+function scenario(indexHtml, appSource = '', cssSource = '', capacitorConfig = '') {
   const root = mkdtempSync(join(tmpdir(), 'flowbreak-network-static-'));
   mkdirSync(join(root, 'src'), { recursive: true });
   mkdirSync(join(root, 'android/app/src/main'), { recursive: true });
   writeFileSync(join(root, 'index.html'), indexHtml);
   writeFileSync(join(root, 'src', 'main.ts'), appSource);
   writeFileSync(join(root, 'src', 'App.css'), cssSource);
+  if (capacitorConfig) writeFileSync(join(root, 'capacitor.config.ts'), capacitorConfig);
   writeFileSync(join(root, 'android/app/src/main/AndroidManifest.xml'),
     '<manifest><uses-permission android:name="android.permission.INTERNET"/></manifest>');
   return {
@@ -98,5 +99,23 @@ test('rejects protocol-relative CSS import and background URL', () => {
   try {
     assert.ok(result.violations.some(x => x.type === 'external-css-import'));
     assert.ok(result.violations.some(x => x.type === 'external-css-url'));
+  } finally { cleanup(); }
+});
+
+test('rejects Capacitor server.url even when remote origin is computed', () => {
+  const { result, cleanup } = scenario('<html></html>', '', '',
+    "export default { webDir: 'dist', server: {\n url: process.env.REMOTE_ORIGIN\n} };");
+  try {
+    assert.ok(result.violations.some(x => x.type === 'capacitor-remote-server'));
+  } finally { cleanup(); }
+});
+
+test('rejects scheme-relative dynamic script and backtick remote assignment', () => {
+  const { result, cleanup } = scenario('<html></html>', [
+    "script.src = '//cdn.example.net/js';",
+    'script.src = `https://cdn.example.net/script.js`;',
+  ].join('\n'));
+  try {
+    assert.equal(result.violations.filter(x => x.type === 'external-dynamic-resource').length, 2);
   } finally { cleanup(); }
 });
