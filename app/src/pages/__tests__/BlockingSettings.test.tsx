@@ -38,7 +38,7 @@ function mockPermissions(isNative: boolean, isDomestic: boolean) {
     checking: false,
     error: "",
     refresh: vi.fn(),
-  } as ReturnType<typeof useNativePermissions>);
+  } as unknown as ReturnType<typeof useNativePermissions>);
 }
 
 function renderBlockingSettings() {
