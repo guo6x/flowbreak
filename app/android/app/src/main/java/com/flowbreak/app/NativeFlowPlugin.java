@@ -320,7 +320,8 @@ public class NativeFlowPlugin extends Plugin {
                 && rejectMonitoringActivation(call, monitoringEnabled)) return;
         boolean wasConfigured = current.getBoolean("serviceConfigured", false);
         SharedPreferences.Editor editor = current.edit();
-        if (data.has("monitoringEnabled") && monitoringEnabled) {
+        if (ProtectionSettingsSaveGate.shouldMarkConfigured(
+                data.has("monitoringEnabled"), monitoringEnabled)) {
             editor.putBoolean("serviceConfigured", true);
         }
         if (data.has("limitMinutes")) editor.putInt(
