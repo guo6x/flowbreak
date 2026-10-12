@@ -5,6 +5,16 @@
 
 ## 当前发布状态
 
+## 2026-10-12 发布工程状态更新（优先于下方历史快照）
+
+- **Security PR #31** 已经独立验证并合并入 master：`f9ef7a1f0cbcb3925eb87cd9bd16032428054fde`；合并后 [Android CI Run 38205826590](https://github.com/guo6x/flowbreak/actions/runs/38205826590) = **SUCCESS**，Capacitor Android/Core/CLI 8.4.3 生产高危依赖审计继续保留。
+- **FB-P1-08 / PR #29**：最新修复候选仍是 `b00b9cc75073e77759e28ba5b71f960033cbf1d5`，**OPEN / UNMERGED**。此前 Redmi B站前台约 33 秒仍显示休息倒计时的设备失败尚未经过新候选物理复测；`GATE_F = FAIL`。组合验证 PR #32 的 [CI Run 38053274608](https://github.com/guo6x/flowbreak/actions/runs/38053274608) 成功只说明自动化层兼容，**不等于设备验收**。新诊断与短时验收说明：`docs/FB-P1-08-FINAL-DEVICE-HANDOFF.md`（PR #29 分支）。
+- **Gate G**：本地 vault 恢复、已有同签名安装/替换历史证据仍有效；跨机器恢复 `NOT_YET_TESTED`，真实较低 final-signed 版本到新版本的升级 `NOT_TESTED`。无手机部分准备见 `docs/release/GATE_G_NO_PHONE_HANDOFF.md`（PR #33，合并前只为提案）。
+- **Gate H**：政策与权限证据、Data safety/FGS/国内备案研究、隐私及商店文案草案已准备于 `docs/compliance/`（PR #33）；发行主体、公开支持邮箱、公开政策 URL、审核视频、真实图像、备案/上架凭证均 **NOT_VERIFIED / NOT_SUBMITTED**。
+- **Gate I**：真实小规模 Beta 未开始。
+- **绝对门禁**：`STORE_READY=NO`；`PRODUCTION_RELEASE_APPROVED=NO`；**不得创建正式发布 tag、使用生产密钥做未经授权的发布或合并 PR #29**。
+
+
 **RELEASE PREPARATION**（截至 2026-09-11；Redmi R1–R4 复测 2026-08-14 通过；GATE C 2026-08-15 通过；PR #20 与 PR #26 已合并；GATE D final-scope acceptance、Gate E supported-scope closeout 与 GATE G signed dry-run 已完成）
 
 - 原 Redmi 验收阻塞项已消除：`FB-P1-01`、`FB-P1-02`、`FB-P1-03`、`FB-P2-01` 全部 RESOLVED（`KNOWN_ISSUES.md`）。`FB-P1-05` 保持 **OPEN — UNSUPPORTED IN V1.1.0**，不属于 v1.1.0 支持设备运行时。
@@ -19,7 +29,7 @@
 | GATE C | Artifact Provenance / Controlled Release Build | **PASS** |
 | GATE D | Supported OEM scope + fail-closed boundary | **PASS_SUPPORTED_SCOPE** |
 | GATE E | Usage accounting accuracy / blocking latency + documented Android execution boundary | **PASS_SUPPORTED_SCOPE_WITH_DOCUMENTED_PLATFORM_LIMITATION** |
-| GATE F | 24h stability + Protection Integrity | **PENDING** |
+| GATE F | 24h stability + Protection Integrity | **FAIL — FB-P1-08 device revalidation required** |
 | GATE G | Signing / Versioning / Publishable Build | **PENDING_CROSS_MACHINE_RECOVERY** |
 | GATE H | Store / Compliance Readiness | **PENDING** |
 | GATE I | Small-scale Beta | **PENDING** |
