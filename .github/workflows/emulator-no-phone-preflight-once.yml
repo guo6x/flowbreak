@@ -67,11 +67,16 @@ jobs:
           adb install "$apk"
           adb shell am start -n com.flowbreak.app.cn/com.flowbreak.app.MainActivity
           sleep 15
-          adb shell dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' | tee "$RUNNER_TEMP/flowbreak-emulator-evidence/foreground.txt" || true
+          adb shell dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' | tee "$RUNNER_TEMP/flowbreak-emulator-evidence/foreground.txt"
+          # No success unless the actual FlowBreak Activity is foreground.
+          grep -F 'com.flowbreak.app.cn/' "$RUNNER_TEMP/flowbreak-emulator-evidence/foreground.txt"
+          adb shell pidof com.flowbreak.app.cn > "$RUNNER_TEMP/flowbreak-emulator-evidence/pid.txt"
+          test -s "$RUNNER_TEMP/flowbreak-emulator-evidence/pid.txt"
           adb shell screencap -p /sdcard/flowbreak-fresh.png
           adb pull /sdcard/flowbreak-fresh.png "$RUNNER_TEMP/flowbreak-emulator-evidence/flowbreak-fresh.png"
           adb shell dumpsys netstats detail > "$RUNNER_TEMP/flowbreak-emulator-evidence/netstats-after.txt" || true
-          adb shell dumpsys package com.flowbreak.app.cn | grep -E 'userId=|versionCode=|versionName=' > "$RUNNER_TEMP/flowbreak-emulator-evidence/package-info.txt" || true
+          adb shell dumpsys package com.flowbreak.app.cn | grep -E 'userId=|versionCode=|versionName=' > "$RUNNER_TEMP/flowbreak-emulator-evidence/package-info.txt"
+          test -s "$RUNNER_TEMP/flowbreak-emulator-evidence/package-info.txt"
           echo "EMULATOR_PRELIMINARY_BOOTSTRAP_CAPTURE=PASS"
           echo "NOT_PHYSICAL_REDMl_GATE_F=TRUE"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
