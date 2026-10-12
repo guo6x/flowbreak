@@ -150,7 +150,7 @@ export default function BlockingSettings() {
         onConfirm={() => void confirmAccessibilityDisclosure()}
         error={error}
       />
-      {(error || permissionError) && <p className="text-[12px] text-error text-center mt-4">{error || permissionError}</p>
+      {(error || permissionError) && <p className="text-[12px] text-error text-center mt-4">{error || permissionError}</p>}
       <button onClick={save} disabled={loading || saving} className="btn-primary w-full mt-7 disabled:opacity-50">
         {saving ? '正在保存...' : '保存设置'}
       </button>
