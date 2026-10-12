@@ -27,7 +27,7 @@ const probes = [
   { id: 'browser-http-library', kind: 'script',
     pattern: /\baxios\s*\.\s*(?:get|post|put|patch|delete|request)\s*\(/g },
   { id: 'external-dynamic-resource', kind: 'script',
-    pattern: /\.(?:src|href)\s*=\s*["']https?:\/\//g },
+    pattern: /\.(?:src|href)\s*=\s*["'\`]?(?:https?:\/\/|\/\/)/g },
   { id: 'remote-dynamic-import', kind: 'script',
     pattern: /\bimport\s*\(\s*["']https?:\/\//g },
   { id: 'native-network-client', kind: 'java',
@@ -48,7 +48,7 @@ function visit(dir, files) {
 }
 
 export function auditNetworkSurface(appRoot = APP_ROOT) {
-  const files = [join(appRoot, 'index.html')];
+  const files = [join(appRoot, 'index.html'), join(appRoot, 'capacitor.config.ts')];
   visit(join(appRoot, 'src'), files);
   visit(join(appRoot, 'android/app/src/main/java'), files);
   visit(join(appRoot, 'android/app/src/domestic/java'), files);
@@ -72,6 +72,20 @@ export function auditNetworkSurface(appRoot = APP_ROOT) {
           type: probe.id,
         });
       }
+    }
+  }
+  // Capacitor server.url silently switches a packaged WebView to remote content.
+  // Release builds must not use server.url, even when the origin is computed.
+  const capConfig = join(appRoot, 'capacitor.config.ts');
+  if (existsSync(capConfig)) {
+    const capSource = readFileSync(capConfig, 'utf8');
+    const remoteServer = /\bserver\s*:\s*\{[^}]*\burl\s*:/g;
+    for (const match of capSource.matchAll(remoteServer)) {
+      violations.push({
+        source: relative(appRoot, capConfig).replaceAll('\\', '/'),
+        line: capSource.slice(0, match.index).split(/\r?\n/).length,
+        type: 'capacitor-remote-server',
+      });
     }
   }
   const manifest = join(appRoot, 'android/app/src/main/AndroidManifest.xml');
