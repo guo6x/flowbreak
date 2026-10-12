@@ -56,6 +56,9 @@ jobs:
           # SDK 'tools' legacy package was retired upstream; avoid v3 default.
           packages: 'platform-tools'
       - run: npm ci
+      - name: Verify Recharts React 19 peer and test-only React 17 isolation
+        run: |
+          node -e "const assert=require('node:assert/strict');const fs=require('node:fs');const p=JSON.parse(fs.readFileSync('node_modules/react-is/package.json','utf8'));const n=JSON.parse(fs.readFileSync('node_modules/pretty-format/node_modules/react-is/package.json','utf8'));assert.equal(p.version,'19.2.5');assert.equal(n.version,'17.0.2');console.log('REACT_IS_PRODUCTION_RECHARTS=19.2.5; PRETTY_FORMAT_PRIVATE=17.0.2')"
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
       - name: Audit all dependencies for critical vulnerabilities
