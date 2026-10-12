@@ -139,6 +139,7 @@ describe("Permissions", () => {
     fireEvent.click(screen.getByText("提升后台稳定性（可稍后设置）"));
     fireEvent.click(screen.getAllByRole("button", { name: "设置" }).slice(-1)[0]);
     expect(screen.getByRole("dialog", { name: "开启无障碍强阻断前，请了解用途" })).toBeInTheDocument();
+    expect(screen.getByText(/判断值及最近检测时间/)).toBeInTheDocument();
     expect(screen.getByText(/不会读取、保存或上传页面文字/)).toBeInTheDocument();
     expect(NativeFlow.requestAccessibilityPermission).not.toHaveBeenCalled();
 
