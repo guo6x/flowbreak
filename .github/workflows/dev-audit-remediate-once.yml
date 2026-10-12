@@ -27,8 +27,13 @@ jobs:
           set -euo pipefail
           # Root Vitest pin was aligned before resolve. Avoid npm Arborist
           # crash when an old optional peer graph meets newly published peers.
-          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
-          npm audit fix --no-fund --no-audit
+          # npm v10 Arborist's optional Vitest peer graph can crash (edgesOut).
+          # Resolve the lockfile with a newer npm and a lock-only legacy-peer
+          # pass, then demand STANDARD (non-legacy) npm ci/test/audit success.
+          npm install -g npm@11.19.0 --no-fund
+          npm --version
+          npm install --package-lock-only --ignore-scripts --legacy-peer-deps --no-audit --no-fund
+          npm audit fix --legacy-peer-deps --no-fund --no-audit
           npm ci
           npm audit --omit=dev --audit-level=high
           npm audit --audit-level=high
