@@ -9,6 +9,7 @@
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { dirname, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = resolve(HERE, '..');
@@ -27,7 +28,7 @@ const probes = [
   { id: 'browser-http-library', kind: 'script',
     pattern: /\baxios\s*\.\s*(?:get|post|put|patch|delete|request)\s*\(/g },
   { id: 'external-dynamic-resource', kind: 'script',
-    pattern: /\.(?:src|href)\s*=\s*["'\`]?(?:https?:\/\/|\/\/)/g },
+    pattern: /\.\s*(?:src|href)\s*=\s*["'\`]?(?:https?:\/\/|\/\/)/g },
   { id: 'remote-dynamic-import', kind: 'script',
     pattern: /\bimport\s*\(\s*["']https?:\/\//g },
   { id: 'native-network-client', kind: 'java',
@@ -74,19 +75,43 @@ export function auditNetworkSurface(appRoot = APP_ROOT) {
       }
     }
   }
-  // Capacitor server.url silently switches a packaged WebView to remote content.
-  // Release builds must not use server.url, even when the origin is computed.
+  // A remote Capacitor server URL replaces the bundled app WebView.
+  // Use the TypeScript AST rather than a regex: quoted keys, shorthand
+  // properties, nested objects and computed keys must not bypass the gate.
   const capConfig = join(appRoot, 'capacitor.config.ts');
   if (existsSync(capConfig)) {
     const capSource = readFileSync(capConfig, 'utf8');
-    const remoteServer = /\bserver\s*:\s*\{[^}]*\burl\s*:/g;
-    for (const match of capSource.matchAll(remoteServer)) {
+    const capAst = ts.createSourceFile(capConfig, capSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    const keyIs = (node, key) => node &&
+      (ts.isIdentifier(node) || ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node))
+      && node.text === key;
+    const recordServer = (node) => {
       violations.push({
         source: relative(appRoot, capConfig).replaceAll('\\', '/'),
-        line: capSource.slice(0, match.index).split(/\r?\n/).length,
+        line: capAst.getLineAndCharacterOfPosition(node.getStart(capAst)).line + 1,
         type: 'capacitor-remote-server',
       });
-    }
+    };
+    const walk = (node) => {
+      if (ts.isPropertyAssignment(node) && keyIs(node.name, 'server')) {
+        const value = node.initializer;
+        if (!ts.isObjectLiteralExpression(value)) {
+          // A computed server object cannot establish a local-only guarantee.
+          recordServer(node);
+        } else {
+          for (const member of value.properties) {
+            const suspicious = (ts.isPropertyAssignment(member) && keyIs(member.name, 'url'))
+              || (ts.isShorthandPropertyAssignment(member) && keyIs(member.name, 'url'))
+              || ts.isSpreadAssignment(member)
+              || (ts.isPropertyAssignment(member) && ts.isComputedPropertyName(member.name))
+              || ts.isMethodDeclaration(member);
+            if (suspicious) recordServer(member);
+          }
+        }
+      }
+      ts.forEachChild(node, walk);
+    };
+    walk(capAst);
   }
   const manifest = join(appRoot, 'android/app/src/main/AndroidManifest.xml');
   const androidInternetPermission = existsSync(manifest) &&
