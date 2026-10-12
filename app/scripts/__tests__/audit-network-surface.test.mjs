@@ -79,3 +79,13 @@ test('allows local new URL for workers or blobs without network', () => {
     assert.deepEqual(result.violations, []);
   } finally { cleanup(); }
 });
+
+test('rejects unquoted absolute and quoted scheme-relative HTML URLs', () => {
+  const { result, cleanup } = scenario([
+    '<script src=https://cdn.example.net/remote.js></script>',
+    '<link rel="stylesheet" href="//cdn.example.net/font.css">',
+  ].join('\n'));
+  try {
+    assert.equal(result.violations.filter(x => x.type === 'external-html-asset').length, 2);
+  } finally { cleanup(); }
+});
