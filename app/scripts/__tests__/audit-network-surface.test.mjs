@@ -39,7 +39,7 @@ test('rejects third-party Google Fonts in the app bootstrap', () => {
 test('rejects hardcoded outgoing JavaScript network calls', () => {
   const { result, cleanup } = scenario('<html></html>', 'fetch("https://example.com/telemetry")');
   try {
-    assert.ok(result.violations.some(x => x.type === 'literal-js-network-client'));
+    assert.ok(result.violations.some(x => x.type === 'browser-network-client'));
   } finally { cleanup(); }
 });
 
@@ -47,5 +47,34 @@ test('rejects external stylesheet imports', () => {
   const { result, cleanup } = scenario('<html></html>', '@import url("https://fonts.example/style.css")');
   try {
     assert.ok(result.violations.some(x => x.type === 'external-css-import'));
+  } finally { cleanup(); }
+});
+
+
+test('rejects newline-wrapped external bootstrap links', () => {
+  const { result, cleanup } = scenario('<link\n rel="stylesheet"\n href="https://fonts.googleapis.com/css?family=Roboto"\n>');
+  try {
+    assert.equal(result.violations[0]?.type, 'external-html-asset');
+  } finally { cleanup(); }
+});
+
+test('rejects indirect XMLHttpRequest and dynamic remote script source', () => {
+  const { result, cleanup } = scenario('<html></html>', [
+    'const xhr = new XMLHttpRequest();',
+    'xhr.open("GET", "/endpoint");',
+    "const script = document.createElement('script');",
+    'script.src = "https://cdn.example.com/tracker.js";',
+  ].join('\n'));
+  try {
+    assert.ok(result.violations.some(x => x.type === 'browser-network-client'));
+    assert.ok(result.violations.some(x => x.type === 'external-dynamic-resource'));
+  } finally { cleanup(); }
+});
+
+test('allows local new URL for workers or blobs without network', () => {
+  const { result, cleanup } = scenario('<html></html>',
+    "const workerUrl = new URL('./worker.js', import.meta.url);");
+  try {
+    assert.deepEqual(result.violations, []);
   } finally { cleanup(); }
 });
