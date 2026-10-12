@@ -34,6 +34,9 @@ jobs:
           npm --version
           npm install --package-lock-only --ignore-scripts --legacy-peer-deps --no-audit --no-fund
           npm audit fix --legacy-peer-deps --no-fund --no-audit
+          # Restore optional/peer packages omitted by legacy resolution; the
+          # shipped repo must support ordinary strict npm ci without flags.
+          npm install --package-lock-only --ignore-scripts --no-fund --no-audit
           npm ci
           npm audit --omit=dev --audit-level=high
           npm audit --audit-level=high
