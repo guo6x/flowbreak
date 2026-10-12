@@ -18,9 +18,10 @@
 
 `npm run test:privacy-static` runs `node --test scripts/__tests__/audit-network-surface.test.mjs` followed by `node scripts/audit-network-surface.mjs`. The static scan:
 - tests against a simulated Google Fonts HTML link, CSS @import and literal fetch, asserting rejection;
-- verifies the current first-party HTML/CSS/JS/TS/Java do not include obvious third-party bootstrap or literal outbound clients;
+- verifies the current first-party HTML/CSS/JS/TS/Java and root Capacitor config do not include obvious third-party bootstrap or literal outbound clients;
 - reports `androidInternetPermission:true` rather than falsely claiming zero network privileges;
 - marks its output `NOT_RUNTIME_NETWORK_PROOF` and reports Android INTERNET permission; it is static only.
+- Explicitly rejects `capacitor.config.ts` `server.url` remote-runtime configuration; rejects literal cross-origin bootstrap in HTML/CSS and obvious JS remote asset assignments (including scheme-relative URLs).
 
 This check runs in ordinary GitHub Android `verify`, which contains **no production signing secrets** and builds both channels. It does not simulate Android Usage Access, signed upgrade, HyperOS background execution, or third-party socket activity.
 
