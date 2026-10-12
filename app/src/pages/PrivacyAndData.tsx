@@ -94,10 +94,10 @@ export default function PrivacyAndData() {
       <section className="card p-5 mb-4">
         <h2 className="text-[16px] font-bold mb-3">隐私承诺</h2>
         <div className="space-y-2 text-[13px] text-gray-600 leading-relaxed">
-          <p>FlowBreak 无账号、无广告、无云同步，不集成第三方统计或广告 SDK。</p>
-          <p>应用列表、使用时间、阻断、休息、积分和成就仅保存在本机。使用情况访问只用于识别你选择的应用及计算使用时长。</p>
-          <p>国内版无障碍服务只监听前台窗口所属应用，在达到阻断条件时返回桌面；不会读取、记录或上传页面内容。</p>
-          <p>卸载应用或使用下方“清除本地数据”会删除 FlowBreak 保存的数据。</p>
+          <p>FlowBreak 当前无需注册账号、无广告和云同步，也未集成第三方广告或使用行为分析 SDK。最终发行包的网络行为仍须独立核验。</p>
+          <p>应用使用记录、阻断、休息、积分和成就主要保存在本机。使用情况访问用于识别你选择的应用及计算使用时长；仅在你主动导出或分享数据时，数据才会通过系统分享功能交给你选择的接收方。</p>
+          <p>国内版可选无障碍服务监听窗口切换事件中的应用包名和必要的窗口类名；对微信特定页面，会在本机保存是否属于视频号的判断值与时间戳，用于辅助阻断识别。它不读取或保存页面文字及输入内容。</p>
+          <p>卸载应用或清除本地数据通常会删除本应用私有目录中的数据；你之前导出到其他应用或云盘的副本不会被此操作自动删除。</p>
         </div>
       </section>
 
@@ -118,7 +118,7 @@ export default function PrivacyAndData() {
           {crashLogs.length === 0 ? (
             <div className="flex items-center gap-2 text-[13px] text-gray-500">
               <FileWarning size={16} className="text-primary" />
-              <span>暂无崩溃记录，应用运行正常。</span>
+              <span>当前未读取到本机崩溃日志（不代表完全没有异常）。</span>
             </div>
           ) : (
             <div className="space-y-2">
