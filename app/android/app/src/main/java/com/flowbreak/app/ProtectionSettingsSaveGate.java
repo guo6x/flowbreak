@@ -11,6 +11,11 @@ final class ProtectionSettingsSaveGate {
         return explicitMonitoringKey && requestedEnabled;
     }
 
+    /** A passive settings edit cannot create an active-monitoring boot flag. */
+    static boolean shouldMarkConfigured(boolean explicitMonitoringKey, boolean requestedEnabled) {
+        return explicitMonitoringKey && requestedEnabled;
+    }
+
     static boolean mayReload(
             boolean wasConfigured,
             boolean protectionRuntimeAvailable,
