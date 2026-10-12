@@ -31,10 +31,10 @@ const permissionState = {
   channel: "base", manufacturer: "", unsupportedDevice: false,
 };
 
-function mockPermissions(isNative: boolean, isDomestic: boolean) {
+function mockPermissions(isNative: boolean, isDomestic: boolean, unsupportedDevice = false) {
   vi.mocked(useNativePermissions).mockReturnValue({
     isNative,
-    permissions: { ...permissionState, isDomestic },
+    permissions: { ...permissionState, isDomestic, unsupportedDevice },
     checking: false,
     error: "",
     refresh: vi.fn(),
@@ -120,6 +120,17 @@ describe("BlockingSettings", () => {
     renderBlockingSettings();
     expect(screen.queryByRole("button", { name: "前往授权无障碍服务" })).toBeNull();
     expect(screen.queryByRole("switch", { name: "无障碍强阻断" })).toBeNull();
+  });
+
+  it("不支持的 Domestic 设备禁用无障碍强阻断且不提供授权动作", () => {
+    mockPermissions(true, true, true);
+    renderBlockingSettings();
+    expect(screen.getByRole("switch", { name: "无障碍强阻断" })).toBeDisabled();
+    const accessButton = screen.getByRole("button", { name: "当前设备不支持无障碍强阻断" });
+    expect(accessButton).toBeDisabled();
+    fireEvent.click(accessButton);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(NativeFlow.requestAccessibilityPermission).not.toHaveBeenCalled();
   });
 
   it("保存按钮存在", () => {
