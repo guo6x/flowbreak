@@ -11,7 +11,7 @@
 | ---- | ---- |
 | 分支 | `product/experience-polish-20261018` |
 | 起点 | `48aaf6a77ca6bae9f17f19e0210f5af3af745126` |
-| 本轮代码与测试提交 | `b7c40d27e48b2ccf8e55f388ebedb3f17186c02d`（后续仅整理文档；云端实际构建 SHA 单独记录，不混称） |
+| 本地验证代码与测试提交 | `b7c40d27e48b2ccf8e55f388ebedb3f17186c02d`（后续文档与 CI 维护未改变 App 运行时源码；云端实际构建 SHA 单独核对，不混称） |
 | 本地自动化 | **PASS** — Frontend 262、Play JVM 377、Domestic JVM 406；网页 44 项、品牌 36 项；双渠道 Lint / Debug 通过（有 warning）；完整边界见验证快照 |
 | 范围 | 全页视觉系统、原创矢量品牌、应用内帮助、统计口径与失败状态、设置草稿和原生读取保护、隐私确认、品牌与网页 CI 检查 |
 | 验证证据 | 见 [TESTING.md](TESTING.md) 的本轮验证快照；网页截图只属于 `WEB_PREVIEW_ONLY` |
