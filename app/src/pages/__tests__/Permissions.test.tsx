@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { BrowserRouter } from "react-router";
 import Permissions from "../Permissions";
 import { useNativePermissions } from "../../hooks/useNativePermissions";
+import { NativeFlow } from "../../backend/nativeFlow";
 
 const mockNavigate = vi.fn();
 const mockRefresh = vi.fn();
@@ -71,12 +72,12 @@ describe("Permissions", () => {
 
   it("缺usage时按钮提示usage", () => {
     renderPermissions({ hasUsageStats: false, hasOverlay: true, isNative: true });
-    expect(screen.getByText("还需开启：使用情况访问")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "还需开启：使用情况访问" })).toBeDisabled();
   });
 
   it("缺overlay时按钮提示overlay", () => {
     renderPermissions({ hasUsageStats: true, hasOverlay: false, isNative: true });
-    expect(screen.getByText("还需开启：悬浮窗权限")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "还需开启：悬浮窗权限" })).toBeDisabled();
   });
 
   it("电池优化豁免保持可选，不阻塞核心权限继续", () => {
@@ -142,5 +143,31 @@ describe("Permissions", () => {
     renderPermissions({ hasUsageStats: true, hasOverlay: true, isNative: true });
     const btn = screen.getByText("继续设置保护") as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
+  });
+
+  it("折叠区域暴露展开状态并显示两项权限完成进度", () => {
+    renderPermissions({ hasUsageStats: true, hasOverlay: false, isNative: true });
+    const toggle = screen.getByRole("button", { name: "提升后台稳定性（可稍后设置）" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("status")).toHaveTextContent("已开启 1 / 2");
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(document.getElementById(toggle.getAttribute("aria-controls")!)).toBeInTheDocument();
+  });
+
+  it("网页预览不能请求原生必需权限", () => {
+    renderPermissions();
+    const usage = screen.getByRole("button", { name: "开启使用情况访问" });
+    expect(usage).toBeDisabled();
+    fireEvent.click(usage);
+    expect(NativeFlow.requestUsageStatsPermission).not.toHaveBeenCalled();
+    expect(screen.getByText(/正式阻断能力只支持 Android/)).toBeInTheDocument();
+  });
+
+  it("原生页面可以直接打开对应权限而不混淆两项设置", () => {
+    renderPermissions({ isNative: true });
+    fireEvent.click(screen.getByRole("button", { name: "开启悬浮窗权限" }));
+    expect(NativeFlow.requestOverlayPermission).toHaveBeenCalledOnce();
+    expect(NativeFlow.requestUsageStatsPermission).not.toHaveBeenCalled();
   });
 });
