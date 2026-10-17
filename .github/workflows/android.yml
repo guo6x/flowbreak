@@ -52,6 +52,11 @@ jobs:
           java-version: 21
           cache: gradle
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+        with:
+          # The legacy "tools" package is no longer served by Google's repository.
+          # Gradle resolves the platform / build-tools declared by the Android project.
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
       - run: npm ci
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
@@ -368,6 +373,9 @@ jobs:
           java-version: 21
           cache: gradle
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
       - run: npm ci
       # Version policy: app/package.json "version" is the single Source of Truth.
       # release-version.mjs validates stable SemVer, computes versionCode
