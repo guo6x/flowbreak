@@ -3,7 +3,27 @@
 > 这是「项目现在在哪」的唯一当前视图。易变事实（HEAD、测试数、Run ID、APK SHA）只出现在本文档与 `TESTING.md` 的验证快照中。
 > 2026-08-12 的「真机验收 FAILED / RELEASE BLOCKED」快照已降级为历史记录（见下方「历史状态」），不再代表当前状态。
 
-## 当前状态速览
+## 当前产品推进（2026-10-18，体验分支）
+
+本轮为独立体验分支交付，不把下方既有 signed / Redmi 证据自动继承成新界面构建的设备验收。
+
+| 项 | 值 |
+| ---- | ---- |
+| 分支 | `product/experience-polish-20261018` |
+| 起点 | `48aaf6a77ca6bae9f17f19e0210f5af3af745126` |
+| 本轮代码与测试提交 | `b7c40d27e48b2ccf8e55f388ebedb3f17186c02d`（后续仅整理文档；云端实际构建 SHA 单独记录，不混称） |
+| 本地自动化 | **PASS** — Frontend 262、Play JVM 377、Domestic JVM 406；网页 44 项、品牌 36 项；双渠道 Lint / Debug 通过（有 warning）；完整边界见验证快照 |
+| 范围 | 全页视觉系统、原创矢量品牌、应用内帮助、统计口径与失败状态、设置草稿和原生读取保护、隐私确认、品牌与网页 CI 检查 |
+| 验证证据 | 见 [TESTING.md](TESTING.md) 的本轮验证快照；网页截图只属于 `WEB_PREVIEW_ONLY` |
+| 新构建真机 / 签名验收 | **NOT_EXECUTED**；未安装到手机、未调用生产签名、未发布或合并 |
+| 文档 | 新增 [USER_GUIDE.md](USER_GUIDE.md) 与 [BRAND.md](BRAND.md)，并整理开发、测试与产品参考 |
+| 继承的开放偏差 | 新登记 `FB-P2-03`：Domestic 强阻断原生缺省值与规范的默认关闭目标不一致（源码复核，未修改默认值）；详见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md) |
+
+原工作区的两处未提交 Java 修改保留原状，本轮不包含它们；本轮没有更改原生状态机、计时、GRACE、生产签名身份或发布版本。尚未做受支持手机的新构建 smoke，因此不宣称本分支达到发布验收。
+
+## 既有发布基线速览（2026-09-11，历史验证范围）
+
+下表保留原发布基线的门禁与实机证据，不代表本轮体验分支的最新 master 状态或新包验收。表内问题计数也是该基线当时的结论。
 
 | 项 | 值 |
 | ---- | ---- |
@@ -22,7 +42,7 @@
 | `FB-P1-05` | **P1 / OPEN_UNSUPPORTED_V1_1_0**（vivo/iQOO runtime 不支持，fail closed） |
 | 发布状态 | **GATE A/B/C PASS；GATE D PASS_SUPPORTED_SCOPE；GATE E PASS_SUPPORTED_SCOPE_WITH_DOCUMENTED_PLATFORM_LIMITATION；GATE F/G/H/I PENDING** |
 
-## 支持设备范围与最终范围验收
+## 既有基线的支持设备范围与最终范围验收
 
 - 已验证支持参考：**Xiaomi / Redmi**。Redmi Note 13 Pro 5G（`2312DRA50C` / garnet）/ Android 16 / SDK 36 / HyperOS 3.0（`OS3.0.306.0.WNRCNXM`）的 R1–R4 全部 PASS；该参考证据不等同于本次新 signed build smoke。
 - 被测 APK：domestic debug（`com.flowbreak.app.cn`）。复测前在代码工作区 `99fdcc2` 上重新执行前端 build → Capacitor sync → Android assemble 后生成；该重建解决了此前旧 Web bundle 混入问题。正式 Artifact Provenance 链已由 `RELEASE.md` GATE C 建立并通过（2026-08-15，PR #1 实测）。
@@ -48,7 +68,7 @@
 
 - **UNVERIFIED / BETA SCOPE**。其他 OEM 不因未命中当前 fail-closed 集合而自动获得 v1.1.0 支持声明。
 
-## 当前自动化验证
+## 既有发布基线自动化验证（历史）
 
 - Gate E verified behavior baseline `ccacb6738a44d3bc08da9a4ceac75766316b2521` 的自动化验证：**PASS**。
 - Master verify：Run `34569928299` **PASS**。
@@ -56,7 +76,7 @@
 - Signed artifact：`flowbreak-signed-dry-run-v1.1.0-ccacb6738a44d3bc08da9a4ceac75766316b2521`，ID `10187690618`。
 - 精确 Frontend / Android JVM 套件数量以 `TESTING.md` 为准；下方旧计数仅保留为历史记录。
 
-## Gate E 当前支持范围决策
+## 既有发布基线的 Gate E 支持范围决策
 
 - `GATE_E = PASS_SUPPORTED_SCOPE_WITH_DOCUMENTED_PLATFORM_LIMITATION`。
 - `E1_USAGE_ACCOUNTING = PASS_CARRIED_FORWARD_WITH_EQUIVALENCE`：此前有效 Redmi 真机 PASS + 当前实现的 normal-path equivalence。
@@ -94,6 +114,7 @@
 2. **`COMPAT-001`（NON-BLOCKING / COMPATIBILITY OBSERVATION，OPEN OBSERVATION）**：HyperOS 仍可能拒绝尽力而为的 `tryStartBlockActivity` 后台启动，但强阻断已不依赖它。
 3. **`FB-P1-07 / PLATFORM-EXEC-001`（P1 / MITIGATED_ACCEPTED_PLATFORM_LIMITATION）**：原始 Redmi execution gap 仍是历史有效失败；PR #26 提供历史恢复缓解，实时 enforcement 在 OS/OEM 不给执行时间期间不属于 v1.1.0 保证，不阻塞当前修订后的 Gate E 支持范围。
 4. **`FB-P2-02`（P2 / OPEN_NON_BLOCKING_V1_1_0）**：recovered usage DB write 与 replay checkpoint durability 非 atomic；不重新打开 Gate E。
+   本轮另登记 `FB-P2-03`（默认设置一致性，源码复核）；不改写旧门禁结论，后续默认策略变更须单独验证。
 5. **Gate F = PENDING**：24h stability + Protection Integrity。
 6. **Gate G = PENDING_CROSS_MACHINE_RECOVERY**：跨机器恢复尚未完成。
 7. **Gate H = PENDING**：Store / Compliance Readiness。
@@ -101,7 +122,9 @@
 
 > 历史 RELEASE ENGINEERING GAP（产物溯源）已关闭：曾出现「本地 APK 原生 dex 已更新、Web bundle 仍旧」的不一致产物与「CI 未持久上传 artifacts」两个缺口，已由 GATE C 实现并实测关闭（`RELEASE.md` GATE C = PASS，`TESTING.md` 产物溯源）。
 
-## 签名与 GATE G
+## 既有签名托管记录与 GATE G
+
+下列状态沿用已记录的独立托管证据，本轮未操作密钥或重新执行恢复。仓库内 PortableSigningVault 创建/恢复脚本目前是 fail-closed 占位工具，不应把它们的安全拒绝测试等同于恢复 PASS。
 
 CURRENT_PC_ROLE = `PRIMARY_WORKSTATION`
 
@@ -142,10 +165,11 @@ TRUE_VERSION_UPGRADE = `NOT_TESTED_NO_VALID_LOWER_FINAL_SIGNED_BUILD`
 
 ## 下一路线（建议排序）
 
-1. Gate F — minimal stability / Protection Integrity closeout
-2. Gate H — actual first-release channel compliance/materials
-3. Gate I — small beta
-4. Gate G remaining — cross-machine recovery before production release
-5. Final RC / tag / release
+1. 对体验分支的新构建执行受支持 Android 设备 smoke（包括设置保存、统计、完整休息、系统返回键、权限撤销后的如实降级）；处置 `FB-P2-03` 的默认策略差异。
+2. Gate F — minimal stability / Protection Integrity closeout
+3. Gate H — actual first-release channel compliance/materials
+4. Gate I — small beta
+5. Gate G remaining — cross-machine recovery before production release
+6. Final RC / tag / release
 
 其他 OEM 兼容性扩展属于 parallel/beta follow-up，不是当前 release-blocking main-path gate。

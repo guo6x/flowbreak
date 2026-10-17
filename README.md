@@ -1,5 +1,9 @@
 # FlowBreak
 
+<img src="app/src/assets/icon.svg" alt="FlowBreak 标志" width="72" height="72" />
+
+给注意力，留一点空白。
+
 A local-first Android digital-wellbeing tool that helps reduce continuous use of short-video and social apps through progressive reminders and optional strong blocking.
 
 一款本地运行的 Android 数字健康工具，通过渐进式提醒和可选强阻断，帮助用户减少连续使用短视频和社交应用的时间。
@@ -12,7 +16,7 @@ A local-first Android digital-wellbeing tool that helps reduce continuous use of
 
 ## 核心机制
 
-- 选择受限目标应用（默认 5 个，最多 30 个），共享同一个连续使用限额。
+- 选择受限目标应用（从默认候选按已安装应用与渠道筛选，最多 30 个），共享同一个连续使用限额。
 - 按连续使用时长占限额百分比渐进干预：**80% → PERCEPTION（轻提醒）→ 100% → COGNITION（强提醒）→ 120% → BLOCKED（全屏阻断）**。
 - BLOCKED 后需完成休息（2/3/5 分钟）获得 10 分钟访问窗口；每日一次紧急使用（长按 10 秒，5 分钟窗口）。
 - 只统计目标应用时长，数据全本地（SharedPreferences + Room + localStorage），无账号、无广告、无第三方统计。
@@ -52,6 +56,10 @@ cd android
 > 详见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
 
 ## 文档入口
+
+- 第一次使用：[使用指南](docs/USER_GUIDE.md)；应用内也可进入“我的 → 使用指南”。
+- 维护界面与图标：[品牌与设计参考](docs/BRAND.md)。
+- 浏览器开发预览不具备 Android 跨应用保护能力，不应当作真机验证。
 
 新接手项目请按 [docs/README.md](docs/README.md) 的阅读顺序阅读。文档目录：`docs/PRODUCT.md`、`docs/ARCHITECTURE.md`、`docs/CURRENT_STATUS.md`、`docs/KNOWN_ISSUES.md`、`docs/TESTING.md`、`docs/RELEASE.md`、`docs/DEVELOPMENT.md`。
 

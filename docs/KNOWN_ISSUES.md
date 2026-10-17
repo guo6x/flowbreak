@@ -50,6 +50,16 @@
 - Next action：多 OEM 矩阵中决定：删除 `tryStartBlockActivity` / OEM 条件化 / 继续作为 best-effort compatibility path。**不要**在无真实用户可见失败证据时升级为新的 P1/P2。
 - Evidence：External device evidence: `reports/R1-R4-retest-2026-08-14.md`（R3）、`reports/T38-strong-blocking.md`（§3 历史）
 
+### FB-P2-03 Domestic strong-blocking default differs from the documented opt-in UI
+
+- Severity：**P2（默认设置与产品规范一致性）**
+- Status：**OPEN — SOURCE_REVIEW_ONLY**，尚无本轮真机复测结论。
+- Affected scope：继承的 Domestic 原生缺省逻辑；本轮未改动该默认值。
+- Observed：`NativeFlowPlugin.loadSettings()` 在未存储该选项时按 Domestic 渠道返回 `strongBlockingEnabled=true`；`BlockingSettings` 成功读取后显示为开启。系统无障碍授权仍独立、可选，不能由这个布尔值推断已授权或正在执行强阻断。
+- Expected：`PRODUCT.md` 的默认 UI 关闭目标，与实际初始值和可选授权表述应一致，且不得覆盖用户已有选择。
+- Evidence：源码复核 `app/android/app/src/main/java/com/flowbreak/app/NativeFlowPlugin.java` 的 `loadSettings()` 与 `app/src/pages/BlockingSettings.tsx`；没有执行新安装/升级设备测试。
+- Next action：单独裁定默认策略并增加双渠道、新安装/已有设置的回归；涉及默认值或迁移时做受支持 Android 设备验证。本轮不通过修改规范来宣称缺陷已修复，也不据此改写历史 Gate 结论。
+
 ## Platform limitations
 
 ### FB-P1-07 / PLATFORM-EXEC-001 OEM/Android execution suspension can delay real-time enforcement
