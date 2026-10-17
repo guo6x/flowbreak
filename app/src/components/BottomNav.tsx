@@ -16,8 +16,8 @@ export default function BottomNav() {
   if (!tabs.some(tab => tab.path === location.pathname)) return null;
 
   return (
-    <nav aria-label="主导航" className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-300/40 z-50" style={{ paddingBottom: 'env(safe-area-inset-bottom, 8px)' }}>
-      <div className="flex items-center justify-around h-14 max-w-lg mx-auto">
+    <nav aria-label="主导航" className="app-fixed-bottom fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-xl border-t border-gray-200 z-50" style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 8px)' }}>
+      <div className="flex items-center justify-around h-16 px-4 mx-auto">
         {tabs.map(tab => {
           const isActive = location.pathname === tab.path;
           const Icon = tab.icon;
@@ -36,12 +36,12 @@ export default function BottomNav() {
                   transition={{ type: 'spring', stiffness: 400, damping: 30 }}
                 />
               )}
-              <Icon
+              <Icon aria-hidden="true"
                 size={22}
                 className={`transition-colors ${isActive ? 'text-primary' : 'text-gray-500'}`}
                 strokeWidth={isActive ? 2.5 : 1.8}
               />
-              <span className={`text-[10px] mt-0.5 ${isActive ? 'text-primary font-medium' : 'text-gray-500'}`}>
+              <span className={`text-[12px] mt-1 ${isActive ? 'text-primary font-semibold' : 'text-gray-500'}`}>
                 {tab.label}
               </span>
             </button>

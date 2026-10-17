@@ -1,11 +1,11 @@
 {
   "name": "FlowBreak",
   "short_name": "FlowBreak",
-  "description": "自然唤醒系统 - 科学管理数字疲劳",
+  "description": "给注意力，留一点空白。渐进提醒与短暂休息，帮助减少连续刷屏。",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#F5F5F5",
-  "theme_color": "#4CAF50",
+  "background_color": "#F4F7F3",
+  "theme_color": "#1C5943",
   "orientation": "portrait",
   "icons": [
     {

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { motion } from 'framer-motion';
-import { Moon, Clock, Shield, Zap, ChevronRight } from 'lucide-react';
+import { Moon, Clock, Shield, ChevronRight, Pause, Play, ArrowUpRight, Smartphone } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import { DailyReflection, getTodayActivities, getTodayReflection, saveTodayReflection } from '../backend/storage';
 import { Capacitor } from '@capacitor/core';
@@ -9,17 +9,11 @@ import { NativeFlow, NativeProtectionStatus } from '../backend/nativeFlow';
 import { syncNativeMonitoring } from '../backend/nativeMonitoring';
 import { useNativePermissions } from '../hooks/useNativePermissions';
 import { getProtectionViewModel, formatRemainingTime, formatCountdown } from '../utils/protectionStatus';
+import { formatUsageTime, nonNegativeNumber } from '../utils/statistics';
 import {
   UNSUPPORTED_DEVICE_DETAIL,
   UNSUPPORTED_DEVICE_MESSAGE,
 } from '../utils/backgroundStability';
-
-function formatMinutes(seconds: number) {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  if (h > 0) return `${h}小时${m}分`;
-  return `${m}分钟`;
-}
 
 function formatDuration(seconds: number) {
   if (seconds >= 60) return `${Math.floor(seconds / 60)}分钟`;
@@ -147,9 +141,9 @@ function ProtectionStatusCard({
       : 'bg-green-100 text-green-700';
 
   return (
-    <div className="card-lg p-5 mb-4">
+    <section className="card-lg p-5 mb-3" aria-label="保护状态">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-[15px] font-bold">保护状态</h3>
+        <h2 className="flex items-center gap-2 text-[15px] font-semibold"><Shield size={17} className="text-primary" aria-hidden="true" />保护状态</h2>
         <span className={`px-3 py-1 rounded-full text-[12px] font-medium ${badgeClass}`}>
           {badgeLabel}
         </span>
@@ -190,10 +184,10 @@ function ProtectionStatusCard({
           <p className="text-[13px] text-amber-700">{nativeStatusReason(nativeStatus.strongBlockingDegradedReason)}</p>
         </div>
       )}
-      <div className="space-y-1.5 text-[13px]">
+      <div className="space-y-3 text-[13px]">
         <div className="flex justify-between">
           <span className="text-gray-500">当前状态</span>
-          <span className="font-medium">{vm.stateLabel}</span>
+          <span className="font-medium">{protectionActive ? vm.stateLabel : displayedUnsupported ? '此设备暂不可用' : isNative && nativeStatusKey === null ? '等待设备确认' : '当前未开启保护'}</span>
         </div>
         {protectionActive && blockState !== 'BLOCKED' && blockState !== 'RESTING' && blockState !== 'GRACE' && (
           <div className="flex justify-between">
@@ -236,7 +230,7 @@ function ProtectionStatusCard({
           </div>
         )}
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -247,7 +241,6 @@ export default function Dashboard() {
   const isMonitoring = useStore(s => s.isMonitoring);
   const setMonitoring = useStore(s => s.setMonitoring);
   const setServiceError = useStore(s => s.setServiceError);
-  const score = useStore(s => s.fatigueScore);
   const level = useStore(s => s.fatigueLevel);
   const currentAppName = useStore(s => s.currentAppName);
   const graceUntil = useStore(s => s.graceUntil);
@@ -265,6 +258,9 @@ export default function Dashboard() {
   const [reflection, setReflection] = useState<DailyReflection | ''>(getTodayReflection());
   const [reflectionError, setReflectionError] = useState('');
   const [summaryError, setSummaryError] = useState(false);
+  const [summaryLoaded, setSummaryLoaded] = useState(!Capacitor.isNativePlatform());
+  const [nativeScreenSeconds, setNativeScreenSeconds] = useState<number | null>(null);
+  const [nativeTimeError, setNativeTimeError] = useState(false);
   const [toggling, setToggling] = useState(false);
   const { isNative, permissions } = useNativePermissions();
   const [nativeProtectionStatus, setNativeProtectionStatus] = useState<NativeProtectionStatus | null>(null);
@@ -330,12 +326,25 @@ export default function Dashboard() {
     let active = true;
     const refreshSummary = () => {
       if (Capacitor.isNativePlatform()) {
+        NativeFlow.getUsageStats().then(result => {
+          if (!active) return;
+          setNativeScreenSeconds(nonNegativeNumber(result.screenTimeSeconds));
+          setNativeTimeError(false);
+        }).catch(() => {
+          if (!active) return;
+          setNativeScreenSeconds(null);
+          setNativeTimeError(true);
+        });
         NativeFlow.getDashboardSummary().then(result => {
           if (!active) return;
           setSummary(result);
           setSummaryError(false);
+          setSummaryLoaded(true);
         }).catch(() => {
-          if (active) setSummaryError(true);
+          if (active) {
+            setSummaryError(true);
+            setSummaryLoaded(false);
+          }
         });
       } else {
         setSummary({
@@ -411,10 +420,12 @@ export default function Dashboard() {
   };
 
   const goalSeconds = profile.dailyGoal * 60;
-  const progress = Math.min(1, stats.totalScreenTime / goalSeconds);
+  const dailyScreenSeconds = isNative ? nativeScreenSeconds : stats.totalScreenTime;
+  const progress = goalSeconds > 0 && dailyScreenSeconds !== null ? Math.min(1, Math.max(0, dailyScreenSeconds / goalSeconds)) : 0;
   const graceSeconds = Math.max(0, Math.ceil((graceUntil - now) / 1000));
-  const displayedRestCount = Capacitor.isNativePlatform() ? summary.restCount : stats.restCount;
-  const displayedInterventionCount = Capacitor.isNativePlatform() ? summary.blockCount : stats.interventionCount;
+  const summaryUnavailable = isNative && (!summaryLoaded || summaryError);
+  const displayedRestCount = summaryUnavailable ? '--' : isNative ? summary.restCount : stats.restCount;
+  const displayedInterventionCount = summaryUnavailable ? '--' : isNative ? summary.blockCount : stats.interventionCount;
 
   const timeline = useMemo(() => {
     const activities = getTodayActivities();
@@ -426,28 +437,24 @@ export default function Dashboard() {
         app: item.app,
         duration: formatDuration(item.durationSec),
         color:
-          item.type === 'rest' ? '#2196F3' :
-          item.type === 'intervention' ? '#F44336' :
-          '#4CAF50',
+          item.type === 'rest' ? '#367C98' :
+          item.type === 'intervention' ? '#A77A48' :
+          '#247353',
       }));
   }, [stats.totalScreenTime, stats.restCount, stats.interventionCount]);
 
   return (
-    <div className="flex flex-col pb-24 px-5 pt-6 no-scrollbar overflow-y-auto min-h-dvh">
-      <div className="flex items-center justify-between mb-6">
+    <div className="flex flex-col pb-28 px-5 pt-7 no-scrollbar overflow-y-auto min-h-dvh">
+      <header className="flex items-start justify-between gap-3 mb-6">
         <div>
-          <p className="text-[12px] text-gray-500">{new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' })}</p>
-          <h1 className="text-[24px] font-bold text-gray-900">仪表盘</h1>
+          <p className="text-[11px] text-gray-500 mb-1.5">{new Date(now).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' })}</p>
+          <h1 className="text-[24px] min-[380px]:text-[28px] font-bold tracking-tight text-gray-900">把时间，留给自己</h1>
+          <p className="mt-2 text-[13px] text-gray-500">从一次轻轻停下开始。</p>
         </div>
-        <div className="flex items-center gap-2">
-          <motion.div
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            className="flex flex-col items-end"
-          >
-            <div className="flex items-center gap-1.5 bg-primary/10 px-3 py-1.5 rounded-full">
-              <div className={`w-2 h-2 rounded-full ${protectionActive ? 'bg-primary animate-pulse' : 'bg-gray-400'}`} />
-              <span className="text-[11px] text-primary font-medium">
+        <div className="flex shrink-0 flex-col items-end pt-1">
+            <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full ${protectionActive ? 'bg-primary/10 text-primary' : 'bg-gray-100 text-gray-700'}`}>
+              <div aria-hidden="true" className={`w-1.5 h-1.5 rounded-full ${protectionActive ? 'bg-primary' : 'bg-gray-400'}`} />
+              <span className="text-[10px] font-semibold whitespace-nowrap">
                 {unsupportedDevice || nativeProtectionStatus?.status === 'UNSUPPORTED'
                   ? '设备不支持'
                   : isNative
@@ -458,11 +465,69 @@ export default function Dashboard() {
               </span>
             </div>
             {protectionActive && currentAppName && (
-              <span className="text-[11px] text-gray-500 mt-1">当前: {currentAppName}</span>
+              <span className="max-w-24 truncate text-[10px] text-gray-500 mt-1">当前: {currentAppName}</span>
             )}
-          </motion.div>
+        </div>
+      </header>
+
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="card-lg p-5 mb-4 relative overflow-hidden"
+        style={{ background: 'linear-gradient(135deg, #E5F0E6 0%, #F1F5EC 100%)' }}
+      >
+        <div aria-hidden="true" className="absolute top-0 right-0 w-36 h-36 rounded-full border-[20px] border-white/35 -translate-y-12 translate-x-12" />
+
+        <div className="relative z-10">
+          <div className="flex items-start justify-between gap-3 mb-5">
+            <div>
+              <p className="text-[#41634C] text-[12px] mb-2 font-medium">今日目标应用时间</p>
+              <h2 className="text-[32px] min-[380px]:text-[36px] font-semibold tracking-tight leading-none text-[#1E4D38]" data-testid="dashboard-total-time">{dailyScreenSeconds === null ? '--' : formatUsageTime(dailyScreenSeconds)}</h2>
+            </div>
+            <div className="text-right">
+              <p className="text-[#41634C] text-[11px] mb-1">每日目标</p>
+              <p className="text-[14px] font-semibold text-[#1E4D38]">{formatGoal(profile.dailyGoal)}</p>
+            </div>
+          </div>
+
+          <div className="w-full h-1.5 bg-[#247353]/10 rounded-full overflow-hidden mb-3" role="progressbar" aria-label="今日目标应用使用时间占每日目标" aria-valuemin={0} aria-valuemax={100} aria-valuenow={dailyScreenSeconds === null ? undefined : Math.round(progress * 100)} aria-valuetext={dailyScreenSeconds === null ? '设备记录尚未读取' : undefined}>
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${progress * 100}%` }}
+              transition={{ duration: 0.6, ease: 'easeOut' }}
+              className={`h-full rounded-full ${progress >= 1 ? 'bg-[#A77A48]' : 'bg-[#247353]'}`}
+            />
+          </div>
+
+          <div className="flex items-center justify-between gap-3 text-[11px] text-[#41634C]">
+            <span>{dailyScreenSeconds === null ? nativeTimeError ? '暂时无法读取设备记录' : '正在读取设备记录' : progress >= 1 ? '已达到你设定的每日目标' : '按照自己的节奏，慢慢来'}</span>
+            <span className="flex items-center gap-1 shrink-0"><Smartphone size={12} aria-hidden="true" />{profile.targetApps.length} 个目标应用</span>
+          </div>
+        </div>
+      </motion.div>
+
+      <div className="grid grid-cols-3 gap-2.5 mb-5">
+        <div className="card p-3.5">
+          <Moon size={16} className="text-secondary mb-2" aria-hidden="true" />
+          <p className="text-[11px] text-gray-500">完成休息</p>
+          <p className="text-[22px] font-semibold mt-0.5 text-gray-900">{displayedRestCount}<span className="ml-1 text-[10px] font-normal text-gray-500">次</span></p>
+        </div>
+        <div className="card p-3.5">
+          <Shield size={16} className="text-primary mb-2" aria-hidden="true" />
+          <p className="text-[11px] text-gray-500">今日阻断</p>
+          <p className="text-[22px] font-semibold mt-0.5 text-gray-900">{displayedInterventionCount}<span className="ml-1 text-[10px] font-normal text-gray-500">次</span></p>
+        </div>
+        <div className="card p-3.5">
+          <Clock size={16} className="text-[#8A7550] mb-2" aria-hidden="true" />
+          <p className="text-[11px] text-gray-500">访问窗口</p>
+          <p className="text-[22px] font-semibold mt-0.5 text-gray-900 tabular-nums">
+            {protectionActive && graceSeconds > 0 ? `${Math.floor(graceSeconds / 60)}:${String(graceSeconds % 60).padStart(2, '0')}` : '--'}
+          </p>
         </div>
       </div>
+
+      {summaryError ? <p className="-mt-2 mb-4 text-[12px] text-gray-500" role="status">今日计数暂未读取成功，稍后会自动重试。</p> : null}
+
       <ProtectionStatusCard
         now={now}
         isNative={isNative}
@@ -477,80 +542,40 @@ export default function Dashboard() {
       <button
         onClick={handleToggleMonitoring}
         disabled={toggling || noTargetApps || unsupportedDevice}
-        className={`w-full h-12 rounded-xl text-[14px] font-medium transition-colors mb-5 ${
-          unsupportedDevice ? 'bg-gray-200 text-gray-500' : monitoringIntent ? 'bg-gray-200 text-gray-700' : noTargetApps ? 'bg-gray-200 text-gray-500' : 'bg-primary text-white'
+        className={`w-full min-h-12 flex items-center justify-center gap-2 rounded-2xl px-3 py-3 text-[13px] font-semibold transition-colors mb-5 ${
+          unsupportedDevice || noTargetApps ? 'bg-gray-100 text-gray-500' : monitoringIntent ? 'bg-white border border-gray-200 text-gray-700' : 'bg-primary text-white'
         }`}
         aria-label={unsupportedDevice ? UNSUPPORTED_DEVICE_MESSAGE : noTargetApps ? '请先选择受限应用' : monitoringIntent ? '暂停保护' : '开启保护'}
+        aria-busy={toggling}
       >
+        {monitoringIntent ? <Pause size={15} aria-hidden="true" /> : <Play size={15} aria-hidden="true" />}
         {unsupportedDevice ? UNSUPPORTED_DEVICE_MESSAGE : noTargetApps ? '请先选择受限应用' : toggling ? (monitoringIntent ? '正在暂停...' : '正在开启...') : (monitoringIntent ? '暂停保护' : '开启保护')}
       </button>
 
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="card-lg p-5 mb-5 bg-gradient-to-br from-primary to-primary-dark text-white relative overflow-hidden"
-      >
-        <div className="absolute top-0 right-0 w-32 h-32 rounded-full bg-white/10 -translate-y-10 translate-x-10" />
-        <div className="absolute bottom-0 left-0 w-20 h-20 rounded-full bg-white/5 translate-y-8 -translate-x-8" />
-
-        <div className="relative z-10">
-          <div className="flex items-start justify-between mb-4">
-            <div>
-              <p className="text-white/70 text-[12px] mb-1">今日目标应用时间</p>
-              <h2 className="text-[40px] font-light leading-none">{formatMinutes(stats.totalScreenTime)}</h2>
-            </div>
-            <div className="text-right">
-              <p className="text-white/70 text-[12px] mb-1">目标</p>
-              <p className="text-[16px] font-medium">{formatGoal(profile.dailyGoal)}</p>
-            </div>
+      <div className="mb-5">
+        <motion.button
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => navigate('/rest')}
+          className="w-full card flex items-center gap-3 p-4 border border-secondary/15"
+        >
+          <div className="w-11 h-11 rounded-2xl bg-secondary/10 flex items-center justify-center shrink-0">
+            <Moon size={20} className="text-secondary" aria-hidden="true" />
           </div>
-
-          <div className="w-full h-2 bg-white/20 rounded-full overflow-hidden mb-4">
-            <motion.div
-              initial={{ width: 0 }}
-              animate={{ width: `${progress * 100}%` }}
-              transition={{ duration: 1, ease: 'easeOut' }}
-              className={`h-full rounded-full ${progress > 0.9 ? 'bg-red-300' : 'bg-white'}`}
-            />
+          <div className="text-left">
+            <p className="text-[14px] font-semibold text-gray-900">开始休息</p>
+            <p className="text-[12px] text-gray-500 mt-0.5">
+              {level === 'NONE' ? `${Math.round(profile.restDuration / 60)} 分钟，给自己一个小小的空隙` : level === 'ACTION' ? '连续使用已较久，暂停一下吧' : level === 'COGNITION' ? '已达到连续使用限额，适合休息一下' : '已接近连续使用限额，可以准备休息'}
+            </p>
           </div>
-
-          <div className="flex justify-between">
-            <div className="flex items-center gap-1.5">
-              <Moon size={14} className="text-white/70" />
-              <span className="text-[12px] text-white/80">休息 {displayedRestCount} 次</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <Shield size={14} className="text-white/70" />
-              <span className="text-[12px] text-white/80">阻断 {displayedInterventionCount} 次</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <Zap size={14} className="text-white/70" />
-              <span className="text-[12px] text-white/80">疲劳 {(score * 100).toFixed(0)}%</span>
-            </div>
-          </div>
-        </div>
-      </motion.div>
-
-      <div className="grid grid-cols-3 gap-2 mb-5">
-        <div className="card p-3">
-          <p className="text-[10px] text-gray-500">今日阻断</p>
-          <p className="text-[20px] font-bold mt-1">{summaryError ? '--' : summary.blockCount}</p>
-        </div>
-        <div className="card p-3">
-          <p className="text-[10px] text-gray-500">休息解锁</p>
-          <p className="text-[20px] font-bold mt-1">{summaryError ? '--' : `${Math.round(summary.unlockSeconds / 60)}分`}</p>
-        </div>
-        <div className="card p-3">
-          <p className="text-[10px] text-gray-500">访问窗口</p>
-          <p className="text-[20px] font-bold mt-1">
-            {protectionActive && graceSeconds > 0 ? `${Math.floor(graceSeconds / 60)}:${String(graceSeconds % 60).padStart(2, '0')}` : '--'}
-          </p>
-        </div>
+          <ArrowUpRight size={19} className="ml-auto text-secondary shrink-0" aria-hidden="true" />
+        </motion.button>
       </div>
 
-      <div className="card p-4 mb-5" data-testid="daily-reflection">
-        <p className="text-[14px] font-bold text-gray-900">今天 FlowBreak 有帮你从刷视频里醒过来吗？</p>
-        <p className="text-[11px] text-gray-500 mt-1">每天只记一次感受，可随时修改，只保存在本机。</p>
+      <section className="card p-5 mb-4" data-testid="daily-reflection" aria-labelledby="reflection-heading">
+        <h2 id="reflection-heading" className="text-[15px] font-semibold text-gray-900">今天的提醒，对你有帮助吗？</h2>
+        <p className="text-[12px] leading-relaxed text-gray-500 mt-1.5">没有标准答案。记录今天的感受，可修改，只留在本机。</p>
         <div className="grid grid-cols-3 gap-2 mt-3">
           {([
             ['helped', '有帮助'],
@@ -561,7 +586,8 @@ export default function Dashboard() {
               key={value}
               data-testid={`reflection-${value}`}
               onClick={() => void submitReflection(value)}
-              className={`rounded-xl py-2.5 text-[12px] font-medium border transition-colors ${
+              aria-pressed={reflection === value}
+              className={`min-h-11 rounded-xl py-2.5 text-[12px] font-medium border transition-colors ${
                 reflection === value
                   ? 'bg-primary text-white border-primary'
                   : 'bg-white text-gray-600 border-gray-200'
@@ -571,77 +597,48 @@ export default function Dashboard() {
             </button>
           ))}
         </div>
-        {reflectionError && <p className="text-[11px] text-error mt-2">{reflectionError}</p>}
-      </div>
+        {reflectionError && <p className="text-[12px] text-error mt-2" role="alert">{reflectionError}</p>}
+      </section>
 
-
-      {/* Action buttons */}
-      <div className="mb-6">
-        <motion.button
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => navigate('/rest')}
-          className="w-full card flex items-center gap-3 p-4 bg-secondary/5 border border-secondary/20"
-        >
-          <div className="w-10 h-10 rounded-xl bg-secondary/10 flex items-center justify-center">
-            <Moon size={20} className="text-secondary" />
-          </div>
-          <div className="text-left">
-            <p className="text-[14px] font-medium text-gray-900">开始休息</p>
-            <p className="text-[11px] text-gray-500">
-              {level === 'NONE' ? '主动休息' : level === 'ACTION' ? '强烈建议休息' : level === 'COGNITION' ? '认知疲劳' : '轻度疲劳'}
-            </p>
-          </div>
-        </motion.button>
-      </div>
-
-
-      {/* Fatigue level indicator */}
-      {level === 'NONE' && (
-        <div className="card p-4 mb-4 flex items-center gap-3 bg-primary/5 border border-primary/10">
-          <Zap size={18} className="text-primary" />
-          <div>
-            <p className="text-[13px] font-medium text-gray-900">状态良好</p>
-            <p className="text-[12px] text-gray-500">未检测到明显疲劳，继续保持</p>
-          </div>
-        </div>
-      )}
 
       <div className="flex items-center justify-between mb-3 mt-2">
-        <h3 className="text-[16px] font-bold text-gray-900">今日活动</h3>
-        <button onClick={() => navigate('/stats')} className="text-[12px] text-primary font-medium flex items-center gap-0.5">
-          查看全部 <ChevronRight size={14} />
+        <h2 className="text-[15px] font-semibold text-gray-900">今日活动</h2>
+        <button onClick={() => navigate('/stats')} className="min-h-11 rounded-lg text-[12px] text-primary font-semibold flex items-center gap-0.5">
+          查看统计 <ChevronRight size={14} aria-hidden="true" />
         </button>
       </div>
 
       <div className="card p-4 mb-4">
-        {timeline.length === 0 && (
-          <div className="flex flex-col items-center py-10">
+        {isNative ? (
+          <div className="flex items-center gap-3 py-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/8"><Clock size={20} className="text-primary" aria-hidden="true" /></div>
+            <div><p className="text-[13px] font-medium text-gray-900">把变化，看得更清楚</p><p className="mt-1 text-[12px] leading-relaxed text-gray-500">在统计页查看设备记录的使用时长与休息次数。</p></div>
+          </div>
+        ) : timeline.length === 0 ? (
+          <div className="flex flex-col items-center py-7">
             <div className="relative mb-4">
-              <div className="w-20 h-20 rounded-full bg-gradient-to-br from-primary/10 to-secondary/10 flex items-center justify-center">
-                <Clock size={32} className="text-primary/40" />
+              <div className="w-16 h-16 rounded-3xl bg-primary/8 flex items-center justify-center">
+                <Clock size={26} className="text-primary" aria-hidden="true" />
               </div>
               {protectionActive && (
                 <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center">
-                  <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                  <div className="w-2 h-2 rounded-full bg-primary" />
                 </div>
               )}
             </div>
             <p className="text-[14px] font-medium text-gray-700 mb-1">
-              {protectionActive ? '正在记录活动' : '监控已暂停'}
+              {protectionActive ? '从今天，积累一点改变' : '还没有今日活动'}
             </p>
-            <p className="text-[12px] text-gray-400 text-center leading-relaxed max-w-[220px]">
+            <p className="text-[12px] text-gray-500 text-center leading-relaxed max-w-[250px]">
               {protectionActive
-                ? '使用设备时，这里会自动显示你的应用使用记录'
-                : '点击上方按钮开启监控，以记录你的健康使用情况'}
+                ? '这里会记录浏览器预览中的使用与休息活动。'
+                : '开启保护后，使用与休息的记录会出现在这里。'}
             </p>
           </div>
-        )}
-        {timeline.map((item, i) => (
-          <div key={`${item.time}-${i}`} className="flex items-center gap-3 py-2.5 border-b border-gray-300/30 last:border-b-0">
-            <span className="text-[12px] text-gray-400 w-11 shrink-0">{item.time}</span>
-            <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
+        ) : timeline.map((item, i) => (
+          <div key={`${item.time}-${i}`} className="flex items-center gap-3 py-3 border-b border-gray-100 last:border-b-0">
+            <span className="text-[11px] text-gray-500 w-11 shrink-0 tabular-nums">{item.time}</span>
+            <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: item.color }} aria-hidden="true" />
             <span className="text-[14px] text-gray-900 flex-1 truncate">{item.app}</span>
             <span className="text-[12px] text-gray-500">{item.duration}</span>
           </div>
@@ -664,10 +661,10 @@ export default function Dashboard() {
           } />
           <div className="flex-1">
             <p className="text-[14px] font-medium text-gray-900">
-              {level === 'ACTION' ? '需要立即休息' :
-               level === 'COGNITION' ? '认知疲劳升高' : '轻度疲劳'}
+              {level === 'ACTION' ? '适合暂停，休息一下' :
+               level === 'COGNITION' ? '已达到连续使用限额' : '快到连续使用限额了'}
             </p>
-            <p className="text-[12px] text-gray-500">疲劳指数 {(score * 100).toFixed(0)}%</p>
+            <p className="text-[12px] text-gray-500">提醒仅根据使用时长，不代表身体疲劳检测。</p>
           </div>
           <button onClick={() => navigate('/rest')} className="px-3 py-1.5 bg-primary text-white rounded-full text-[12px] font-medium">
             去休息

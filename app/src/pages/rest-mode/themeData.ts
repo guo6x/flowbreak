@@ -3,24 +3,24 @@ import type { ThemeGlow } from './types';
 
 export const themeGlows: Record<number, ThemeGlow> = {
   0: {
-    baseBg: 'linear-gradient(135deg, #0f3014 0%, #1b4d22 50%, #2d6a4f 100%)',
-    colors: ['rgba(76, 175, 80, 0.45)', 'rgba(129, 199, 132, 0.35)', 'rgba(0, 77, 64, 0.4)'],
+    baseBg: 'linear-gradient(145deg, #102C26 0%, #163F34 55%, #234E3B 100%)',
+    colors: ['rgba(108, 165, 131, 0.2)', 'rgba(96, 164, 147, 0.18)', 'rgba(36, 115, 83, 0.2)'],
   },
   1: {
-    baseBg: 'linear-gradient(135deg, #0a1f44 0%, #0d3263 50%, #154c79 100%)',
-    colors: ['rgba(0, 172, 193, 0.45)', 'rgba(63, 81, 181, 0.35)', 'rgba(128, 222, 234, 0.3)'],
+    baseBg: 'linear-gradient(145deg, #142C38 0%, #1C4050 55%, #285364 100%)',
+    colors: ['rgba(103, 169, 186, 0.2)', 'rgba(79, 135, 160, 0.18)', 'rgba(128, 189, 194, 0.2)'],
   },
   2: {
-    baseBg: 'linear-gradient(135deg, #212529 0%, #343a40 50%, #495057 100%)',
-    colors: ['rgba(224, 224, 224, 0.25)', 'rgba(159, 168, 218, 0.35)', 'rgba(55, 71, 79, 0.45)'],
+    baseBg: 'linear-gradient(145deg, #242D31 0%, #354448 55%, #455655 100%)',
+    colors: ['rgba(169, 187, 180, 0.16)', 'rgba(154, 174, 193, 0.18)', 'rgba(96, 119, 119, 0.2)'],
   },
   3: {
-    baseBg: 'linear-gradient(135deg, #2b0f1a 0%, #4a1228 50%, #5c1c38 100%)',
-    colors: ['rgba(244, 143, 177, 0.45)', 'rgba(206, 147, 216, 0.35)', 'rgba(255, 224, 130, 0.3)'],
+    baseBg: 'linear-gradient(145deg, #352B35 0%, #49384A 55%, #5C4654 100%)',
+    colors: ['rgba(190, 148, 174, 0.2)', 'rgba(164, 147, 185, 0.18)', 'rgba(193, 175, 154, 0.16)'],
   },
   4: {
-    baseBg: 'linear-gradient(135deg, #371200 0%, #571e04 50%, #7d2d0b 100%)',
-    colors: ['rgba(255, 183, 77, 0.45)', 'rgba(255, 87, 34, 0.35)', 'rgba(103, 58, 183, 0.3)'],
+    baseBg: 'linear-gradient(145deg, #3C2D28 0%, #514035 55%, #6C5040 100%)',
+    colors: ['rgba(202, 164, 119, 0.2)', 'rgba(190, 138, 111, 0.18)', 'rgba(178, 151, 150, 0.16)'],
   },
 };
 
@@ -32,4 +32,4 @@ export const themedParticles: Record<number, string[]> = {
   4: ['✨', '🔥', '💫', '🌟', '🕯️', '✨', '🌅'],
 };
 
-export const calmColor = '#A5D6A7';
+export const calmColor = '#B9D8C3';

@@ -11,6 +11,7 @@ import { startNativeStatePolling } from './backend/nativeStateSync';
 import { exportLegacyPayload } from './backend/storage';
 import InterventionOverlay from './components/InterventionOverlay';
 import BottomNav from './components/BottomNav';
+import Brand from './components/Brand';
 import './App.css';
 
 const Onboarding = lazy(() => import('./pages/Onboarding'));
@@ -25,17 +26,19 @@ const TargetApps = lazy(() => import('./pages/TargetApps'));
 const BlockingSettings = lazy(() => import('./pages/BlockingSettings'));
 const PrivacyAndData = lazy(() => import('./pages/PrivacyAndData'));
 const ValidationAndDiagnostics = lazy(() => import('./pages/ValidationAndDiagnostics'));
+const Help = lazy(() => import('./pages/Help'));
 
 function LoadingPage() {
   return (
-    <div className="min-h-dvh flex items-center justify-center bg-gray-100">
-      <div className="text-[13px] text-gray-500">正在加载...</div>
+    <div role="status" className="min-h-dvh flex flex-col gap-6 items-center justify-center">
+      <Brand />
+      <p className="text-[14px] text-gray-500">正在准备你的注意力空间…</p>
     </div>
   );
 }
 
 // 设置/引导页面路径——在这些页面上不累加连续使用时长
-const SETTINGS_PATHS = ['/profile', '/target-apps', '/blocking-settings', '/privacy', '/validation', '/permissions', '/personalize', '/login', '/onboarding', '/settings', '/profile-preferences'];
+const SETTINGS_PATHS = ['/profile', '/target-apps', '/blocking-settings', '/privacy', '/validation', '/help', '/permissions', '/personalize', '/login', '/onboarding', '/settings', '/profile-preferences'];
 
 // ============================================================
 // GlobalMonitor — runs screen time tracking, fatigue detection,
@@ -234,9 +237,9 @@ function GlobalMonitor() {
       logIntervention(level);
       if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
         const msg =
-          level === 'ACTION' ? '疲劳指数较高，建议立刻休息3分钟。' :
-          level === 'COGNITION' ? '认知疲劳上升，建议短暂放松。' :
-          '出现轻度疲劳，注意眼部休息。';
+          level === 'ACTION' ? '连续使用已达到阻断阶段，先放下屏幕，休息一下。' :
+          level === 'COGNITION' ? '连续使用已达到设定限额，给注意力一个短暂的休息。' :
+          '快到连续使用限额了，可以准备休息一下。';
         new Notification('FlowBreak 提醒', { body: msg });
       }
       prevLevelRef.current = level;
@@ -333,6 +336,7 @@ export function AppRouter() {
           <Route path="/blocking-settings" element={<BlockingSettings />} />
           <Route path="/privacy" element={<PrivacyAndData />} />
           <Route path="/validation" element={<ValidationAndDiagnostics />} />
+          <Route path="/help" element={<Help />} />
         </Route>
 
         <Route path="/rest" element={<RestMode />} />
@@ -345,9 +349,11 @@ export function AppRouter() {
 export default function App() {
   return (
     <MotionConfig reducedMotion="user">
-      <BrowserRouter>
-        <AppRouter />
-      </BrowserRouter>
+      <div className="app-shell">
+        <BrowserRouter>
+          <AppRouter />
+        </BrowserRouter>
+      </div>
     </MotionConfig>
   );
 }
