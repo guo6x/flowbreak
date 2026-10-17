@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { stripVTControlCharacters } from 'node:util';
 import { chromium } from 'playwright';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -48,8 +49,9 @@ try {
     while (true) {
       if (startError) throw startError;
       if (server.exitCode !== null) throw new Error(`Preview failed: ${serverOutput}`);
-      if (serverOutput.includes('http://127.0.0.1:4175') && await fetch(url).then(r => r.ok).catch(() => false)) break;
-      if (Date.now() > deadline) throw new Error('Preview did not start within 20s.');
+      // Vite styles the port separately in CI; ANSI must not hide a ready URL.
+      if (stripVTControlCharacters(serverOutput).includes(url) && await fetch(url).then(r => r.ok).catch(() => false)) break;
+      if (Date.now() > deadline) throw new Error(`Preview did not start within 20s. Output: ${stripVTControlCharacters(serverOutput).slice(-800)}`);
       await new Promise(resolve => setTimeout(resolve, 150));
     }
   }
