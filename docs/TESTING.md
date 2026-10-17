@@ -36,6 +36,8 @@
 
 首次云端运行 [39062202344](https://github.com/guo6x/flowbreak/actions/runs/39062202344)（源码 `bbd95b23d70eea8ac786f0ecdbfaafa5d23015a4`）在 SDK 准备阶段失败：固定版本 setup-android 的默认值请求了 Google 已不再提供的 `tools` 包。后续产品测试均为 **SKIPPED，不是 PASS**。CI 随后显式请求 `platform-tools`，其余平台与 build-tools 由 Gradle 按项目声明解析；签名条件、密钥和发布门禁没有更改。修复后以新提交的独立 run 为准，不能复用该失败 run 冒充验证成功。
 
+第二次运行 [39062409715](https://github.com/guo6x/flowbreak/actions/runs/39062409715)（源码 `353c3b2c26f6096f00630d3ea03b7514314a15e5`）通过 SDK、依赖、单测、品牌、安全回归和 Web build，网页检查仍为 **FAIL / 0 checks**：Vite 给端口插入 ANSI 样式，导致就绪字符串匹配超时。本地已用相同彩色日志环境复现「HTTP 200，但原字符串不匹配」；修复仅对就绪日志去除控制字符，仍保留端口空闲预检、strictPort、子进程状态与 HTTP 校验。修复后在 `CI=true` / `FORCE_COLOR=1` 且未设置 `NO_COLOR` 的本地环境重跑，**44 / 44 PASS**（`.tmp/ui-color/`）。这两次失败均保留原 run，不将其后跳过的 Android 步骤计为通过。
+
 ## 1. 自动化测试层级
 
 | 层级 | 命令 | 覆盖 |
