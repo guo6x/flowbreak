@@ -58,6 +58,8 @@ jobs:
       - name: Audit all dependencies for critical vulnerabilities
         run: npm audit --audit-level=critical
       - run: npm test
+      - name: Verify generated brand assets
+        run: npm run test:brand
       - run: npm run test:provenance
       - run: npm run test:release
       - name: Targeted portable signing security regression
@@ -65,6 +67,19 @@ jobs:
         run: |
           & ../tools/tests/Test-SEC-PORTABILITY-001.ps1
       - run: npm run build
+      - name: Install browser for web preview regression
+        run: npx playwright install --with-deps chromium
+      - name: Check every web preview page
+        run: npm run test:ui
+      - name: Upload web preview evidence (not device acceptance)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: flowbreak-web-preview-${{ env.SOURCE_COMMIT_SHA }}
+          path: .tmp/ui-smoke/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
       - name: Generate build provenance
         run: node scripts/generate-build-provenance.mjs dist
       - run: npx cap sync android
