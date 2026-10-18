@@ -5,21 +5,20 @@
 
 ## 当前产品推进（2026-10-18，体验分支）
 
-本轮为独立体验分支交付，不把下方既有 signed / Redmi 证据自动继承成新界面构建的设备验收。
+本轮为独立体验分支交付。以下只记录该分支自己的本地验证；不把下方既有 signed / Redmi 证据自动继承成新构建验收，也不把 AVD 结果外推为真机/OEM 证据。
 
 | 项 | 值 |
 | ---- | ---- |
 | 分支 | `product/experience-polish-20261018` |
-| 起点 | `48aaf6a77ca6bae9f17f19e0210f5af3af745126` |
-| 本地验证代码与测试提交 | `b7c40d27e48b2ccf8e55f388ebedb3f17186c02d`（后续文档与 CI 维护未改变 App 运行时源码；云端实际构建 SHA 单独核对，不混称） |
-| 本地自动化 | **PASS** — Frontend 262、Play JVM 377、Domestic JVM 406；网页 44 项、品牌 36 项；双渠道 Lint / Debug 通过（有 warning）；完整边界见验证快照 |
-| 范围 | 全页视觉系统、原创矢量品牌、应用内帮助、统计口径与失败状态、设置草稿和原生读取保护、隐私确认、品牌与网页 CI 检查 |
-| 验证证据 | 见 [TESTING.md](TESTING.md) 的本轮验证快照；网页截图只属于 `WEB_PREVIEW_ONLY` |
-| 新构建真机 / 签名验收 | **NOT_EXECUTED**；未安装到手机、未调用生产签名、未发布或合并 |
-| 文档 | 新增 [USER_GUIDE.md](USER_GUIDE.md) 与 [BRAND.md](BRAND.md)，并整理开发、测试与产品参考 |
-| 继承的开放偏差 | 新登记 `FB-P2-03`：Domestic 强阻断原生缺省值与规范的默认关闭目标不一致（源码复核，未修改默认值）；详见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md) |
+| 本地验证代码与测试提交 | `154a7cfab7da1c7924ae1acb53acd63a931c2626`（文档快照随后单独提交，不改变 App 运行时源码） |
+| 本地自动化 | **PASS** — Frontend 263、Play JVM 382、Domestic JVM 412；网页 44 项、品牌 36 项、provenance 20 项、release policy 8 项；双渠道 Lint 0 error、Debug 构建通过（warning 数量见 [TESTING.md](TESTING.md)） |
+| 范围 | 全页视觉系统、原创矢量品牌、应用内帮助、统计口径与失败状态、设置草稿和原生读取保护、诊断分享字段白名单、Domestic 强阻断默认关闭、权限轮询状态稳定、品牌与网页检查 |
+| API 36 AVD | **PASS（范围有限）** — `Medium_Phone_API_36.0` / Android 16；Domestic debug 覆盖安装后可进入权限页，状态稳定为 0/2；从系统“使用情况访问”设置返回后仍为 0/2，未授予权限、未启动保护服务。原始截图见外部本地证据目录 |
+| 新构建真机 / OEM / 发布验收 | **NOT_EXECUTED**；无真实手机；未调用生产签名、未合并、未发布。AVD 结果不关闭 Gate D/E/F 的真机/OEM/稳定性门禁 |
+| 文档 | 整理 [PRIVACY.md](../PRIVACY.md)、[PRODUCT.md](PRODUCT.md)、[KNOWN_ISSUES.md](KNOWN_ISSUES.md)、[RELEASE.md](RELEASE.md) 与工作站恢复边界；品牌及使用指南见 [BRAND.md](BRAND.md)、[USER_GUIDE.md](USER_GUIDE.md) |
+| 本分支已修复、待合并的问题 | `FB-P2-03`：Domestic 强阻断缺省值按关闭处理，显式保存开/关不被覆盖；JVM 回归与 API 36 AVD 验证通过。按缺陷台账规则，合入 master 前仍为 OPEN |
 
-原工作区的两处未提交 Java 修改保留原状，本轮不包含它们；本轮没有更改原生状态机、计时、GRACE、生产签名身份或发布版本。尚未做受支持手机的新构建 smoke，因此不宣称本分支达到发布验收。
+原工作区的两处未提交 Java 修改保留原状，本轮不包含它们。没有更改原生状态机、计时、GRACE、生产签名身份或发布版本。AVD 只覆盖新手引导与权限页/默认偏好回归，不是完整保护链路或真实 OEM 验收；本分支仍未达到发布验收。
 
 ## 既有发布基线速览（2026-09-11，历史验证范围）
 
@@ -106,7 +105,9 @@
 - `FB-P1-03`（候选）BlockActivity 后台启动被 HyperOS 拒绝 → **RESOLVED**（R3 ×3，修复 `3600d97`）
 - `FB-P2-01` 系统返回键不拦截未保存修改 → **RESOLVED**（R4，修复 `99fdcc2`）
 
-完整历史（原现象、root cause、fix SHA、自动化回归覆盖、Redmi 证据）保留在 `KNOWN_ISSUES.md` 的 Resolved 区。
+`FB-P2-03` 已在体验分支修复并通过针对性 JVM + API 36 AVD 验证，仍未合并；详见本节顶部与 [KNOWN_ISSUES.md](KNOWN_ISSUES.md)。合并后按缺陷台账规则更新状态。
+
+完整历史（原现象、root cause、fix SHA、自动化回归覆盖、设备证据）保留在 `KNOWN_ISSUES.md` 的 Resolved 区。
 
 ## 当前未解决问题
 
@@ -114,7 +115,6 @@
 2. **`COMPAT-001`（NON-BLOCKING / COMPATIBILITY OBSERVATION，OPEN OBSERVATION）**：HyperOS 仍可能拒绝尽力而为的 `tryStartBlockActivity` 后台启动，但强阻断已不依赖它。
 3. **`FB-P1-07 / PLATFORM-EXEC-001`（P1 / MITIGATED_ACCEPTED_PLATFORM_LIMITATION）**：原始 Redmi execution gap 仍是历史有效失败；PR #26 提供历史恢复缓解，实时 enforcement 在 OS/OEM 不给执行时间期间不属于 v1.1.0 保证，不阻塞当前修订后的 Gate E 支持范围。
 4. **`FB-P2-02`（P2 / OPEN_NON_BLOCKING_V1_1_0）**：recovered usage DB write 与 replay checkpoint durability 非 atomic；不重新打开 Gate E。
-   本轮另登记 `FB-P2-03`（默认设置一致性，源码复核）；不改写旧门禁结论，后续默认策略变更须单独验证。
 5. **Gate F = PENDING**：24h stability + Protection Integrity。
 6. **Gate G = PENDING_CROSS_MACHINE_RECOVERY**：跨机器恢复尚未完成。
 7. **Gate H = PENDING**：Store / Compliance Readiness。
@@ -165,7 +165,7 @@ TRUE_VERSION_UPGRADE = `NOT_TESTED_NO_VALID_LOWER_FINAL_SIGNED_BUILD`
 
 ## 下一路线（建议排序）
 
-1. 对体验分支的新构建执行受支持 Android 设备 smoke（包括设置保存、统计、完整休息、系统返回键、权限撤销后的如实降级）；处置 `FB-P2-03` 的默认策略差异。
+1. 在真实受支持 Android 设备上完成体验分支 smoke（设置保存、统计、完整休息、系统返回键、权限撤销后的如实降级）；这是更广泛的产品验收，不影响 `FB-P2-03` 已完成的 JVM + API 36 AVD 针对性验证。
 2. Gate F — minimal stability / Protection Integrity closeout
 3. Gate H — actual first-release channel compliance/materials
 4. Gate I — small beta

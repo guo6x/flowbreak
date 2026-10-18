@@ -2,7 +2,43 @@
 
 > 定义自动化测试层级、CI 范围、真机测试矩阵与证据标准。易变的数字只出现在下方「验证快照」；历史验证记录在 `docs/archive/progress/`（含 `VERIFICATION.md` 的 Beta 1.1 记录）。
 
-## 本轮本地验证快照（2026-10-18，体验与品牌）
+## 本轮本地验证快照（2026-10-18，默认设置 / 隐私分享 / 权限页回归）
+
+- 分支：`product/experience-polish-20261018`；本轮源码与测试提交：`154a7cfab7da1c7924ae1acb53acd63a931c2626`。文档快照在后续单独提交，不改变 App 运行时源码。
+- 这份验证只对应该源码提交及下列本地工具链，不代表 GitHub Actions 已运行或发布包已验收；远端 run、source SHA 和结论须单独核对。
+- 原工作区 `D:\AI_code\flowbreak` 中的两处 Java 未提交修改不属于本分支。未读取或操作生产签名材料，没有合并或发布。
+
+| 检查 | 结果与边界 |
+| ---- | ---- |
+| Frontend (Vitest) | **263 / 263 PASS**，25 个测试文件，无失败或跳过 |
+| TypeScript / Vite | **PASS**（`npm run build`） |
+| 网页逐页 / 交互 | **44 / 44 PASS**；13 条路由 × 320/393/1280px，加导航和合成统计、Web 休息控制/完成态 |
+| 品牌一致性 | **36 / 36 PASS**（`npm run test:brand`） |
+| Provenance / Release policy | **20 / 20 PASS**、**8 / 8 PASS** |
+| Android JVM | Domestic **412 / 412 PASS**；Play **382 / 382 PASS**；强制重跑，0 failure / 0 error / 0 skipped |
+| 双渠道 Lint | **PASS**；Domestic 0 errors / 45 warnings，Play 0 errors / 44 warnings |
+| Web → Android 同步 | `npx cap sync android` **PASS**；随后两个渠道 Debug APK 均成功组装 |
+| Domestic Debug APK | 5,186,928 bytes；SHA-256 `41de12d1eecbcd3778d72bafca3d0824d5d8fb720d17638e5e180464ffd4c64a` |
+| Play Debug APK | 5,180,646 bytes；SHA-256 `dafc7391129c6db0e20153e90e170faad9799f95b791be52662fc91e2c138290` |
+| API 36 AVD | **有限范围 PASS**：`Medium_Phone_API_36.0` / Android 16 / API 36；确认 `ro.boot.qemu=1`、`sys.boot_completed=1`，设备命令均使用 `-s emulator-5554` |
+| AVD 原生权限 / 默认值 | Domestic APK `install -r` 成功并保留数据；偏好文件在安装前后只有 `migrationVersion=1`，无 `strongBlockingEnabled` 键。Accessibility 为 `null`，Usage Access 与 Overlay 未授权，保护服务未启动 |
+| AVD 页面 / 返回 | Onboarding 正常渲染；跳过后权限页稳定显示 0/2。打开系统“使用情况访问”页再返回，仍为 0/2；未点击授权、未 wipe、未 `pm clear`、未卸载 |
+| 崩溃检查 | 未见 `AndroidRuntime` fatal；WebView 有一条系统 variations seed 签名告警，不影响页面渲染 |
+| Instrumentation / 真机 / 发布 | 没有运行 connected instrumentation、真实手机/OEM smoke、24h soak 或生产签名/发布 |
+
+截图证据保存在工作区外：`D:\temp\flowbreak-avd-evidence-20261018\flowbreak-final-154a7cf-onboarding.png`、`flowbreak-final-154a7cf-permissions.png`、`flowbreak-final-154a7cf-settings-return.png`。这些截图是指定 AVD 的界面证据，不是 Redmi/OEM 真机验收。网页预览截图仍标记为 `WEB_PREVIEW_ONLY`。
+
+Gradle 复核命令（cwd `app/android`）：
+
+```powershell
+./gradlew.bat --no-daemon --console=plain --rerun-tasks :app:testDomesticDebugUnitTest :app:testPlayDebugUnitTest
+./gradlew.bat --no-daemon --console=plain :app:lintDomesticDebug :app:lintPlayDebug
+./gradlew.bat --no-daemon --console=plain :app:assembleDomesticDebug :app:assemblePlayDebug
+```
+
+## 较早本地验证快照（2026-10-18，体验与品牌初始版本）
+
+> 以下数字与 APK 属于前一份快照 `b7c40d2`，保留作历史对照；本页顶部的跟进快照代表当前体验分支验证。
 
 - 分支：`product/experience-polish-20261018`；起点：`48aaf6a77ca6bae9f17f19e0210f5af3af745126`。
 - 代码与测试提交：`b7c40d27e48b2ccf8e55f388ebedb3f17186c02d`。本表记录这份代码的本地检查；后续文档与 CI 维护未改变 App 运行时源码。云端结果必须单独核对 [Android Actions](https://github.com/guo6x/flowbreak/actions/workflows/android.yml) 的 run、source SHA 和结论，不把本表当作 hosted CI 的 PASS。
@@ -32,7 +68,7 @@
 - Domestic APK SHA-256：`d80fa7e5698dc7e4b9960f24148f2f0cdc1f96893fecf44054a42f365879613e`。
 - 包位置：`app/android/app/build/outputs/apk/<channel>/debug/`，本地构建目录不入 Git。内部 provenance 校验与 dist→assets 校验是构建证据，不是安装运行证据。
 
-本次没有关闭既有 Gate F/G/H/I，也没有将旧 Redmi 或 signed 证据改写成此分支的实机 PASS。签名工具文档中的旧能力描述已按当前 fail-closed 源码修正；Domestic 强阻断默认值与规范的差异登记为 `FB-P2-03`，没有用文档改写代替修复。
+在这份较早的 `b7c40d2` 快照中，没有关闭既有 Gate F/G/H/I，也没有将旧 Redmi 或 signed 证据改写成此分支的实机 PASS。签名工具文档中的旧能力描述已按当时的 fail-closed 源码修正；`FB-P2-03` 当时仍是待修复差异，后续处理与新证据见本页顶部跟进快照。
 
 首次云端运行 [39062202344](https://github.com/guo6x/flowbreak/actions/runs/39062202344)（源码 `bbd95b23d70eea8ac786f0ecdbfaafa5d23015a4`）在 SDK 准备阶段失败：固定版本 setup-android 的默认值请求了 Google 已不再提供的 `tools` 包。后续产品测试均为 **SKIPPED，不是 PASS**。CI 随后显式请求 `platform-tools`，其余平台与 build-tools 由 Gradle 按项目声明解析；签名条件、密钥和发布门禁没有更改。修复后以新提交的独立 run 为准，不能复用该失败 run 冒充验证成功。
 
