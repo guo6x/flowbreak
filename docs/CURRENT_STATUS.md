@@ -3,7 +3,27 @@
 > 这是「项目现在在哪」的唯一当前视图。易变事实（HEAD、测试数、Run ID、APK SHA）只出现在本文档与 `TESTING.md` 的验证快照中。
 > 2026-08-12 的「真机验收 FAILED / RELEASE BLOCKED」快照已降级为历史记录（见下方「历史状态」），不再代表当前状态。
 
-## 当前状态速览
+## 当前产品推进（2026-10-18，体验分支）
+
+本轮为独立体验分支交付。以下只记录该分支自己的本地验证；不把下方既有 signed / Redmi 证据自动继承成新构建验收，也不把 AVD 结果外推为真机/OEM 证据。
+
+| 项 | 值 |
+| ---- | ---- |
+| 分支 | `product/experience-polish-20261018` |
+| 本地验证代码与测试提交 | `154a7cfab7da1c7924ae1acb53acd63a931c2626`（文档快照随后单独提交，不改变 App 运行时源码） |
+| 本地自动化 | **PASS** — Frontend 263、Play JVM 382、Domestic JVM 412；网页 44 项、品牌 36 项、provenance 20 项、release policy 8 项；双渠道 Lint 0 error、Debug 构建通过（warning 数量见 [TESTING.md](TESTING.md)） |
+| GitHub Actions | **PASS** — [run 39095168568](https://github.com/guo6x/flowbreak/actions/runs/39095168568)，验证 SHA `147a64567f56290c3b8c0dce0aa934dd2c3b494f`；unsigned verify job 完成，体验分支签名 release job 按策略跳过 |
+| 范围 | 全页视觉系统、原创矢量品牌、应用内帮助、统计口径与失败状态、设置草稿和原生读取保护、诊断分享字段白名单、Domestic 强阻断默认关闭、权限轮询状态稳定、品牌与网页检查 |
+| API 36 AVD | **PASS（范围有限）** — `Medium_Phone_API_36.0` / Android 16；Domestic debug 覆盖安装后可进入权限页，状态稳定为 0/2；从系统“使用情况访问”设置返回后仍为 0/2，未授予权限、未启动保护服务。原始截图见外部本地证据目录 |
+| 新构建真机 / OEM / 发布验收 | **NOT_EXECUTED**；无真实手机；未调用生产签名、未合并、未发布。AVD 结果不关闭 Gate D/E/F 的真机/OEM/稳定性门禁 |
+| 文档 | 整理 [PRIVACY.md](../PRIVACY.md)、[PRODUCT.md](PRODUCT.md)、[KNOWN_ISSUES.md](KNOWN_ISSUES.md)、[RELEASE.md](RELEASE.md) 与工作站恢复边界；品牌及使用指南见 [BRAND.md](BRAND.md)、[USER_GUIDE.md](USER_GUIDE.md) |
+| 本分支已修复、待合并的问题 | `FB-P2-03`：Domestic 强阻断缺省值按关闭处理，显式保存开/关不被覆盖；JVM 回归与 API 36 AVD 验证通过。按缺陷台账规则，合入 master 前仍为 OPEN |
+
+原工作区的两处未提交 Java 修改保留原状，本轮不包含它们。没有更改原生状态机、计时、GRACE、生产签名身份或发布版本。AVD 只覆盖新手引导与权限页/默认偏好回归，不是完整保护链路或真实 OEM 验收；本分支仍未达到发布验收。
+
+## 既有发布基线速览（2026-09-11，历史验证范围）
+
+下表保留原发布基线的门禁与实机证据，不代表本轮体验分支的最新 master 状态或新包验收。表内问题计数也是该基线当时的结论。
 
 ## 2026-10-12 最新状态（取代下方 2026-09-11 历史快照的“当前”口径）
 
@@ -39,7 +59,7 @@
 | `FB-P1-05` | **P1 / OPEN_UNSUPPORTED_V1_1_0**（vivo/iQOO runtime 不支持，fail closed） |
 | 发布状态 | **GATE A/B/C PASS；GATE D PASS_SUPPORTED_SCOPE；GATE E PASS_SUPPORTED_SCOPE_WITH_DOCUMENTED_PLATFORM_LIMITATION；GATE F/G/H/I PENDING** |
 
-## 支持设备范围与最终范围验收
+## 既有基线的支持设备范围与最终范围验收
 
 - 已验证支持参考：**Xiaomi / Redmi**。Redmi Note 13 Pro 5G（`2312DRA50C` / garnet）/ Android 16 / SDK 36 / HyperOS 3.0（`OS3.0.306.0.WNRCNXM`）的 R1–R4 全部 PASS；该参考证据不等同于本次新 signed build smoke。
 - 被测 APK：domestic debug（`com.flowbreak.app.cn`）。复测前在代码工作区 `99fdcc2` 上重新执行前端 build → Capacitor sync → Android assemble 后生成；该重建解决了此前旧 Web bundle 混入问题。正式 Artifact Provenance 链已由 `RELEASE.md` GATE C 建立并通过（2026-08-15，PR #1 实测）。
@@ -65,7 +85,7 @@
 
 - **UNVERIFIED / BETA SCOPE**。其他 OEM 不因未命中当前 fail-closed 集合而自动获得 v1.1.0 支持声明。
 
-## 当前自动化验证
+## 既有发布基线自动化验证（历史）
 
 - Gate E verified behavior baseline `ccacb6738a44d3bc08da9a4ceac75766316b2521` 的自动化验证：**PASS**。
 - Master verify：Run `34569928299` **PASS**。
@@ -73,7 +93,7 @@
 - Signed artifact：`flowbreak-signed-dry-run-v1.1.0-ccacb6738a44d3bc08da9a4ceac75766316b2521`，ID `10187690618`。
 - 精确 Frontend / Android JVM 套件数量以 `TESTING.md` 为准；下方旧计数仅保留为历史记录。
 
-## Gate E 当前支持范围决策
+## 既有发布基线的 Gate E 支持范围决策
 
 - `GATE_E = PASS_SUPPORTED_SCOPE_WITH_DOCUMENTED_PLATFORM_LIMITATION`。
 - `E1_USAGE_ACCOUNTING = PASS_CARRIED_FORWARD_WITH_EQUIVALENCE`：此前有效 Redmi 真机 PASS + 当前实现的 normal-path equivalence。
@@ -103,7 +123,9 @@
 - `FB-P1-03`（候选）BlockActivity 后台启动被 HyperOS 拒绝 → **RESOLVED**（R3 ×3，修复 `3600d97`）
 - `FB-P2-01` 系统返回键不拦截未保存修改 → **RESOLVED**（R4，修复 `99fdcc2`）
 
-完整历史（原现象、root cause、fix SHA、自动化回归覆盖、Redmi 证据）保留在 `KNOWN_ISSUES.md` 的 Resolved 区。
+`FB-P2-03` 已在体验分支修复并通过针对性 JVM + API 36 AVD 验证，仍未合并；详见本节顶部与 [KNOWN_ISSUES.md](KNOWN_ISSUES.md)。合并后按缺陷台账规则更新状态。
+
+完整历史（原现象、root cause、fix SHA、自动化回归覆盖、设备证据）保留在 `KNOWN_ISSUES.md` 的 Resolved 区。
 
 ## 当前未解决问题
 
@@ -118,7 +140,9 @@
 
 > 历史 RELEASE ENGINEERING GAP（产物溯源）已关闭：曾出现「本地 APK 原生 dex 已更新、Web bundle 仍旧」的不一致产物与「CI 未持久上传 artifacts」两个缺口，已由 GATE C 实现并实测关闭（`RELEASE.md` GATE C = PASS，`TESTING.md` 产物溯源）。
 
-## 签名与 GATE G
+## 既有签名托管记录与 GATE G
+
+下列状态沿用已记录的独立托管证据，本轮未操作密钥或重新执行恢复。仓库内 PortableSigningVault 创建/恢复脚本目前是 fail-closed 占位工具，不应把它们的安全拒绝测试等同于恢复 PASS。
 
 CURRENT_PC_ROLE = `PRIMARY_WORKSTATION`
 
@@ -159,10 +183,11 @@ TRUE_VERSION_UPGRADE = `NOT_TESTED_NO_VALID_LOWER_FINAL_SIGNED_BUILD`
 
 ## 下一路线（建议排序）
 
-1. Gate F — minimal stability / Protection Integrity closeout
-2. Gate H — actual first-release channel compliance/materials
-3. Gate I — small beta
-4. Gate G remaining — cross-machine recovery before production release
-5. Final RC / tag / release
+1. 在真实受支持 Android 设备上完成体验分支 smoke（设置保存、统计、完整休息、系统返回键、权限撤销后的如实降级）；这是更广泛的产品验收，不影响 `FB-P2-03` 已完成的 JVM + API 36 AVD 针对性验证。
+2. Gate F — minimal stability / Protection Integrity closeout
+3. Gate H — actual first-release channel compliance/materials
+4. Gate I — small beta
+5. Gate G remaining — cross-machine recovery before production release
+6. Final RC / tag / release
 
 其他 OEM 兼容性扩展属于 parallel/beta follow-up，不是当前 release-blocking main-path gate。

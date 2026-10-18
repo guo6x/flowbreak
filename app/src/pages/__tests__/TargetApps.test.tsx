@@ -8,10 +8,11 @@ import { NativeFlow } from "../../backend/nativeFlow";
 const mockNavigate = vi.fn();
 
 let isNative = false;
+let routeState: { returnTo: string; setupDraft: { session: number; restDur: number; emergencyUnlock: boolean } } | null = null;
 
 vi.mock("react-router", async () => {
   const actual = await vi.importActual("react-router");
-  return { ...actual, useNavigate: () => mockNavigate, useLocation: () => ({ state: null }) };
+  return { ...actual, useNavigate: () => mockNavigate, useLocation: () => ({ state: routeState }) };
 });
 
 vi.mock("../../backend/appNames", () => ({
@@ -56,6 +57,7 @@ describe("TargetApps", () => {
   beforeEach(() => {
     mockNavigate.mockClear();
     isNative = false;
+    routeState = null;
     (NativeFlow.saveTargetApps as any).mockClear();
     (NativeFlow.saveTargetApps as any).mockResolvedValue(undefined);
     (NativeFlow.getLaunchableApps as any).mockResolvedValue({
@@ -130,6 +132,7 @@ describe("TargetApps", () => {
   });
 
   it("第31个应用被阻止", async () => {
+    isNative = true;
     (NativeFlow.getLaunchableApps as any).mockResolvedValue({
       apps: Array.from({ length: 35 }, (_, i) => ({
         packageName: "com.test." + i, label: "应用" + i, iconDataUri: "",
@@ -143,14 +146,12 @@ describe("TargetApps", () => {
     const thirty = Array.from({ length: 30 }, (_, i) => "com.test." + i);
     renderTargetApps(thirty);
     await waitFor(() => { expect(screen.getByText(/已选 30/)).toBeInTheDocument(); });
-    const app31 = screen.queryByText("应用30");
-    if (app31) {
-      fireEvent.click(app31);
-      await waitFor(() => {
-        expect(screen.getByText(/最多选择 30 个应用/)).toBeInTheDocument();
-        expect(screen.getByText(/已选 30/)).toBeInTheDocument();
-      });
-    }
+    fireEvent.click(screen.getByRole("button", { name: "应用30" }));
+    await waitFor(() => {
+      expect(screen.getByText(/最多选择 30 个应用/)).toBeInTheDocument();
+      expect(screen.getByText(/已选 30/)).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "应用30" })).toHaveAttribute("aria-pressed", "false");
   });
 
   it("已选置顶排序", async () => {
@@ -227,5 +228,114 @@ describe("TargetApps", () => {
     await waitFor(() => { expect(screen.getByPlaceholderText("搜索应用")).toBeInTheDocument(); });
     fireEvent.change(screen.getByPlaceholderText("搜索应用"), { target: { value: "应用B" } });
     await waitFor(() => { expect(screen.getByText("找到 1 个应用")).toBeInTheDocument(); });
+  });
+
+  it("应用按钮暴露选中状态且搜索有可访问名称", async () => {
+    renderTargetApps();
+    await waitFor(() => expect(screen.getByRole("button", { name: "应用A" })).toHaveAttribute("aria-pressed", "true"));
+    expect(screen.getByRole("searchbox", { name: "搜索应用名称或包名" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "应用B" }));
+    expect(screen.getByRole("button", { name: "应用B" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("清空已选不会立即写入已保存配置且禁止空保存", async () => {
+    renderTargetApps();
+    await waitFor(() => expect(screen.getByText("应用A")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "清空已选" }));
+    expect(screen.getByText(/已选 0\/30/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存更改" })).toBeDisabled();
+    expect(useStore.getState().profile.targetApps).toEqual(["com.test.a"]);
+    expect(NativeFlow.saveTargetApps).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByLabelText("返回"));
+    expect(screen.getByRole("button", { name: "保存并返回" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "放弃修改" }));
+    expect(mockNavigate).toHaveBeenCalledWith("/profile");
+  });
+
+  it("只看已选时取消最后一个应用后仍能恢复完整列表", async () => {
+    renderTargetApps();
+    await waitFor(() => expect(screen.getByText("应用A")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "只看已选" }));
+    fireEvent.click(screen.getByRole("button", { name: "应用A" }));
+    expect(screen.getByText("没有匹配的应用")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "只看已选" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "只看已选" }));
+    expect(screen.getByText("应用B")).toBeInTheDocument();
+  });
+
+  it("初次填充网页默认应用不误报未保存修改", async () => {
+    renderTargetApps([]);
+    await waitFor(() => expect(screen.getByText("应用A")).toBeInTheDocument());
+    expect((window as any).__flowbreakHandleBack()).toBe(false);
+    fireEvent.click(screen.getByLabelText("返回"));
+    expect(screen.queryByText("有未保存的修改")).toBeNull();
+    expect(mockNavigate).toHaveBeenCalledWith("/profile");
+  });
+
+  it("原生设置与界面缓存不同时以读取结果为干净基线", async () => {
+    isNative = true;
+    renderTargetApps([]);
+    await waitFor(() => expect(screen.getByRole("button", { name: "应用A" })).toHaveAttribute("aria-pressed", "true"));
+    expect((window as any).__flowbreakHandleBack()).toBe(false);
+    fireEvent.click(screen.getByLabelText("返回"));
+    expect(screen.queryByText("有未保存的修改")).toBeNull();
+  });
+
+  it.each(["loadSettings", "getLaunchableApps"] as const)("原生 %s 读取失败时不保存缓存，重试成功后使用设备配置", async (readMethod) => {
+    isNative = true;
+    (NativeFlow.loadSettings as any).mockResolvedValue({
+      limitMinutes: 15, restDuration: 120, targetApps: ["com.test.b"],
+      allowEmergencyUnlock: false, strongBlockingEnabled: false, channel: "play",
+    });
+    (NativeFlow[readMethod] as any).mockRejectedValueOnce(new Error("读取失败"));
+    renderTargetApps(["com.test.a"]);
+
+    await waitFor(() => expect(screen.getByText("无法读取应用列表或已保存设置，请重新读取后再保存。")).toBeInTheDocument());
+    expect(screen.getByText(/已选 1\/30/)).toBeInTheDocument();
+    const saveButton = screen.getByRole("button", { name: "保存更改" });
+    expect(saveButton).toBeDisabled();
+    fireEvent.click(saveButton);
+    expect(NativeFlow.saveTargetApps).not.toHaveBeenCalled();
+    expect(useStore.getState().profile.targetApps).toEqual(["com.test.a"]);
+    expect(mockNavigate).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "重新读取应用列表" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "应用B" })).toHaveAttribute("aria-pressed", "true"));
+    expect(screen.getByRole("button", { name: "应用A" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "保存更改" })).toBeEnabled();
+    expect((window as any).__flowbreakHandleBack()).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "保存更改" }));
+    await waitFor(() => expect(NativeFlow.saveTargetApps).toHaveBeenCalledWith({ packageNames: ["com.test.b"] }));
+    expect(useStore.getState().profile.targetApps).toEqual(["com.test.b"]);
+  });
+
+  it("读取失败后仍可放弃草稿返回，但不能从返回确认保存未知配置", async () => {
+    isNative = true;
+    (NativeFlow.loadSettings as any).mockRejectedValueOnce(new Error("读取失败"));
+    renderTargetApps(["com.test.a"]);
+    await waitFor(() => expect(screen.getByRole("button", { name: "重新读取应用列表" })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "清空已选" }));
+    expect((window as any).__flowbreakHandleBack()).toBe(true);
+    await waitFor(() => expect(screen.getByText("有未保存的修改")).toBeInTheDocument());
+    const saveAndReturnButton = screen.getByRole("button", { name: "保存并返回" });
+    expect(saveAndReturnButton).toBeDisabled();
+    fireEvent.click(saveAndReturnButton);
+    expect(NativeFlow.saveTargetApps).not.toHaveBeenCalled();
+    expect(useStore.getState().profile.targetApps).toEqual(["com.test.a"]);
+    fireEvent.click(screen.getByRole("button", { name: "放弃修改" }));
+    expect(mockNavigate).toHaveBeenCalledWith("/profile");
+  });
+
+  it("保存应用并返回首次设置时原样带回保护规则草稿", async () => {
+    routeState = { returnTo: "/personalize", setupDraft: { session: 30, restDur: 300, emergencyUnlock: true } };
+    renderTargetApps();
+    await waitFor(() => expect(screen.getByText("应用B")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "应用B" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存更改" }));
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith("/personalize", {
+      replace: true, state: { setupDraft: routeState?.setupDraft },
+    }));
+    expect(useStore.getState().profile.targetApps).toEqual(["com.test.a", "com.test.b"]);
   });
 });

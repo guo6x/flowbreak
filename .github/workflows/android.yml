@@ -53,8 +53,9 @@ jobs:
           cache: gradle
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
         with:
-          # SDK 'tools' legacy package was retired upstream; avoid v3 default.
-          packages: 'platform-tools'
+          # The legacy "tools" package was retired; Gradle resolves project SDKs.
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
       - run: npm ci
       - name: Verify Recharts React 19 peer and test-only React 17 isolation
         run: |
@@ -64,6 +65,8 @@ jobs:
       - name: Audit all dependencies for critical vulnerabilities
         run: npm audit --audit-level=critical
       - run: npm test
+      - name: Verify generated brand assets
+        run: npm run test:brand
       - run: npm run test:provenance
       - run: npm run test:release
       - name: Targeted portable signing security regression
@@ -71,6 +74,19 @@ jobs:
         run: |
           & ../tools/tests/Test-SEC-PORTABILITY-001.ps1
       - run: npm run build
+      - name: Install browser for web preview regression
+        run: npx playwright install --with-deps chromium
+      - name: Check every web preview page
+        run: npm run test:ui
+      - name: Upload web preview evidence (not device acceptance)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: flowbreak-web-preview-${{ env.SOURCE_COMMIT_SHA }}
+          path: .tmp/ui-smoke/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
       - name: Generate build provenance
         run: node scripts/generate-build-provenance.mjs dist
       - run: npx cap sync android
@@ -360,8 +376,9 @@ jobs:
           cache: gradle
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
         with:
-          # SDK 'tools' legacy package was retired upstream; avoid v3 default.
-          packages: 'platform-tools'
+          # The legacy "tools" package was retired; Gradle resolves project SDKs.
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
       - run: npm ci
       # Version policy: app/package.json "version" is the single Source of Truth.
       # release-version.mjs validates stable SemVer, computes versionCode

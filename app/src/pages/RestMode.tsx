@@ -136,9 +136,8 @@ export default function RestMode() {
       delay: Math.random() * 0.6,
       left: 8 + Math.random() * 84,
       color: [
-        '#4CAF50', '#2196F3', '#FF9800', '#F44336', '#9C27B0', '#FFEB3B',
-        '#00BCD4', '#E91E63', '#8BC34A', '#FF5722', '#3F51B5', '#FFC107',
-      ][i % 12],
+        '#247353', '#367C98', '#B7CDBB', '#C9B48D', '#80A69A', '#A4BECB',
+      ][i % 6],
     })),
     [],
   );

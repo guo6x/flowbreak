@@ -15,9 +15,10 @@
 - **绝对门禁**：`STORE_READY=NO`；`PRODUCTION_RELEASE_APPROVED=NO`；**不得创建正式发布 tag、使用生产密钥做未经授权的发布或合并 PR #29**。
 
 
-**RELEASE PREPARATION**（截至 2026-09-11；Redmi R1–R4 复测 2026-08-14 通过；GATE C 2026-08-15 通过；PR #20 与 PR #26 已合并；GATE D final-scope acceptance、Gate E supported-scope closeout 与 GATE G signed dry-run 已完成）
+**RELEASE PREPARATION**（状态文档更新于 2026-10-18；Redmi R1–R4 复测 2026-08-14 通过；GATE C 2026-08-15 通过；PR #20 与 PR #26 已合并；GATE D final-scope acceptance、Gate E supported-scope closeout 与 GATE G signed dry-run 已完成）
 
 - 原 Redmi 验收阻塞项已消除：`FB-P1-01`、`FB-P1-02`、`FB-P1-03`、`FB-P2-01` 全部 RESOLVED（`KNOWN_ISSUES.md`）。`FB-P1-05` 保持 **OPEN — UNSUPPORTED IN V1.1.0**，不属于 v1.1.0 支持设备运行时。
+- 体验分支 `154a7cfab7da1c7924ae1acb53acd63a931c2626` 的本地前端、双渠道 JVM/Lint/Debug 与 API 36 AVD 回归快照见 `TESTING.md`；GitHub Actions [run 39095168568](https://github.com/guo6x/flowbreak/actions/runs/39095168568) 在提交 `147a645` 上的 unsigned verify job **PASS**，签名 release job 按分支策略跳过。它不是签名 release artifact；AVD smoke 不关闭 Gate D/E/F。
 - 但 **RELEASE PREPARATION ≠ RELEASE APPROVED**：GATE C、GATE D 与 Gate E supported-scope decision 已通过；GATE F–I 仍 PENDING，当前不是 STORE READY，更不是 PRODUCTION RELEASE APPROVED。
 
 ## 发布门禁总览
@@ -174,7 +175,7 @@ ORIGINAL_LAPTOP_RECOVERY = `NOT_YET_TESTED`
 
 **不由** GATE G 负责：Data Safety、Accessibility declaration、商店文案、隐私政策 URL、商店截图、合规申报材料（归 GATE H）。
 
-**GATE G 当前不具备整体 PASS 条件**：final identity、8 个最终 secrets、signed dry-run、signed install/upgrade、portable vault 与 off-machine backup 已完成；cross-machine recovery 仍未完成。后续必须完成跨机器恢复测试后才能关闭 Gate G。
+**GATE G 当前不具备整体 PASS 条件**：final identity、8 个最终 secrets、signed dry-run、signed install/replacement、portable vault 与 off-machine backup 已完成；真实 lower-final-signed-build 到当前 final-signed-build 的版本升级未测试，cross-machine recovery 也仍未完成。后续必须完成跨机器恢复测试后才能关闭 Gate G。
 
 ### GATE H — Store / Compliance Readiness：PENDING
 
@@ -191,8 +192,21 @@ ORIGINAL_LAPTOP_RECOVERY = `NOT_YET_TESTED`
 - 渠道审核材料
 - distribution compliance
 
-> Distribution compliance research is in progress and will be incorporated after source verification.（合规研究完成后并入；当前不提前创建未经最终审查的 COMPLIANCE 文档，不把未经确认的研究内容写成 CONFIRMED 项目事实。）
-> 本门禁只调整「职责归属」，不提前把任何 PENDING 改为 PASS。
+> 本轮尚无可核验的外部合规审查或平台申报记录；旧版“研究进行中”不代表已完成研究。只维护源码事实与发行待办，不把未经负责人确认的材料写成已确认的法律或商店结论。
+
+Gate H source facts and owner-dependent deliverables:
+
+| Item | Current evidence | State |
+| --- | --- | --- |
+| Product data / permission description | Updated in `PRIVACY.md`; source declares Android `INTERNET`, local Room/SharedPreferences/WebView storage, and Domestic-only optional Accessibility | Draft; final merged-manifest/dependency/network verification required |
+| Diagnostics sharing | Code whitelist excludes runtime tracking, target list and precise usage timestamps; regression covered in Domestic/Play JVM suites at source SHA `154a7cf` | Local tests/build PASS; final release-candidate review still required |
+| Public privacy policy URL | None configured | Owner must provide and host |
+| Public support contact / publisher identity | None configured | Owner must provide verified legal/contact details |
+| Play Data Safety / FGS / Accessibility declarations | No final Console submission evidence in this workspace | Owner account and final artifact required |
+| Domestic filing, copyright and distribution qualifications | No verified issuer documents attached | Owner/legal review required |
+| Store screenshots and listing | UI source and web-preview evidence exist; no final store listing pack | Prepare against final channel builds |
+
+GATE H remains **PENDING**. Do not submit store forms, invent a contact, or mark the app Store Ready based only on repository evidence.
 
 ### GATE I — Small-scale Beta：PENDING
 
@@ -234,15 +248,15 @@ ORIGINAL_LAPTOP_RECOVERY = `NOT_YET_TESTED`
 
 - [ ] `PRIVACY.md` 与实际权限/数据行为一致（发布前最终核对）
 - [ ] 无密钥/敏感信息入库；release 使用环境变量签名
-- [ ] 脱敏诊断导出不含姓名、受限应用包名、具体使用明细
+- [x] 脱敏诊断分享字段白名单不含姓名、目标应用列表或具体使用时间线（Domestic/Play JVM regression PASS at `154a7cf`；完整 JSON 数据导出仍会含产品数据，见 `PRIVACY.md`）
 - [ ] 提供公开隐私政策 URL 和支持邮箱（当前未配置）
 
 ### Android / 双渠道
 
 - [x] Play 清单不含 AccessibilityService；国内版包含且默认关闭
 - [ ] 两个 applicationId 可同时安装，设置互不污染（待发布版最终验证）
-- [ ] AAB/APK 签名、安装、覆盖升级测试通过（待签名产物）
-- [x] 覆盖安装保留用户数据（Room schema 迁移验证；真机覆盖安装 PASS）
+- [ ] 本体验分支 release-candidate 的 AAB/APK 签名与安装验收（产物尚未构建）
+- [x] 既有 final-signed Domestic APK 安装 / `adb install -r` 数据保留验证通过（GATE G）；真实 lower-version 到 current-version 升级仍未测试，且不代表本分支 release-candidate 已验收
 
 ### 真机设备矩阵
 

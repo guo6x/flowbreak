@@ -8,6 +8,12 @@ import java.util.Set;
 public class PreferenceUtils {
     private static final String TAG = "PreferenceUtils";
     public static final String PREF_TARGET_APPS = "targetApps";
+    public static final String PREF_STRONG_BLOCKING_ENABLED = "strongBlockingEnabled";
+
+    /** Domestic strong blocking is opt-in and remains disabled when no value has been saved. */
+    public static boolean isStrongBlockingEnabled(SharedPreferences prefs, boolean domesticChannel) {
+        return domesticChannel && prefs.getBoolean(PREF_STRONG_BLOCKING_ENABLED, false);
+    }
 
     /**
      * Reads targetApps from SharedPreferences with automatic migration from legacy String format to StringSet.

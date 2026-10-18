@@ -2,11 +2,86 @@
 
 > 定义自动化测试层级、CI 范围、真机测试矩阵与证据标准。易变的数字只出现在下方「验证快照」；历史验证记录在 `docs/archive/progress/`（含 `VERIFICATION.md` 的 Beta 1.1 记录）。
 
+## 本轮本地验证快照（2026-10-18，默认设置 / 隐私分享 / 权限页回归）
+
+- 分支：`product/experience-polish-20261018`；本轮源码与测试提交：`154a7cfab7da1c7924ae1acb53acd63a931c2626`。文档快照在后续单独提交，不改变 App 运行时源码。
+- 下表只记录对应源码提交的本地工具链，不代替 hosted Actions 结果或签名发布包验收；本次 hosted run 单独记录如下。
+- GitHub Actions 随后已在提交 `147a64567f56290c3b8c0dce0aa934dd2c3b494f` 执行 [run 39095168568](https://github.com/guo6x/flowbreak/actions/runs/39095168568)：`verify` job **PASS**，覆盖前端、UI smoke、双渠道 JVM/Lint、Debug、unsigned Release 与 provenance；体验分支上的签名 `release` job **SKIPPED**。这是 unsigned CI 证据，不是签名或商店验收。
+- 原工作区 `D:\AI_code\flowbreak` 中的两处 Java 未提交修改不属于本分支。未读取或操作生产签名材料，没有合并或发布。
+
+| 检查 | 结果与边界 |
+| ---- | ---- |
+| Frontend (Vitest) | **263 / 263 PASS**，25 个测试文件，无失败或跳过 |
+| TypeScript / Vite | **PASS**（`npm run build`） |
+| 网页逐页 / 交互 | **44 / 44 PASS**；13 条路由 × 320/393/1280px，加导航和合成统计、Web 休息控制/完成态 |
+| 品牌一致性 | **36 / 36 PASS**（`npm run test:brand`） |
+| Provenance / Release policy | **20 / 20 PASS**、**8 / 8 PASS** |
+| Android JVM | Domestic **412 / 412 PASS**；Play **382 / 382 PASS**；强制重跑，0 failure / 0 error / 0 skipped |
+| 双渠道 Lint | **PASS**；Domestic 0 errors / 45 warnings，Play 0 errors / 44 warnings |
+| Web → Android 同步 | `npx cap sync android` **PASS**；随后两个渠道 Debug APK 均成功组装 |
+| Domestic Debug APK | 5,186,928 bytes；SHA-256 `41de12d1eecbcd3778d72bafca3d0824d5d8fb720d17638e5e180464ffd4c64a` |
+| Play Debug APK | 5,180,646 bytes；SHA-256 `dafc7391129c6db0e20153e90e170faad9799f95b791be52662fc91e2c138290` |
+| API 36 AVD | **有限范围 PASS**：`Medium_Phone_API_36.0` / Android 16 / API 36；确认 `ro.boot.qemu=1`、`sys.boot_completed=1`，设备命令均使用 `-s emulator-5554` |
+| AVD 原生权限 / 默认值 | Domestic APK `install -r` 成功并保留数据；偏好文件在安装前后只有 `migrationVersion=1`，无 `strongBlockingEnabled` 键。Accessibility 为 `null`，Usage Access 与 Overlay 未授权，保护服务未启动 |
+| AVD 页面 / 返回 | Onboarding 正常渲染；跳过后权限页稳定显示 0/2。打开系统“使用情况访问”页再返回，仍为 0/2；未点击授权、未 wipe、未 `pm clear`、未卸载 |
+| 崩溃检查 | 未见 `AndroidRuntime` fatal；WebView 有一条系统 variations seed 签名告警，不影响页面渲染 |
+| Instrumentation / 真机 / 发布 | 没有运行 connected instrumentation、真实手机/OEM smoke、24h soak 或生产签名/发布 |
+
+截图证据保存在工作区外：`D:\temp\flowbreak-avd-evidence-20261018\flowbreak-final-154a7cf-onboarding.png`、`flowbreak-final-154a7cf-permissions.png`、`flowbreak-final-154a7cf-settings-return.png`。这些截图是指定 AVD 的界面证据，不是 Redmi/OEM 真机验收。网页预览截图仍标记为 `WEB_PREVIEW_ONLY`。
+
+Gradle 复核命令（cwd `app/android`）：
+
+```powershell
+./gradlew.bat --no-daemon --console=plain --rerun-tasks :app:testDomesticDebugUnitTest :app:testPlayDebugUnitTest
+./gradlew.bat --no-daemon --console=plain :app:lintDomesticDebug :app:lintPlayDebug
+./gradlew.bat --no-daemon --console=plain :app:assembleDomesticDebug :app:assemblePlayDebug
+```
+
+## 较早本地验证快照（2026-10-18，体验与品牌初始版本）
+
+> 以下数字与 APK 属于前一份快照 `b7c40d2`，保留作历史对照；本页顶部的跟进快照代表当前体验分支验证。
+
+- 分支：`product/experience-polish-20261018`；起点：`48aaf6a77ca6bae9f17f19e0210f5af3af745126`。
+- 代码与测试提交：`b7c40d27e48b2ccf8e55f388ebedb3f17186c02d`。本表记录这份代码的本地检查；后续文档与 CI 维护未改变 App 运行时源码。云端结果必须单独核对 [Android Actions](https://github.com/guo6x/flowbreak/actions/workflows/android.yml) 的 run、source SHA 和结论，不把本表当作 hosted CI 的 PASS。
+- 原工作区两处 Java 未提交修改未纳入本分支。没有操作真实用户数据、安装 APK、调用生产签名、合并分支或执行发布。
+
+| 检查 | 结果与边界 |
+| ---- | ---- |
+| 全新依赖安装 | 普通 `npm ci --no-fund --no-audit` **PASS**，不依赖 legacy-peer-deps 配置 |
+| Frontend | **262 / 262 PASS**，24 个文件，无跳过 |
+| Provenance / Release policy | **20 / 20 PASS**、**8 / 8 PASS** |
+| 品牌一致性 | **36 项 PASS**；同一 SVG 派生，浏览器与原生资源均在范围内 |
+| 网页逐页 / 交互 | **44 项 PASS**，13 条路由 × 320/393/1280px，加导航和合成统计、Web 休息控制/完成态；无横向溢出、破图、资源失败、未处理异常或意外外网请求 |
+| TypeScript / Vite | **PASS**（`npm run build`） |
+| npm audit | 官方 registry 的全依赖、low 及以上门槛：**0 known vulnerabilities**（仅本次解析依赖的审计快照，不是永久安全保证） |
+| dist → Android web assets | **48 / 48 文件 SHA-256 一致**；额外 2 个 Capacitor runtime 文件允许存在；provenance source SHA 为上方代码提交 |
+| Play / Domestic JVM | **377 / 377 PASS**、**406 / 406 PASS**；无失败、错误或跳过 |
+| 双渠道 Lint / Debug | **PASS**；Lint 为 0 error、Play 44 / Domestic 45 个 warning，不宣称零警告；最终网页同步后再次构建成功 |
+| Instrumentation APK | `assemblePlayDebugAndroidTest` **ASSEMBLED**，没有执行 connected tests |
+| Portable signing security regression | `TARGETED_TESTS=PASS`；secret 不进进程参数/日志，外部 archiver 被拒绝，创建/恢复工具 fail closed；**不是生产密钥恢复测试** |
+| 新构建设备 / 签名 / 发布 | **NOT_EXECUTED**；未执行 connected instrumentation、Redmi smoke、24h 稳定性或生产发布 |
+
+逐页 PNG、引导三步、统计空态/样本、休息退出确认与完成态已人工复核；本地证据在被 Git 忽略的 `.tmp/ui-smoke/`（`results.json` 明确标识 `WEB_PREVIEW_ONLY`）。样本记录只存在于一次性浏览器上下文，不是真实健康数据，也不作为原生保护有效的证据。云端 verify 会独立重跑网页检查并保存该 run 的截图。
+
+本地 Debug 包（`versionCode=1` / `versionName=local-b7c40d2`，仅用于工程验证，不是签名发布候选）内部 `assets/public/build-provenance.json` 均已读取确认 source SHA 等于上方代码提交：
+
+- Play APK SHA-256：`deceb59895097578c48828393b44d6e3286070777300ea67a672fe53fda8208a`。
+- Domestic APK SHA-256：`d80fa7e5698dc7e4b9960f24148f2f0cdc1f96893fecf44054a42f365879613e`。
+- 包位置：`app/android/app/build/outputs/apk/<channel>/debug/`，本地构建目录不入 Git。内部 provenance 校验与 dist→assets 校验是构建证据，不是安装运行证据。
+
+在这份较早的 `b7c40d2` 快照中，没有关闭既有 Gate F/G/H/I，也没有将旧 Redmi 或 signed 证据改写成此分支的实机 PASS。签名工具文档中的旧能力描述已按当时的 fail-closed 源码修正；`FB-P2-03` 当时仍是待修复差异，后续处理与新证据见本页顶部跟进快照。
+
+首次云端运行 [39062202344](https://github.com/guo6x/flowbreak/actions/runs/39062202344)（源码 `bbd95b23d70eea8ac786f0ecdbfaafa5d23015a4`）在 SDK 准备阶段失败：固定版本 setup-android 的默认值请求了 Google 已不再提供的 `tools` 包。后续产品测试均为 **SKIPPED，不是 PASS**。CI 随后显式请求 `platform-tools`，其余平台与 build-tools 由 Gradle 按项目声明解析；签名条件、密钥和发布门禁没有更改。修复后以新提交的独立 run 为准，不能复用该失败 run 冒充验证成功。
+
+第二次运行 [39062409715](https://github.com/guo6x/flowbreak/actions/runs/39062409715)（源码 `353c3b2c26f6096f00630d3ea03b7514314a15e5`）通过 SDK、依赖、单测、品牌、安全回归和 Web build，网页检查仍为 **FAIL / 0 checks**：Vite 给端口插入 ANSI 样式，导致就绪字符串匹配超时。本地已用相同彩色日志环境复现「HTTP 200，但原字符串不匹配」；修复仅对就绪日志去除控制字符，仍保留端口空闲预检、strictPort、子进程状态与 HTTP 校验。修复后在 `CI=true` / `FORCE_COLOR=1` 且未设置 `NO_COLOR` 的本地环境重跑，**44 / 44 PASS**（`.tmp/ui-color/`）。这两次失败均保留原 run，不将其后跳过的 Android 步骤计为通过。
+
 ## 1. 自动化测试层级
 
 | 层级 | 命令 | 覆盖 |
 | ---- | ---- | ---- |
 | Frontend | `cd app && npm test`（Vitest） | 页面、store、rest-mode、状态判定等 React/TS 逻辑 |
+| 品牌一致性 | `cd app && npm run test:brand` | 单一 SVG 派生的浏览器图标、Android launcher/单色图标与启动图；PNG 按像素比较、文本忽略 CRLF 差异 |
+| 网页视觉 / 交互 | `cd app && npm run build && npm run test:ui` | Chromium 的逐页身份、三种宽度、导航、统计样本、Web 休息流程、溢出与资源/网络检查；仅 `WEB_PREVIEW_ONLY` |
 | Play JVM | `cd app/android && ./gradlew testPlayDebugUnitTest` | Robolectric：状态机、前台追踪、服务恢复、统计等（Play 渠道） |
 | Domestic JVM | `./gradlew testDomesticDebugUnitTest` | 同上（Domestic 渠道，含无障碍强阻断回归测试） |
 | RecoveryIntegration | 包含在上述 JVM 任务中 | 前台服务重建/重启恢复集成测试 |
@@ -16,9 +91,10 @@
 
 ## 2. CI 做什么 / 不做什么
 
-CI（`.github/workflows/android.yml`）在 master push / PR 时执行：
+CI（`.github/workflows/android.yml`）在 master push / PR / 手动 dispatch 时执行 verify；签名 release job 仅允许 master dispatch 或发布 tag：
 
-- 做：`npm ci`、npm audit 门禁（生产依赖 high 级 + 全依赖 critical 级）、`npm test`、`npm run test:provenance`、`npm run build`、`npx cap sync android`、双渠道单测 + lint + Debug 构建、`assemblePlayDebugAndroidTest`、Release 双渠道构建、R8 mapping 检查、Room schema drift 检查。
+- 做：`npm ci`、npm audit 门禁（生产依赖 high 级 + 全依赖 critical 级）、`npm test`、`npm run test:brand`、`npm run test:provenance`、`npm run test:release`、签名安全回归、`npm run build`、安装 Chromium 后 `npm run test:ui`、`npx cap sync android`、双渠道单测 + lint + Debug 构建、`assemblePlayDebugAndroidTest`、Release 双渠道构建、R8 mapping 检查、Room schema drift 检查。
+- 网页检查使用一次性合成数据，不连接真实手机；截图与 `results.json` 作为独立 `flowbreak-web-preview-<sourceSha>` artifact 保存（14 天）。即使后续步骤失败也尝试上传已有截图。空态和样本态的页面身份、请求错误均必须通过；截图仍需人工审美复核，不能由退出码代替。
 - 做（Artifact Provenance 链，GATE C）：source identity 校验（checkout HEAD = `SOURCE_COMMIT_SHA`、工作区干净）→ 生成 `dist/build-provenance.json` → cap sync → **Web asset sync 校验**（dist 每个文件在 Android assets 中 SHA-256 一致，缺失/mismatch 直接 FAIL）→ Release 构建 → **APK/AAB 内部 provenance 校验**（unzip + `aapt2 dump badging` + AAB 自身 manifest 经 wrapper zip + `aapt2 dump xmltree` 读版本）→ `artifact-manifest.json` + `SHA256SUMS.txt` → upload-artifact（`flowbreak-unsigned-<sourceSha>`，retention 90 天）。
 - 不做：**不执行 connected instrumentation tests**。`assemblePlayDebugAndroidTest` 只是构建 instrumentation APK（AndroidTest APK successfully ASSEMBLED），**不等于**在设备上执行测试。
 - 不做：真机验证（厂商后台限制、悬浮窗/无障碍行为、统计误差对照等只能真机做）。
@@ -121,7 +197,7 @@ Gate E 的当前结论区分健康运行时、执行间隔恢复和 Android/OEM 
 - **TEST ONLY 密钥纪律**：Stage A 的本地机制验证曾使用临时 TEST ONLY 密钥（keytool 生成于临时目录、不进仓库、不作为正式 fingerprint）；CI signed dry-run 在 secrets 缺失时清晰失败，**不**降级用 debug key 冒充 production signing。
 - **生产身份当前状态**：首轮 technical dry-run（Run `31934183213`）仅证明签名工程链路可用，身份已标记 **SUPERSEDED_PRE_PRODUCTION**，禁止用于正式发行。最终身份已在 primary workstation 生成；当前 policy 为 `PROVISIONED`，两个最终 public certificate fingerprint 已写入 allowlist。
 - **CI signing credentials**：旧 identity 的 8 个 secrets 已清理；最终 identity 对应的 8 个 production signing secrets 已由 owner provision。secret values 未读取、未写入仓库，也未进入 artifact 或日志。
-- **Portable vault 工具**：`tools/New-PortableSigningVault.ps1` 只接受 policy=`PROVISIONED` 且两张 public certificate 与 policy 指纹完全匹配的最终身份；使用系统 CSPRNG，recovery secret 只经一次性剪贴板交接，不输出 stdout、不落盘。`tools/Test-PortableSigningVault.ps1` 在原笔记本/独立环境执行 decrypt、keytool metadata 读取和 policy 指纹核对。
+- **Portable vault 工具边界**：仓库中的 `tools/New-PortableSigningVault.ps1` / `tools/Test-PortableSigningVault.ps1` 当前在触碰密钥、policy、剪贴板或 secret 前 fail closed（`BLOCKED_PENDING_SAFE_TOOL`），不提供创建/解密/验收能力；外部 archiver fallback 也被拒绝。已建立的 age 托管记录来自 `app/release-signing-policy.json` 和独立证据，不是这些占位脚本的执行结果。安全回归只证明拒绝路径，不证明密钥恢复成功。
 - **当前剩余项**：`v1.1.0` 正式 tag / store release 尚未执行；portable vault 本地恢复与 off-machine backup 已 PASS，但 `CROSS_MACHINE_SIGNING_RECOVERY=NOT_YET_TESTED`，因此 GATE G 仍保持 `PENDING_CROSS_MACHINE_RECOVERY`。
 
 ### Protection Integrity（UI promise ≤ 实际保护能力）

@@ -3,36 +3,39 @@
 /* ===== FlowBreak Design System (PRD 6.1) ===== */
 @theme {
   /* Primary Colors */
-  --color-primary: #4CAF50;
-  --color-primary-light: #81C784;
-  --color-primary-dark: #388E3C;
+  --color-primary: #247353;
+  --color-primary-light: #8DC3A7;
+  --color-primary-dark: #1C5943;
 
   /* Secondary Colors */
-  --color-secondary: #2196F3;
-  --color-secondary-light: #64B5F6;
+  --color-secondary: #367C98;
+  --color-secondary-light: #A8CCD9;
 
   /* Accent */
-  --color-accent: #FF9800;
-  --color-accent-light: #FFB74D;
+  --color-accent: #A36519;
+  --color-accent-light: #E9C993;
 
   /* Semantic */
-  --color-success: #4CAF50;
-  --color-warning: #FF9800;
-  --color-error: #F44336;
-  --color-info: #2196F3;
+  --color-success: #247353;
+  --color-warning: #A36519;
+  --color-error: #BF4545;
+  --color-info: #367C98;
 
   /* Neutrals */
   --color-white: #FFFFFF;
-  --color-gray-50: #FAFAFA;
-  --color-gray-100: #F5F5F5;
-  --color-gray-300: #E0E0E0;
-  --color-gray-400: #BDBDBD;
-  --color-gray-500: #9E9E9E;
-  --color-gray-700: #616161;
-  --color-gray-900: #212121;
+  --color-gray-50: #F7F9F6;
+  --color-gray-100: #EEF2ED;
+  --color-gray-200: #E1E8E0;
+  --color-gray-300: #CFD9CF;
+  --color-gray-400: #748277;
+  --color-gray-500: #627168;
+  --color-gray-600: #526259;
+  --color-gray-700: #405349;
+  --color-gray-800: #2A3F34;
+  --color-gray-900: #1E3328;
 
   /* Font */
-  --font-sans: 'Roboto', sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
 
   /* Spacing already handled by Tailwind defaults: 1=4px, 2=8px, 4=16px, 6=24px, 8=32px */
 }
@@ -45,7 +48,7 @@
   }
 
   html {
-    font-size: 14px;
+    font-size: 16px;
     -webkit-text-size-adjust: 100%;
   }
 
@@ -53,7 +56,7 @@
     margin: 0;
     padding: 0;
     font-family: var(--font-sans);
-    background-color: #FAFBFA;
+    background-color: #E9EFE8;
     color: var(--color-gray-900);
     line-height: 1.5;
     overflow-x: hidden;
@@ -68,31 +71,101 @@
   }
 
   h1, h2, h3 {
-    line-height: 1.2;
+    line-height: 1.35;
+    letter-spacing: -0.025em;
+    text-wrap: balance;
+  }
+
+  button:not(:disabled), a {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+
+  :focus-visible {
+    outline: 3px solid var(--color-secondary);
+    outline-offset: 4px;
+  }
+
+  input, select, textarea {
+    font-size: 16px;
+  }
+}
+
+.app-shell {
+  width: 100%;
+  max-width: 600px;
+  min-height: 100dvh;
+  margin-inline: auto;
+  background: #F4F7F3;
+  position: relative;
+  isolation: isolate;
+}
+
+.app-fixed-bottom {
+  width: 100%;
+  max-width: 600px;
+  margin-inline: auto;
+}
+
+.brand-mark {
+  flex-shrink: 0;
+  border-radius: 29%;
+}
+
+.brand-wordmark {
+  color: var(--color-primary-dark);
+  font-size: 22px;
+  font-weight: 750;
+  letter-spacing: -0.055em;
+  line-height: 1.15;
+}
+
+.page-heading {
+  font-size: 28px;
+  font-weight: 750;
+  color: var(--color-gray-900);
+}
+
+@media (min-width: 640px) {
+  .app-shell {
+    box-shadow: 0 0 0 1px #DCE5DB, 0 12px 64px #1C59430B;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 
 /* ===== Utilities ===== */
 @utility card {
   background-color: var(--color-white);
-  border-radius: 16px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.06);
+  border-radius: 20px;
+  box-shadow: 0 0 0 1px #1C594309, 0 4px 20px #1C594305;
 }
 
 @utility card-lg {
   background-color: var(--color-white);
   border-radius: 24px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04), 0 4px 16px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 0 0 1px #1C59430C, 0 8px 32px #1C59430A;
 }
 
 @utility btn-primary {
   background-color: var(--color-primary);
   color: white;
   border: none;
-  border-radius: 24px;
+  border-radius: 18px;
   padding: 14px 32px;
   font-size: 16px;
-  font-weight: 500;
+  font-weight: 600;
+  min-height: 48px;
   cursor: pointer;
   transition: all 0.2s ease;
   &:active {
@@ -105,10 +178,11 @@
   background-color: transparent;
   color: var(--color-gray-700);
   border: 1.5px solid var(--color-gray-300);
-  border-radius: 24px;
+  border-radius: 18px;
   padding: 14px 32px;
   font-size: 16px;
   font-weight: 500;
+  min-height: 48px;
   cursor: pointer;
   transition: all 0.2s ease;
   &:active {
@@ -124,6 +198,7 @@
   font-size: 14px;
   font-weight: 500;
   padding: 8px 16px;
+  min-height: 44px;
   cursor: pointer;
 }
 

@@ -8,6 +8,9 @@
     "build": "tsc && vite build",
     "preview": "vite preview --host",
     "test": "vitest run",
+    "brand:generate": "node scripts/generate-brand-assets.mjs",
+    "test:brand": "node scripts/generate-brand-assets.mjs --check",
+    "test:ui": "node scripts/ui-smoke.mjs",
     "test:provenance": "node --test \"scripts/__tests__/provenance-lib.test.mjs\" \"scripts/__tests__/generate-build-provenance.test.mjs\" \"scripts/__tests__/verify-web-asset-sync.test.mjs\" \"scripts/__tests__/generate-artifact-manifest.test.mjs\"",
     "test:release": "node --test \"scripts/__tests__/release-version.test.mjs\""
   },
@@ -18,6 +21,7 @@
     "lucide-react": "^1.8.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
+    "react-is": "19.2.5",
     "react-router": "8.3.0",
     "recharts": "^3.8.1",
     "zustand": "^5.0.13"
@@ -25,16 +29,19 @@
   "devDependencies": {
     "@capacitor/cli": "8.4.3",
     "@tailwindcss/vite": "^4.2.2",
+    "@testing-library/dom": "10.4.2",
     "@testing-library/jest-dom": "^6.4.2",
     "@testing-library/react": "^16.0.0",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
     "jsdom": "^24.0.0",
+    "playwright": "1.62.1",
+    "sharp": "0.35.5",
     "tailwindcss": "^4.2.2",
     "typescript": "~5.8.3",
     "vite": "^7.0.4",
-    "vitest": "4.1.11"
+    "vitest": "4.1.12"
   },
   "engines": {
     "node": ">=22.22.0 <23"

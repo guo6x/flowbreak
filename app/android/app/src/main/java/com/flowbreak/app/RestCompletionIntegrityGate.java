@@ -59,6 +59,35 @@ public final class RestCompletionIntegrityGate {
     }
 
     /**
+     * Evaluates completion against the same atomic current-process runtime
+     * health snapshot used by the protection status path. Service-loss
+     * recovery remains permissive, but an active service with a dead/stale
+     * monitor or an integrity failure must not commit RESTING completion.
+     */
+    public static Decision evaluate(
+            String persistedState,
+            ProtectionRuntimeHealthEvaluator.Result runtimeHealth
+    ) {
+        if (!BlockStateMachine.State.RESTING.name().equals(persistedState)) {
+            return Decision.ALLOW;
+        }
+        if (runtimeHealth == null) {
+            return Decision.DEFER;
+        }
+        if (!runtimeHealth.serviceRuntimeActive) {
+            return Decision.ALLOW;
+        }
+        if (!runtimeHealth.isHealthy()
+                || runtimeHealth.lastCompletedMonitorTickElapsedMs <= 0L
+                || runtimeHealth.nowElapsedMs < runtimeHealth.lastCompletedMonitorTickElapsedMs
+                || runtimeHealth.nowElapsedMs - runtimeHealth.lastCompletedMonitorTickElapsedMs
+                        > RestCheatTracker.CHEAT_THRESHOLD_MS) {
+            return Decision.DEFER;
+        }
+        return Decision.ALLOW;
+    }
+
+    /**
      * Executes the completion operation only when the integrity gate allows it.
      * The operation represents the coordinator's complete DB/points/GRACE
      * commit, which gives JVM tests a counter seam for proving DEFER is side
@@ -77,6 +106,18 @@ public final class RestCompletionIntegrityGate {
                 lastCompletedMonitorTickElapsedMs,
                 nowElapsedMs
         );
+        if (decision == Decision.DEFER) {
+            return new Attempt<>(decision, null);
+        }
+        return new Attempt<>(decision, operation.run());
+    }
+
+    public static <T> Attempt<T> execute(
+            String persistedState,
+            ProtectionRuntimeHealthEvaluator.Result runtimeHealth,
+            CompletionOperation<T> operation
+    ) throws Exception {
+        Decision decision = evaluate(persistedState, runtimeHealth);
         if (decision == Decision.DEFER) {
             return new Attempt<>(decision, null);
         }
