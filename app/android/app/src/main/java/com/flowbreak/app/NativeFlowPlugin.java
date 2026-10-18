@@ -241,8 +241,9 @@ public class NativeFlowPlugin extends Plugin {
             boolean hasOverlay = permissions.hasOverlay();
             boolean serviceRuntimeActive = runtimeHealth.serviceRuntimeActive;
             boolean monitorThreadAlive = runtimeHealth.monitorThreadAlive;
-            boolean strongRequested = "domestic".equals(BuildConfig.CHANNEL)
-                    && preferences.getBoolean("strongBlockingEnabled", true);
+            boolean strongRequested = PreferenceUtils.isStrongBlockingEnabled(
+                    preferences, "domestic".equals(BuildConfig.CHANNEL)
+            );
             boolean accessibilityEnabledInSettings = permissions.hasAccessibility();
             boolean accessibilityRuntimeConnected = AccessibilityRuntimeState.isConnected();
             ProtectionStatusEvaluator.Result status = ProtectionStatusEvaluator.evaluate(
@@ -420,7 +421,8 @@ public class NativeFlowPlugin extends Plugin {
         );
         if (data.has("strongBlockingEnabled") && "domestic".equals(BuildConfig.CHANNEL)) {
             editor.putBoolean(
-                    "strongBlockingEnabled", call.getBoolean("strongBlockingEnabled", true)
+                    PreferenceUtils.PREF_STRONG_BLOCKING_ENABLED,
+                    call.getBoolean(PreferenceUtils.PREF_STRONG_BLOCKING_ENABLED, false)
             );
         }
         if (data.has("monitoringEnabled")) editor.putBoolean(
@@ -446,8 +448,12 @@ public class NativeFlowPlugin extends Plugin {
         result.put("limitMinutes", preferences.getInt("limitMinutes", 25));
         result.put("restDuration", preferences.getInt("restDuration", 180));
         result.put("allowEmergencyUnlock", preferences.getBoolean("allowEmergencyUnlock", true));
-        boolean strongDefault = "domestic".equals(BuildConfig.CHANNEL);
-        result.put("strongBlockingEnabled", preferences.getBoolean("strongBlockingEnabled", strongDefault));
+        result.put(
+                "strongBlockingEnabled",
+                PreferenceUtils.isStrongBlockingEnabled(
+                        preferences, "domestic".equals(BuildConfig.CHANNEL)
+                )
+        );
         result.put("monitoringEnabled", preferences.getBoolean("monitoringEnabled", true));
         result.put("targetApps", apps);
         result.put("channel", BuildConfig.CHANNEL);

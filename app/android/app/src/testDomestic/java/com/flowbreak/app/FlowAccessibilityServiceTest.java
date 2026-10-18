@@ -144,6 +144,16 @@ public class FlowAccessibilityServiceTest {
         assertFalse(service.isBlockBannerShowing());
     }
 
+    @Test public void missingStrongBlockingPreferenceDefaultsOff() {
+        enableBlocked("com.example.video");
+        prefs.edit().remove(PreferenceUtils.PREF_STRONG_BLOCKING_ENABLED).commit();
+
+        service.onAccessibilityEvent(windowEvent("com.example.video", "com.example.video.MainActivity"));
+
+        assertNoEnforcement();
+        assertFalse(prefs.contains(PreferenceUtils.PREF_STRONG_BLOCKING_ENABLED));
+    }
+
     @Test public void monitoringDisabledDoesNotEnforceBlockedTarget() {
         enableBlocked("com.example.video");
         prefs.edit().putBoolean("monitoringEnabled", false).commit();

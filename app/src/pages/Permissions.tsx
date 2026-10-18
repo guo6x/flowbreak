@@ -282,7 +282,7 @@ export default function Permissions() {
             {btnText}
           </button>
           <button
-            onClick={refreshPermissions}
+            onClick={() => void refreshPermissions()}
             disabled={checking}
             className="flex items-center justify-center gap-2 rounded-2xl min-h-[44px] px-5 text-[13px] font-medium text-gray-600 disabled:opacity-50 transition-colors hover:bg-white"
           >

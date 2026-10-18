@@ -33,6 +33,28 @@ import org.json.JSONObject;
  * 不持有 Activity。分享 Intent 由调用方在 UI 线程启动。
  */
 public final class NativeFlowDataManager {
+    private static final String[] SHAREABLE_DIAGNOSTICS_KEYS = {
+            "versionName",
+            "versionCode",
+            "channel",
+            "packageName",
+            "databaseVersion",
+            "serviceAlive",
+            "coreRuntimeHealthy",
+            "coreRuntimeHealthReason",
+            "heartbeatFresh",
+            "monitoringConfigured",
+            "monitoringEnabled",
+            "protectionRuntimeAvailable",
+            "targetCount",
+            "eventCount",
+            "usageRowCount",
+            "protectionIntegrityFailureReason",
+            "liveUsageQueryFailureCount",
+            "lastLiveUsageQueryFailureClass",
+            "lastLiveUsageQuerySucceeded"
+    };
+
     private final Context context;
 
     public NativeFlowDataManager(Context context) {
@@ -85,11 +107,26 @@ public final class NativeFlowDataManager {
 
     /** 诊断 JSON 字符串（含 permissions 字段）。 */
     public String diagnosticsJson(NativeFlowPermissionManager permissions, SharedPreferences prefs) {
-        JSObject root = diagnostics(prefs);
+        JSObject root = shareableDiagnostics(diagnostics(prefs));
         root.put("formatVersion", 1);
         root.put("exportedAt", new Date().toString());
         root.put("permissions", permissions.permissionState());
         return root.toString();
+    }
+
+    /**
+     * Whitelist fields suitable for sharing. Detailed runtime tracking remains
+     * available in the on-device diagnostics screen but is not included in
+     * user-shared reports because its timings can reveal usage patterns.
+     */
+    static JSObject shareableDiagnostics(JSObject source) {
+        JSObject result = new JSObject();
+        for (String key : SHAREABLE_DIAGNOSTICS_KEYS) {
+            if (!source.has(key)) continue;
+            Object value = source.opt(key);
+            if (value != null) result.put(key, value);
+        }
+        return result;
     }
 
     /**

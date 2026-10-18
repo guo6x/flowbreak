@@ -209,9 +209,8 @@ public class FlowAccessibilityService extends AccessibilityService {
     }
 
     private boolean canEnforce(SharedPreferences prefs) {
-        boolean strongDefault = "domestic".equals(BuildConfig.CHANNEL);
         boolean monitoringEnabled = prefs.getBoolean("monitoringEnabled", true);
-        boolean strongBlockingEnabled = prefs.getBoolean("strongBlockingEnabled", strongDefault);
+        boolean strongBlockingEnabled = PreferenceUtils.isStrongBlockingEnabled(prefs, true);
         Set<String> targets = PreferenceUtils.getMigratedTargetApps(prefs);
         ProtectionPrerequisiteGate.Result prerequisites = ProtectionPrerequisiteGate.evaluate(
                 protectionRuntimeAvailable(),
