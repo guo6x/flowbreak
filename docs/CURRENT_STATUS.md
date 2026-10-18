@@ -12,6 +12,7 @@
 | 分支 | `product/experience-polish-20261018` |
 | 本地验证代码与测试提交 | `154a7cfab7da1c7924ae1acb53acd63a931c2626`（文档快照随后单独提交，不改变 App 运行时源码） |
 | 本地自动化 | **PASS** — Frontend 263、Play JVM 382、Domestic JVM 412；网页 44 项、品牌 36 项、provenance 20 项、release policy 8 项；双渠道 Lint 0 error、Debug 构建通过（warning 数量见 [TESTING.md](TESTING.md)） |
+| GitHub Actions | **PASS** — [run 39095168568](https://github.com/guo6x/flowbreak/actions/runs/39095168568)，验证 SHA `147a64567f56290c3b8c0dce0aa934dd2c3b494f`；unsigned verify job 完成，体验分支签名 release job 按策略跳过 |
 | 范围 | 全页视觉系统、原创矢量品牌、应用内帮助、统计口径与失败状态、设置草稿和原生读取保护、诊断分享字段白名单、Domestic 强阻断默认关闭、权限轮询状态稳定、品牌与网页检查 |
 | API 36 AVD | **PASS（范围有限）** — `Medium_Phone_API_36.0` / Android 16；Domestic debug 覆盖安装后可进入权限页，状态稳定为 0/2；从系统“使用情况访问”设置返回后仍为 0/2，未授予权限、未启动保护服务。原始截图见外部本地证据目录 |
 | 新构建真机 / OEM / 发布验收 | **NOT_EXECUTED**；无真实手机；未调用生产签名、未合并、未发布。AVD 结果不关闭 Gate D/E/F 的真机/OEM/稳定性门禁 |

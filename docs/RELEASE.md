@@ -8,7 +8,7 @@
 **RELEASE PREPARATION**（状态文档更新于 2026-10-18；Redmi R1–R4 复测 2026-08-14 通过；GATE C 2026-08-15 通过；PR #20 与 PR #26 已合并；GATE D final-scope acceptance、Gate E supported-scope closeout 与 GATE G signed dry-run 已完成）
 
 - 原 Redmi 验收阻塞项已消除：`FB-P1-01`、`FB-P1-02`、`FB-P1-03`、`FB-P2-01` 全部 RESOLVED（`KNOWN_ISSUES.md`）。`FB-P1-05` 保持 **OPEN — UNSUPPORTED IN V1.1.0**，不属于 v1.1.0 支持设备运行时。
-- 体验分支 `154a7cfab7da1c7924ae1acb53acd63a931c2626` 的本地前端、双渠道 JVM/Lint/Debug 与 API 36 AVD 回归快照见 `TESTING.md`。这不是 hosted CI 或签名 release artifact；AVD smoke 不关闭 Gate D/E/F。
+- 体验分支 `154a7cfab7da1c7924ae1acb53acd63a931c2626` 的本地前端、双渠道 JVM/Lint/Debug 与 API 36 AVD 回归快照见 `TESTING.md`；GitHub Actions [run 39095168568](https://github.com/guo6x/flowbreak/actions/runs/39095168568) 在提交 `147a645` 上的 unsigned verify job **PASS**，签名 release job 按分支策略跳过。它不是签名 release artifact；AVD smoke 不关闭 Gate D/E/F。
 - 但 **RELEASE PREPARATION ≠ RELEASE APPROVED**：GATE C、GATE D 与 Gate E supported-scope decision 已通过；GATE F–I 仍 PENDING，当前不是 STORE READY，更不是 PRODUCTION RELEASE APPROVED。
 
 ## 发布门禁总览

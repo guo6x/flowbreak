@@ -5,7 +5,8 @@
 ## 本轮本地验证快照（2026-10-18，默认设置 / 隐私分享 / 权限页回归）
 
 - 分支：`product/experience-polish-20261018`；本轮源码与测试提交：`154a7cfab7da1c7924ae1acb53acd63a931c2626`。文档快照在后续单独提交，不改变 App 运行时源码。
-- 这份验证只对应该源码提交及下列本地工具链，不代表 GitHub Actions 已运行或发布包已验收；远端 run、source SHA 和结论须单独核对。
+- 下表只记录对应源码提交的本地工具链，不代替 hosted Actions 结果或签名发布包验收；本次 hosted run 单独记录如下。
+- GitHub Actions 随后已在提交 `147a64567f56290c3b8c0dce0aa934dd2c3b494f` 执行 [run 39095168568](https://github.com/guo6x/flowbreak/actions/runs/39095168568)：`verify` job **PASS**，覆盖前端、UI smoke、双渠道 JVM/Lint、Debug、unsigned Release 与 provenance；体验分支上的签名 `release` job **SKIPPED**。这是 unsigned CI 证据，不是签名或商店验收。
 - 原工作区 `D:\AI_code\flowbreak` 中的两处 Java 未提交修改不属于本分支。未读取或操作生产签名材料，没有合并或发布。
 
 | 检查 | 结果与边界 |
