@@ -308,8 +308,6 @@ jobs:
           cp "$apk_file" "$prov_dir/app-domestic-release-unsigned.apk"
           cp android/app/build/outputs/mapping/playRelease/mapping.txt "$prov_dir/mapping-playRelease.txt"
           cp android/app/build/outputs/mapping/domesticRelease/mapping.txt "$prov_dir/mapping-domesticRelease.txt"
-          cp android/app/build/outputs/provenance/runtime-deps-play.txt "$prov_dir/runtime-deps-play.txt"
-          cp android/app/build/outputs/provenance/runtime-deps-domestic.txt "$prov_dir/runtime-deps-domestic.txt"
           cp dist/build-provenance.json "$prov_dir/build-provenance.json"
           node scripts/generate-artifact-manifest.mjs \
             --out "$prov_dir" \
@@ -619,8 +617,6 @@ jobs:
           cp "$apk_file" "$prov_dir/$apk_name"
           cp android/app/build/outputs/mapping/playRelease/mapping.txt "$prov_dir/mapping-playRelease.txt"
           cp android/app/build/outputs/mapping/domesticRelease/mapping.txt "$prov_dir/mapping-domesticRelease.txt"
-          cp android/app/build/outputs/provenance/runtime-deps-play.txt "$prov_dir/runtime-deps-play.txt"
-          cp android/app/build/outputs/provenance/runtime-deps-domestic.txt "$prov_dir/runtime-deps-domestic.txt"
           cp dist/build-provenance.json "$prov_dir/build-provenance.json"
           signing_evidence=$(python3 - "$aab_name" "$apk_name" <<'PYEOF'
           import json, os, sys
