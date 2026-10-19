@@ -31,6 +31,7 @@ import org.robolectric.shadows.ShadowSettings;
 @Config(sdk = 35)
 public class NativeFlowTargetAppsConfigurationTest {
     private static final String TARGET = "com.example.video";
+    private static final String UPDATED_TARGET = "com.example.updated-video";
     private SharedPreferences preferences;
     private TestPlugin plugin;
     private Context context;
@@ -114,6 +115,26 @@ public class NativeFlowTargetAppsConfigurationTest {
         assertTrue(preferences.getBoolean("serviceConfigured", false));
         assertFalse(preferences.getBoolean("monitoringEnabled", true));
         assertNoServiceStartAfterBoot();
+    }
+
+    @Test public void targetSaveReportsPersistedStateWhenReloadFails() {
+        preferences.edit()
+                .putBoolean("serviceConfigured", true)
+                .putBoolean("monitoringEnabled", true)
+                .putStringSet(PreferenceUtils.PREF_TARGET_APPS,
+                        Collections.singleton(TARGET))
+                .commit();
+        plugin.failServiceAction = true;
+
+        RecordingCall call = saveTargets(UPDATED_TARGET);
+
+        assertPartialPersistenceFailure(call, FlowForegroundService.ACTION_RELOAD);
+        assertEquals(Collections.singleton(UPDATED_TARGET),
+                PreferenceUtils.getMigratedTargetApps(preferences));
+        assertEquals("[\"com.example.updated-video\"]",
+                call.rejectionData.getJSObject("settings")
+                        .optJSONArray("targetApps")
+                        .toString());
     }
 
     @Test public void invalidTargetSelectionDoesNotChangeConfigurationOrExistingTargets() {
@@ -238,6 +259,26 @@ public class NativeFlowTargetAppsConfigurationTest {
         assertNull(Shadows.shadowOf(RuntimeEnvironment.getApplication()).getNextStartedService());
     }
 
+    @Test public void settingsSaveReportsPersistedStateWhenReloadFails() {
+        preferences.edit()
+                .putBoolean("serviceConfigured", true)
+                .putBoolean("monitoringEnabled", true)
+                .putInt("limitMinutes", 25)
+                .commit();
+        Shadows.shadowOf(appOps()).setMode(AppOpsManager.OPSTR_GET_USAGE_STATS,
+                Process.myUid(), context.getPackageName(), AppOpsManager.MODE_ALLOWED);
+        ShadowSettings.setCanDrawOverlays(true);
+        plugin.failServiceAction = true;
+        JSObject options = new JSObject();
+        options.put("limitMinutes", 40);
+
+        RecordingCall call = saveSettings(options);
+
+        assertPartialPersistenceFailure(call, FlowForegroundService.ACTION_RELOAD);
+        assertEquals(40, preferences.getInt("limitMinutes", 0));
+        assertEquals(40, call.rejectionData.getJSObject("settings").optInt("limitMinutes"));
+    }
+
     private RecordingCall saveTargets(String... packages) {
         JSObject options = new JSObject();
         options.put("packageNames", new JSArray(Arrays.asList(packages)));
@@ -266,12 +307,24 @@ public class NativeFlowTargetAppsConfigurationTest {
         assertNull(call.rejection);
     }
 
+    private void assertPartialPersistenceFailure(RecordingCall call, String action) {
+        assertFalse(call.resolved);
+        assertEquals("SERVICE_ACTION_FAILED_AFTER_PERSIST", call.rejectionCode);
+        assertNotNull(call.rejection);
+        assertTrue(call.rejection.contains("已保存"));
+        assertNotNull(call.rejectionData);
+        assertTrue(call.rejectionData.optBoolean("persisted"));
+        assertFalse(call.rejectionData.optBoolean("serviceReloaded"));
+        assertEquals(action, call.rejectionData.getString("serviceAction"));
+    }
+
     private AppOpsManager appOps() {
         return (AppOpsManager) context.getSystemService(Context.APP_OPS_SERVICE);
     }
 
     private static final class TestPlugin extends NativeFlowPlugin {
         private final Context context;
+        boolean failServiceAction;
 
         TestPlugin(Context context) {
             this.context = context;
@@ -280,11 +333,18 @@ public class NativeFlowTargetAppsConfigurationTest {
         @Override public Context getContext() {
             return context;
         }
+
+        @Override protected void dispatchServiceAction(String action) {
+            if (failServiceAction) throw new IllegalStateException("injected service action failure");
+            super.dispatchServiceAction(action);
+        }
     }
 
     private static final class RecordingCall extends PluginCall {
         boolean resolved;
         String rejection;
+        String rejectionCode;
+        JSObject rejectionData;
 
         RecordingCall(String method, JSObject options) {
             super(null, "NativeFlow", "test-call", method, options);
@@ -300,6 +360,17 @@ public class NativeFlowTargetAppsConfigurationTest {
 
         @Override public void reject(String message, Exception cause) {
             rejection = message;
+        }
+
+        @Override public void reject(
+                String message,
+                String code,
+                Exception cause,
+                JSObject data
+        ) {
+            rejection = message;
+            rejectionCode = code;
+            rejectionData = data;
         }
     }
 }

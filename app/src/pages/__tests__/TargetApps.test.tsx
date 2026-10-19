@@ -127,8 +127,31 @@ describe("TargetApps", () => {
     await waitFor(() => { expect(screen.getByText("应用B")).toBeInTheDocument(); });
     fireEvent.click(screen.getByText("应用B"));
     fireEvent.click(screen.getByText("保存更改"));
-    await waitFor(() => { expect(screen.getByText("保存失败")).toBeInTheDocument(); });
+    await waitFor(() => { expect(screen.getByText(/保存失败/)).toBeInTheDocument(); });
     expect(screen.getByText("保存更改")).toBeInTheDocument();
+  });
+
+  it("受限应用已保存但服务重载失败时回读设备状态", async () => {
+    isNative = true;
+    (NativeFlow.saveTargetApps as any).mockRejectedValueOnce(new Error("受限应用已保存，但保护服务重载失败，请稍后重试。"));
+    (NativeFlow.loadSettings as any)
+      .mockResolvedValueOnce({
+        limitMinutes: 15, restDuration: 120, targetApps: ["com.test.a"],
+        allowEmergencyUnlock: false, strongBlockingEnabled: false, channel: "play",
+      })
+      .mockResolvedValueOnce({
+        limitMinutes: 15, restDuration: 120, targetApps: ["com.test.b"],
+        allowEmergencyUnlock: false, strongBlockingEnabled: false, channel: "play",
+      });
+    renderTargetApps(["com.test.a"]);
+    await waitFor(() => expect(screen.getByText("应用B")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "应用B" }));
+    fireEvent.click(screen.getByText("保存更改"));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("受限应用已保存，但保护服务重载失败"));
+    expect(screen.getByRole("alert")).toHaveTextContent("已同步设备中的最新受限应用");
+    expect(screen.getByRole("button", { name: "应用B" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "应用A" })).toHaveAttribute("aria-pressed", "false");
+    expect(useStore.getState().profile.targetApps).toEqual(["com.test.b"]);
   });
 
   it("第31个应用被阻止", async () => {

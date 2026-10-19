@@ -7,6 +7,7 @@ import { useStore } from '../hooks/useStore';
 import { useNativePermissions } from '../hooks/useNativePermissions';
 import { translateLimit } from '../utils/protectionStatus';
 import { UNSUPPORTED_DEVICE_MESSAGE } from '../utils/backgroundStability';
+import { getNativeErrorMessage } from '../utils/nativeError';
 
 export default function BlockingSettings() {
   const navigate = useNavigate();
@@ -27,6 +28,20 @@ export default function BlockingSettings() {
 
   const times = translateLimit(limit);
 
+  const applyNativeSettings = useCallback((settings: Awaited<ReturnType<typeof NativeFlow.loadSettings>>) => {
+    setLimit(settings.limitMinutes);
+    setRestDuration(settings.restDuration);
+    setEmergency(settings.allowEmergencyUnlock);
+    setStrong(settings.strongBlockingEnabled);
+    updateProfile({
+      sessionLimit: settings.limitMinutes,
+      restDuration: settings.restDuration,
+      allowEmergencyUnlock: settings.allowEmergencyUnlock,
+      strongBlockingEnabled: settings.strongBlockingEnabled,
+      ...(Array.isArray(settings.targetApps) ? { targetApps: settings.targetApps } : {}),
+    });
+  }, [updateProfile]);
+
   const loadSettings = useCallback(async () => {
     if (!isNative) return;
     setLoading(true);
@@ -34,17 +49,26 @@ export default function BlockingSettings() {
     setError('');
     try {
       const settings = await NativeFlow.loadSettings();
-      setLimit(settings.limitMinutes);
-      setRestDuration(settings.restDuration);
-      setEmergency(settings.allowEmergencyUnlock);
-      setStrong(settings.strongBlockingEnabled);
+      applyNativeSettings(settings);
     } catch {
       setLoadFailed(true);
       setError('阻断设置读取失败。为避免覆盖未读取的设置，请先重新读取。');
     } finally {
       setLoading(false);
     }
-  }, [isNative]);
+  }, [applyNativeSettings, isNative]);
+
+  const reconcileAfterSaveFailure = async (message: string) => {
+    try {
+      const settings = await NativeFlow.loadSettings();
+      applyNativeSettings(settings);
+      setLoadFailed(false);
+      setError(`${message} 已同步设备中的最新设置。`);
+    } catch {
+      setLoadFailed(true);
+      setError(`${message} 暂时无法读取设备中的最新设置，请重新读取后再试。`);
+    }
+  };
 
   useEffect(() => {
     void loadSettings();
@@ -74,8 +98,10 @@ export default function BlockingSettings() {
         strongBlockingEnabled: strong,
       });
       navigate('/profile');
-    } catch {
-      setError('保存失败，原设置未更改，请重试。');
+    } catch (cause) {
+      const message = getNativeErrorMessage(cause, '保存设置失败，请重试。');
+      if (isNative) await reconcileAfterSaveFailure(message);
+      else setError(message);
     } finally {
       setSaving(false);
     }

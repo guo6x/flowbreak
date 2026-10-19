@@ -207,16 +207,21 @@ describe("BlockingSettings", () => {
     expect(screen.getByRole("combobox", { name: "解锁所需休息" })).toHaveValue("120");
   });
 
-  it("原生保存失败保留未保存草稿并不提交本地新值", async () => {
+  it("原生保存后服务重载失败会回读真实设置，不承诺原设置未更改", async () => {
     isNative = true;
-    vi.mocked(NativeFlow.saveSettings).mockRejectedValueOnce(new Error("失败"));
+    vi.mocked(NativeFlow.saveSettings).mockRejectedValueOnce(new Error("设置已保存，但保护服务重载失败，请稍后重试。"));
+    vi.mocked(NativeFlow.loadSettings)
+      .mockResolvedValueOnce({ limitMinutes: 15, restDuration: 120, allowEmergencyUnlock: false, strongBlockingEnabled: false, targetApps: [], monitoringEnabled: true, channel: "base" })
+      .mockResolvedValueOnce({ limitMinutes: 30, restDuration: 120, allowEmergencyUnlock: false, strongBlockingEnabled: false, targetApps: [], monitoringEnabled: true, channel: "base" });
     renderBlockingSettings();
     await waitFor(() => expect(screen.getByRole("slider")).not.toBeDisabled());
     fireEvent.change(screen.getByRole("slider"), { target: { value: "30" } });
     fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("保存失败"));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("设置已保存，但保护服务重载失败"));
+    expect(screen.getByRole("alert")).toHaveTextContent("已同步设备中的最新设置");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("原设置未更改");
     expect(screen.getByRole("slider")).toHaveValue("30");
-    expect(useStore.getState().profile.sessionLimit).toBe(15);
+    expect(useStore.getState().profile.sessionLimit).toBe(30);
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 

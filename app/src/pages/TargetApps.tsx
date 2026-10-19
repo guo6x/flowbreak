@@ -6,6 +6,7 @@ import { DEFAULT_TARGET_APPS, getAppName } from "../backend/appNames";
 import { LaunchableApp, NativeFlow } from "../backend/nativeFlow";
 import { useStore } from "../hooks/useStore";
 import type { SetupDraft } from "./Personalize";
+import { getNativeErrorMessage } from "../utils/nativeError";
 
 function sameSelection(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
@@ -99,6 +100,37 @@ export default function TargetApps() {
     load();
   }, [load]);
 
+  const reconcileAfterSaveFailure = async (message: string) => {
+    if (!Capacitor.isNativePlatform()) {
+      setError(message);
+      return;
+    }
+    try {
+      const [launchable, settings] = await Promise.all([
+        NativeFlow.getLaunchableApps(),
+        NativeFlow.loadSettings(),
+      ]);
+      const installed = new Set(launchable.apps.map((app) => app.packageName));
+      const saved = settings.targetApps.filter((pkg) => installed.has(pkg));
+      const defaults = DEFAULT_TARGET_APPS.filter((pkg) => installed.has(pkg));
+      const actual = saved.length ? saved : defaults;
+      setApps(launchable.apps);
+      initialSelected.current = [...actual];
+      setSelected(actual);
+      setChannel(
+        settings.channel === "play" || settings.channel === "domestic"
+          ? settings.channel
+          : "base",
+      );
+      updateProfile({ targetApps: actual });
+      setLoadFailed(false);
+      setError(`${message} 已同步设备中的最新受限应用。`);
+    } catch {
+      setLoadFailed(true);
+      setError(`${message} 暂时无法读取设备中的最新受限应用，请重新读取后再试。`);
+    }
+  };
+
   // 系统返回键（Capacitor WebView 不经 history API）：由 MainActivity 原生层
   // 通过 evaluateJavascript 询问本钩子。dirty 时消费按键并弹出与页面内返回
   // 按钮一致的确认框；未挂载/无修改时返回 false 保持默认退出行为。
@@ -165,9 +197,11 @@ export default function TargetApps() {
       updateProfile({ targetApps: selected });
       initialSelected.current = [...selected];
       returnToPrevious(true);
-    } catch (e) {
+    } catch (cause) {
       setSaving(false);
-      setError(e instanceof Error ? e.message : "保存失败");
+      await reconcileAfterSaveFailure(
+        getNativeErrorMessage(cause, "保存受限应用失败，请重试。"),
+      );
     }
   };
 
@@ -199,7 +233,9 @@ export default function TargetApps() {
       initialSelected.current = [...selected];
       returnToPrevious(true);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "保存失败，请重试。");
+      await reconcileAfterSaveFailure(
+        getNativeErrorMessage(cause, "保存受限应用失败，请重试。"),
+      );
     } finally {
       setSaving(false);
     }

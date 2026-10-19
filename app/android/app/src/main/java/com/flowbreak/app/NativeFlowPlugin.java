@@ -40,6 +40,56 @@ public class NativeFlowPlugin extends Plugin {
         return getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
+    /**
+     * Keep service commands behind a small seam so persistence failures can be
+     * exercised without starting a real Android service. Production behavior
+     * remains the same; tests can inject a command failure after preferences
+     * have been written.
+     */
+    protected void dispatchServiceAction(String action) {
+        serviceController.sendAction(action);
+    }
+
+    /** Build the same persisted settings snapshot exposed by loadSettings. */
+    private JSObject persistedSettingsSnapshot(SharedPreferences preferences) {
+        com.getcapacitor.JSArray apps = new com.getcapacitor.JSArray();
+        for (String value : PreferenceUtils.getMigratedTargetApps(preferences)) apps.put(value);
+        JSObject result = new JSObject();
+        result.put("limitMinutes", preferences.getInt("limitMinutes", 25));
+        result.put("restDuration", preferences.getInt("restDuration", 180));
+        result.put("allowEmergencyUnlock", preferences.getBoolean("allowEmergencyUnlock", true));
+        result.put(
+                "strongBlockingEnabled",
+                PreferenceUtils.isStrongBlockingEnabled(
+                        preferences, "domestic".equals(BuildConfig.CHANNEL)
+                )
+        );
+        result.put("monitoringEnabled", preferences.getBoolean("monitoringEnabled", true));
+        result.put("targetApps", apps);
+        result.put("channel", BuildConfig.CHANNEL);
+        return result;
+    }
+
+    /**
+     * Preferences and service commands are not one atomic transaction. If the
+     * command fails after apply(), report the persisted state instead of
+     * promising that the old settings are still active.
+     */
+    private void rejectAfterPersist(
+            PluginCall call,
+            String message,
+            String action,
+            Exception error,
+            SharedPreferences preferences
+    ) {
+        JSObject data = new JSObject();
+        data.put("persisted", true);
+        data.put("serviceReloaded", false);
+        data.put("serviceAction", action);
+        data.put("settings", persistedSettingsSnapshot(preferences));
+        call.reject(message, "SERVICE_ACTION_FAILED_AFTER_PERSIST", error, data);
+    }
+
     private void enqueueRestCancellationFallback(long expectedSessionId, String beginRequestToken) {
         try {
             serviceController.sendAction(
@@ -444,10 +494,16 @@ public class NativeFlowPlugin extends Plugin {
                 .putStringSet(PreferenceUtils.PREF_TARGET_APPS, filtered)
                 .apply();
         try {
-            if (shouldReload) serviceController.sendAction(FlowForegroundService.ACTION_RELOAD);
+            if (shouldReload) dispatchServiceAction(FlowForegroundService.ACTION_RELOAD);
             call.resolve();
         } catch (Exception error) {
-            call.reject("保存受限应用失败", error);
+            rejectAfterPersist(
+                    call,
+                    "受限应用已保存，但保护服务重载失败，请稍后重试。",
+                    FlowForegroundService.ACTION_RELOAD,
+                    error,
+                    current
+            );
         }
     }
 
@@ -507,38 +563,29 @@ public class NativeFlowPlugin extends Plugin {
             // Do not send a reload/start command from a settings-only save
             // when this device cannot run a supported protection service.
             if (data.has("monitoringEnabled") && !monitoringEnabled) {
-                serviceController.sendAction(FlowForegroundService.ACTION_STOP);
+                dispatchServiceAction(FlowForegroundService.ACTION_STOP);
             } else if (ProtectionSettingsSaveGate.mayReload(
                     wasConfigured,
                     monitoringEnabled,
                     permissions.isProtectionRuntimeAvailable(),
                     permissions.isBackgroundStabilitySatisfied())) {
-                serviceController.sendAction(FlowForegroundService.ACTION_RELOAD);
+                dispatchServiceAction(FlowForegroundService.ACTION_RELOAD);
             }
             call.resolve();
         } catch (Exception error) {
-            call.reject("保存设置失败", error);
+            String action = data.has("monitoringEnabled") && !monitoringEnabled
+                    ? FlowForegroundService.ACTION_STOP
+                    : FlowForegroundService.ACTION_RELOAD;
+            String message = FlowForegroundService.ACTION_STOP.equals(action)
+                    ? "设置已保存，但保护服务停止失败，请稍后重试。"
+                    : "设置已保存，但保护服务重载失败，请稍后重试。";
+            rejectAfterPersist(call, message, action, error, current);
         }
     }
 
     @PluginMethod public void loadSettings(PluginCall call) {
         SharedPreferences preferences = prefs();
-        com.getcapacitor.JSArray apps = new com.getcapacitor.JSArray();
-        for (String value : PreferenceUtils.getMigratedTargetApps(preferences)) apps.put(value);
-        JSObject result = new JSObject();
-        result.put("limitMinutes", preferences.getInt("limitMinutes", 25));
-        result.put("restDuration", preferences.getInt("restDuration", 180));
-        result.put("allowEmergencyUnlock", preferences.getBoolean("allowEmergencyUnlock", true));
-        result.put(
-                "strongBlockingEnabled",
-                PreferenceUtils.isStrongBlockingEnabled(
-                        preferences, "domestic".equals(BuildConfig.CHANNEL)
-                )
-        );
-        result.put("monitoringEnabled", preferences.getBoolean("monitoringEnabled", true));
-        result.put("targetApps", apps);
-        result.put("channel", BuildConfig.CHANNEL);
-        call.resolve(result);
+        call.resolve(persistedSettingsSnapshot(preferences));
     }
 
     // ==================== Statistics ====================
