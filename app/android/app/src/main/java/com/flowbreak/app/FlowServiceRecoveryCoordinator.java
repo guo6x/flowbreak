@@ -24,6 +24,7 @@ public final class FlowServiceRecoveryCoordinator {
         public final PullbackSessionCoordinator.Snapshot pullbackSnapshot;
         public final boolean autoCompletedRest;
         public final boolean restCompletionPending;
+        public final boolean restClockValid;
 
         Result(
                 FlowServiceStateStore.Config config,
@@ -31,7 +32,8 @@ public final class FlowServiceRecoveryCoordinator {
                 FlowServiceStateStore.MachineSnapshot machineSnapshot,
                 PullbackSessionCoordinator.Snapshot pullbackSnapshot,
                 boolean autoCompletedRest,
-                boolean restCompletionPending
+                boolean restCompletionPending,
+                boolean restClockValid
         ) {
             this.config = config;
             this.machine = machine;
@@ -39,6 +41,7 @@ public final class FlowServiceRecoveryCoordinator {
             this.pullbackSnapshot = pullbackSnapshot;
             this.autoCompletedRest = autoCompletedRest;
             this.restCompletionPending = restCompletionPending;
+            this.restClockValid = restClockValid;
         }
     }
 
@@ -62,11 +65,43 @@ public final class FlowServiceRecoveryCoordinator {
             long now,
             boolean deferExpiredRestCompletion
     ) {
+        FlowServiceStateStore.MachineSnapshot snapshot = stateStore.loadMachineSnapshot();
+        return restore(
+                stateStore,
+                now,
+                now,
+                Math.max(0, snapshot.restStartedBootCount),
+                deferExpiredRestCompletion
+        );
+    }
+
+    /** Restore using current wall/elapsed clocks and the system boot identity. */
+    public static Result restore(
+            FlowServiceStateStore stateStore,
+            long nowWall,
+            long nowElapsed,
+            int currentBootCount,
+            boolean deferExpiredRestCompletion
+    ) {
         // 1) 读取配置
         FlowServiceStateStore.Config config = stateStore.loadConfig();
 
         // 2) 读取 machine 快照
         FlowServiceStateStore.MachineSnapshot snapshot = stateStore.loadMachineSnapshot();
+        long invalidatedSessionId = stateStore.preferences().getLong(
+                FlowForegroundService.PREF_REST_CLOCK_INVALIDATED_SESSION_ID, 0L
+        );
+        boolean restClockValid = snapshot.persistedState != BlockStateMachine.State.RESTING
+                || RestSessionClock.isValid(
+                        snapshot.restSessionId,
+                        invalidatedSessionId,
+                        snapshot.restStartedAt,
+                        snapshot.restStartedElapsedAt,
+                        snapshot.restStartedBootCount,
+                        nowWall,
+                        nowElapsed,
+                        currentBootCount
+                );
 
         // 3) 恢复决策
         RestSessionManager.RestoreDecision decision = RestSessionManager.decideRestore(
@@ -80,7 +115,11 @@ public final class FlowServiceRecoveryCoordinator {
                         snapshot.restStartedAt,
                         snapshot.restRequiredMs,
                         snapshot.restSessionId,
-                        now
+                        nowWall,
+                        snapshot.restStartedElapsedAt,
+                        snapshot.restStartedBootCount,
+                        nowElapsed,
+                        restClockValid
                 )
         );
 
@@ -89,6 +128,7 @@ public final class FlowServiceRecoveryCoordinator {
         // the service fail closed; never turn this legacy state into GRACE.
         boolean missingRestTargetSnapshot = snapshot.persistedState
                         == BlockStateMachine.State.RESTING
+                && restClockValid
                 && snapshot.restStartedAt > 0L
                 && snapshot.restRequiredMs > 0L
                 && snapshot.restTargetApps == null;
@@ -100,7 +140,10 @@ public final class FlowServiceRecoveryCoordinator {
         if (decision.autoCompletedRest && !restCompletionPending) {
             autoCompletedRest = stateStore.persistAutoCompletedRest(
                     decision.generatedGraceUntil,
-                    decision.completedRestSessionId
+                    decision.completedRestSessionId,
+                    nowWall,
+                    nowElapsed,
+                    currentBootCount
             );
             if (!autoCompletedRest) restCompletionPending = true;
         }
@@ -137,7 +180,8 @@ public final class FlowServiceRecoveryCoordinator {
                 snapshot,
                 pullbackSnapshot,
                 autoCompletedRest,
-                restCompletionPending
+                restCompletionPending,
+                restClockValid
         );
     }
 

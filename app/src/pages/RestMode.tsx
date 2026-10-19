@@ -39,7 +39,8 @@ export default function RestMode() {
 
   // ===== Page state =====
   const [activityIdx, setActivityIdx] = useState(initialActivityIdx);
-  const [restEndsAt, setRestEndsAt] = useState<number | null>(null);
+  const [nativeRemainingMs, setNativeRemainingMs] = useState<number | null>(null);
+  const [restClockValid, setRestClockValid] = useState(!isNative);
   const [restReady, setRestReady] = useState(!isNative);
   const [isPaused, setIsPaused] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -77,7 +78,7 @@ export default function RestMode() {
   const { timeLeft, setTimeLeft, progress } = useRestTimer({
     totalDuration,
     initialSeconds: totalDuration,
-    restEndsAt,
+    nativeRemainingMs,
     isNative,
     active: !showReward && restReady,
     isPaused,
@@ -112,6 +113,7 @@ export default function RestMode() {
         }
         let attempt = 0;
         let graceObservedAt: number | null = null;
+        let observedInvalidRestClock = false;
         // Monitor work can exceed six seconds while reconciling an Android
         // execution gap. Keep waiting for authoritative RESTING while this
         // page is open, backing off to avoid tight polling.
@@ -119,14 +121,34 @@ export default function RestMode() {
           const state = await NativeFlow.getBlockState();
           if (!active) return;
           if (state.state === 'RESTING'
+              && (state.restClockValid !== true
+                  || typeof state.restRemainingMs !== 'number'
+                  || !Number.isFinite(state.restRemainingMs))) {
+            observedInvalidRestClock = true;
+            setRestClockValid(false);
+            setNativeRemainingMs(0);
+            setTimeLeft(0);
+            setRestReady(false);
+            setOperationError('休息计时暂时无法确认，正在恢复保护状态。');
+            await new Promise<void>(resolve => window.setTimeout(resolve, 500));
+            continue;
+          }
+          if (observedInvalidRestClock && state.state !== 'RESTING') {
+            cancelledRestRef.current = true;
+            setBlockState(state.state, state.graceUntil, state.blockedPackage);
+            navigate('/dashboard', { replace: true });
+            return;
+          }
+          if (state.state === 'RESTING'
               && state.restStartedAt > 0
               && state.restRequiredSeconds > 0
               && typeof state.restSessionId === 'number'
               && state.restSessionId > 0) {
             restSessionIdRef.current = state.restSessionId;
-            const endsAt = state.restStartedAt + state.restRequiredSeconds * 1000;
-            setRestEndsAt(endsAt);
-            setTimeLeft(Math.max(0, Math.ceil((endsAt - Date.now()) / 1000)));
+            const remainingMs = state.restRemainingMs as number;
+            setRestClockValid(true);
+            setNativeRemainingMs(remainingMs);
+            setTimeLeft(Math.max(0, Math.ceil(remainingMs / 1000)));
             setOperationError('');
             setRestReady(true);
             return;
@@ -166,8 +188,8 @@ export default function RestMode() {
   }, []);
 
   // The native service can cancel REST while the WebView is backgrounded.
-  // Reconcile on resume and periodically while visible; the wall-clock timer
-  // is a presentation aid, not the authority for native protection state.
+  // Reconcile on resume and periodically while visible; the displayed timer
+  // follows native monotonic remaining-time samples, never Date.now().
   useEffect(() => {
     if (!isNative || !restReady || showReward) return;
     let active = true;
@@ -180,12 +202,28 @@ export default function RestMode() {
       try {
         const nativeState = await NativeFlow.getBlockState();
         if (!active) return;
+        if (nativeState.state === 'RESTING'
+            && (nativeState.restClockValid !== true
+                || typeof nativeState.restRemainingMs !== 'number'
+                || !Number.isFinite(nativeState.restRemainingMs))) {
+          setRestClockValid(false);
+          setNativeRemainingMs(0);
+          setTimeLeft(0);
+          setRestReady(false);
+          setOperationError('休息计时暂时无法确认，正在恢复保护状态。');
+          return;
+        }
         if (nativeState.state !== 'RESTING') {
           // A native transition already happened. Avoid a second CANCEL_REST
           // during unmount that could overwrite a legitimate GRACE/IDLE state.
           cancelledRestRef.current = true;
           setBlockState(nativeState.state, nativeState.graceUntil, nativeState.blockedPackage);
           navigate('/dashboard', { replace: true });
+        } else {
+          const remainingMs = nativeState.restRemainingMs as number;
+          setRestClockValid(true);
+          setNativeRemainingMs(remainingMs);
+          setTimeLeft(Math.max(0, Math.ceil(remainingMs / 1000)));
         }
       } catch {
         if (active) setOperationError('暂时无法确认休息状态，请返回后重试。');
@@ -309,6 +347,10 @@ export default function RestMode() {
   // `completedRestRef` is the permanent settlement marker — once true, the
   // reward has been credited and no further completion is allowed.
   const handleComplete = async () => {
+    if (isNative && !restClockValid) {
+      setOperationError('休息计时暂时无法确认，保护状态正在恢复。');
+      return;
+    }
     if (completionInFlightRef.current || completedRestRef.current) {
       return;
     }
@@ -442,6 +484,7 @@ export default function RestMode() {
       isMuted={isMuted}
       isPaused={isPaused}
       isNative={isNative}
+      restClockValid={restClockValid}
       operationError={operationError}
       completing={completing}
       confirmingEarlyExit={confirmingEarlyExit}

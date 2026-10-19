@@ -107,7 +107,7 @@ describe('PrivacyAndData', () => {
     confirm.focus();
     fireEvent.click(confirm);
     expect(await screen.findByRole('alert')).toHaveTextContent('界面缓存未清除');
-    expect(screen.getByRole('button', { name: /清除全部本地数据/ })).toHaveFocus();
+    await waitFor(() => expect(screen.getByRole('button', { name: /清除全部本地数据/ })).toHaveFocus());
     expect(mocks.clearNative).toHaveBeenCalledTimes(1);
     expect(mocks.clearCache).not.toHaveBeenCalled();
   });

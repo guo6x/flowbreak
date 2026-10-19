@@ -24,6 +24,7 @@ export interface RestActivityViewProps {
   isMuted: boolean;
   isPaused: boolean;
   isNative: boolean;
+  restClockValid?: boolean;
   operationError: string;
   completing: boolean;
   confirmingEarlyExit: boolean;
@@ -37,11 +38,12 @@ export interface RestActivityViewProps {
   onConfirmEarlyExit: () => void;
 }
 
-export default function RestActivityView({ selectedBackground, ambientParticles, activity, activityIdx, slideDirection, timeLeft, progress, breathColor, stepIdx, stepProgress, isMuted, isPaused, isNative, operationError, completing, confirmingEarlyExit, closing, onClose, onToggleMute, onTogglePause, onSwitchActivity, onComplete, onCancelEarlyExit, onConfirmEarlyExit }: RestActivityViewProps) {
+export default function RestActivityView({ selectedBackground, ambientParticles, activity, activityIdx, slideDirection, timeLeft, progress, breathColor, stepIdx, stepProgress, isMuted, isPaused, isNative, restClockValid = true, operationError, completing, confirmingEarlyExit, closing, onClose, onToggleMute, onTogglePause, onSwitchActivity, onComplete, onCancelEarlyExit, onConfirmEarlyExit }: RestActivityViewProps) {
   const reduceMotion = useReducedMotion();
   const selectedTheme = themeGlows[selectedBackground] || themeGlows[0];
   const Icon = iconMap[activity.iconKey] || Eye;
   const busy = completing || closing;
+  const canComplete = !isNative || restClockValid;
 
   return (
     <div className="fixed inset-0 z-[100] text-white overflow-y-auto overscroll-contain [&_button:focus-visible]:outline-white" style={{ background: selectedTheme.baseBg }} data-testid="rest-activity-view">
@@ -65,7 +67,7 @@ export default function RestActivityView({ selectedBackground, ambientParticles,
             <div aria-hidden="true" className="absolute -inset-3 rounded-full border border-white/10" />
             <motion.div aria-hidden="true" className="absolute inset-0 rounded-full border-[3px]" animate={reduceMotion ? undefined : { scale: [1, 1.045, 1] }} transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }} style={{ borderColor: breathColor, boxShadow: `0 0 50px ${breathColor}18, inset 0 0 24px ${breathColor}08` }} />
             <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <p className="text-[11px] text-white/75 tracking-[0.14em] mb-1">{timeLeft <= 0 ? '可以完成休息了' : isPaused ? '已暂停' : '剩余休息时间'}</p>
+              <p className="text-[11px] text-white/75 tracking-[0.14em] mb-1">{timeLeft <= 0 ? (canComplete ? '可以完成休息了' : '正在恢复保护状态') : isPaused ? '已暂停' : '剩余休息时间'}</p>
               <span role="timer" aria-label="剩余休息时间" aria-live="off" className="text-[49px] leading-tight font-light tracking-[-0.04em] tabular-nums">{formatTime(timeLeft)}</span>
             </div>
           </div>
@@ -96,7 +98,7 @@ export default function RestActivityView({ selectedBackground, ambientParticles,
             <div className="flex-1"><div className="flex justify-between text-[11px] text-white/75 mb-2"><span>{isNative ? '计时由设备校验' : 'Web 预览计时'}</span><span>{Math.round(progress * 100)}%</span></div><div role="progressbar" aria-label="休息进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)} className="h-1 bg-white/15 rounded-full overflow-hidden"><div className="h-full bg-white/85 rounded-full" style={{ width: `${progress * 100}%` }} /></div></div>
           </div>
           {operationError ? <p role="alert" className="mb-3 rounded-xl border border-white/20 bg-black/15 px-4 py-3 text-center text-[13px] text-white leading-relaxed">{operationError}</p> : null}
-          {timeLeft <= 0 ? <button onClick={onComplete} disabled={completing} className="w-full min-h-13 rounded-2xl bg-white text-primary-dark font-bold text-[16px] flex items-center justify-center gap-2 disabled:opacity-60"><Check size={20} />{completing ? '正在解锁...' : operationError ? '重试解锁' : '完成休息'}</button> : confirmingEarlyExit ? <RestExitDialog timeLeft={timeLeft} closing={closing} onCancel={onCancelEarlyExit} onConfirm={onConfirmEarlyExit} /> : <button onClick={onClose} disabled={closing} className="w-full min-h-12 py-3 px-3 rounded-xl border border-white/10 bg-white/5 text-white/85 text-[12px] text-center leading-relaxed disabled:opacity-50">{closing ? '正在退出...' : `还有 ${formatTime(timeLeft)}，提前结束（不会解锁）`}</button>}
+          {timeLeft <= 0 && canComplete ? <button onClick={onComplete} disabled={completing} className="w-full min-h-13 rounded-2xl bg-white text-primary-dark font-bold text-[16px] flex items-center justify-center gap-2 disabled:opacity-60"><Check size={20} />{completing ? '正在解锁...' : operationError ? '重试解锁' : '完成休息'}</button> : timeLeft <= 0 ? <p role="status" className="w-full rounded-2xl border border-white/20 bg-black/15 px-4 py-3 text-center text-[13px] text-white/85">休息计时正在重新核验，请稍候。</p> : confirmingEarlyExit ? <RestExitDialog timeLeft={timeLeft} closing={closing} onCancel={onCancelEarlyExit} onConfirm={onConfirmEarlyExit} /> : <button onClick={onClose} disabled={closing} className="w-full min-h-12 py-3 px-3 rounded-xl border border-white/10 bg-white/5 text-white/85 text-[12px] text-center leading-relaxed disabled:opacity-50">{closing ? '正在退出...' : `还有 ${formatTime(timeLeft)}，提前结束（不会解锁）`}</button>}
         </footer>
       </div>
     </div>

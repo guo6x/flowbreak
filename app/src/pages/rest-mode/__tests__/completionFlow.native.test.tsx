@@ -115,6 +115,8 @@ function seedNativeRest(now: number) {
     restStartedAt: now - 2000, // started 2s ago
     restRequiredSeconds: 2,    // 2s rest → already elapsed
     restSessionId: 101,
+    restClockValid: true,
+    restRemainingMs: 0,
   });
 }
 
