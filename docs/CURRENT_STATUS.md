@@ -5,15 +5,15 @@
 
 ## 当前集成候选状态（2026-10-19）
 
-这是本轮冻结前的集成候选快照。功能代码基线已完成收口，文档和测试修补随后作为候选冻结提交；最终交付仍保持 **`INTEGRATION_ENGINEERING_READY / DEVICE_ACCEPTANCE_PENDING`**，不是正式发布批准。
+这是本轮候选冻结后的集成快照。功能代码、文档/测试修补和发布流水线修复已提交；Draft PR #42 的精确 HEAD 已通过 hosted verify，但最终交付仍保持 **`INTEGRATION_ENGINEERING_READY / DEVICE_ACCEPTANCE_PENDING`**，不是正式发布批准。
 
 | 项 | 当前可核验状态 |
 | ---- | ---- |
 | master | `695b11f0fe68e4260864c638fda51b949c3a04f8`（已重新 `fetch origin`；候选分支以该基线为祖先） |
-| 集成分支 | `integration/experience-quality-20261019`；功能代码基线 `64d2e42d675b0f6ef757e1084d68d285c1ac4daa`；候选工作树在文档冻结前保持干净 |
-| 候选身份 | **INTEGRATION_ENGINEERING_READY / DEVICE_ACCEPTANCE_PENDING**；未合并到 `master`，未创建正式 tag |
-| unsigned 产物 | Play AAB SHA-256 `f2ca24a51e3b9de970c3e65e66ad76c33c95ad0a81816428e6c4300423d9a7e9`；Domestic unsigned Release APK SHA-256 `3f0e882542e081268611ef07821016e165f5a696b4d8f420b203eaa9479d6296`；`versionCode=1001000`、`versionName=1.1.0`，provenance 与版本一致 |
-| 自动化快照 | Vitest **290/290 PASS**（单 worker 重跑，27 files）；UI smoke 44/44；品牌 36/36；Provenance 20/20；Release policy 8/8；Privacy static 15/15；Android 双渠道 JVM/Lint/Debug/unsigned Release、Room/Manifest/资产同步均 PASS（详见 [TESTING.md](TESTING.md)） |
+| 集成分支 | `integration/experience-quality-20261019`；功能代码基线 `64d2e42d675b0f6ef757e1084d68d285c1ac4daa`；候选冻结 HEAD `4bd4d4cad44d265301329fc43cfe92034018f7d9` |
+| 候选身份 | **INTEGRATION_ENGINEERING_READY / DEVICE_ACCEPTANCE_PENDING**；Draft PR #42；未合并到 `master`，未创建正式 tag |
+| unsigned 产物 | hosted verify Run `39226414218`（source `4bd4d4c…`）：Play AAB SHA-256 `3b0d00d1ef06aba8d8103faed2bb1abef94c96cdd30035b5f084355d3d2f9974`；Domestic unsigned Release APK SHA-256 `a63cd51c7d7592912b1fedbb38055fb1d05430ade9de00f677ddecdb5c2787d5`；`versionCode=1`、`versionName=ci-763e482e9dc16d9d84740466f04a9135e0f7f1ab`，provenance 与版本一致；本地 `1.1.0` unsigned 包仅为功能基线/AVD 使用 |
+| 自动化快照 | hosted verify Run `39226414218` **PASS**；本地 Vitest **290/290 PASS**（单 worker，27 files）；UI smoke 44/44；品牌 36/36；Provenance 20/20；Release policy 8/8；Privacy static 15/15；Android 双渠道 JVM/Lint/Debug/unsigned Release、Room/Manifest/资产同步均 PASS（详见 [TESTING.md](TESTING.md)） |
 | npm audit | **BLOCKED / NOT_PASS** — 当前镜像 registry 对审计请求返回 404/`NOT_IMPLEMENTED`；不能把网络阻塞记为安全通过 |
 | API 36 AVD | **受控范围 PASS**：`Medium_Phone_API_36.0` / `emulator-5554`；启动、权限页 0/2、系统 Usage Access/Overlay 页面往返、个性化、目标应用选择、首页、统计、个人中心、阻断设置和运行诊断均已截图；证据目录 `D:\temp\flowbreak-avd-evidence-20261019` |
 | AVD 诊断边界 | 诊断页显示服务心跳、监控线程、设备支持、监控配置、关键权限、Room v3 和 1 个目标应用；这是模拟器受控证据，不是 Redmi/HyperOS 后台稳定性或真实用户证据 |
@@ -25,7 +25,7 @@
 | 独立复审 | **PARTIAL / PENDING** — 已有只读集成风险复核；PR #39 当前头部与最终候选仍需独立审阅，不把开发者自检称为完成 |
 | 发布 | `STORE_READY=NO`；`PRODUCTION_RELEASE_APPROVED=NO`；不得合并、force-push、读取生产签名材料或创建正式 release |
 
-本工作允许使用 Android 虚拟设备开展受控功能与界面验证，但 AVD 不模拟 Redmi/HyperOS 的后台调度，也不能替代 Gate F 的真实设备与 24 小时稳定性门禁。候选文档、精确 SHA、CI 和 Draft PR 仍需在本轮提交后更新。
+本工作允许使用 Android 虚拟设备开展受控功能与界面验证，但 AVD 不模拟 Redmi/HyperOS 的后台调度，也不能替代 Gate F 的真实设备与 24 小时稳定性门禁。精确 HEAD、hosted CI 和 Draft PR 已记录；后续仍需独立复审及真实设备门禁。
 
 ## 体验分支历史快照（非当前候选）
 

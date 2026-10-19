@@ -7,7 +7,7 @@
 
 **RELEASE PREPARATION · NOT APPROVED**（当前状态快照见 [CURRENT_STATUS.md](CURRENT_STATUS.md)；测试和候选来源事实见 [TESTING.md](TESTING.md)）。
 
-- 本轮集成候选的功能代码基线为 `64d2e42d675b0f6ef757e1084d68d285c1ac4daa`；文档/测试修补将在候选冻结提交中落盘。当前 unsigned APK/AAB 产物均来自该功能基线，不能冒充最终签名发布包；候选冻结提交后的 CI 仍需对精确 HEAD 重新生成并核对 provenance。Gate A–E 的既有 PASS 是已记录的历史/支持范围决策；它们不是本轮集成候选的精确 SHA 验收。
+- 本轮候选冻结 HEAD 为 `4bd4d4cad44d265301329fc43cfe92034018f7d9`（功能代码基线 `64d2e42d675b0f6ef757e1084d68d285c1ac4daa`）；Draft PR #42 的 hosted verify Run `39226414218` 已对精确 HEAD 通过，并持久化 unsigned provenance。unsigned APK/AAB 不能冒充最终签名发布包。Gate A–E 的既有 PASS 是已记录的历史/支持范围决策；它们不是本轮候选的真实设备发布验收。
 - **GATE F = FAIL**：Issue #28 / `FB-P1-08` 仍 OPEN。真实设备摘要报告 Bilibili 前台约 33 秒时 REST 页面仍倒计时；摘要未含足够原生诊断，根因未定。**24 小时稳定性运行 NOT_EXECUTED**。见 [设备验收交接](FB-P1-08-FINAL-DEVICE-HANDOFF.md)。
 - **GATE G = PENDING**：`CROSS_MACHINE_SIGNING_RECOVERY=NOT_YET_TESTED`，`TRUE_VERSION_UPGRADE=NOT_TESTED`。本地恢复、已有安装/同签名覆盖安装与 off-machine backup 记录不能替代这两个独立验证，也不等于本轮集成候选有签名发布包。
 - **GATE H = PENDING**：PR #33 的无手机准备及国内无障碍独立告知已合并；发行主体、公开支持联系方式、隐私政策 URL、最终包网络/依赖审查、平台申报与审核资质仍未完成。PR #39 仍 OPEN；其当前头部的自动验证通过、release job 跳过，但现有 Codex review comment 针对较早提交，当前头部独立复审仍待完成。静态网络审计不证明运行时没有网络流量。
@@ -18,9 +18,9 @@
 
 | Gate | 内容 | 状态 |
 | ---- | ---- | ---- |
-| GATE A | Core automated validation | **PASS — local candidate checks recorded; hosted exact-HEAD run pending** |
+| GATE A | Core automated validation | **PASS — hosted exact-HEAD verify Run `39226414218`** |
 | GATE B | Redmi targeted P1/P2 revalidation | **PASS — historical R1–R4 evidence; not a new-build smoke** |
-| GATE C | Artifact Provenance / Controlled Release Build | **PASS — functional-baseline unsigned provenance recorded; exact frozen HEAD rebuild pending** |
+| GATE C | Artifact Provenance / Controlled Release Build | **PASS — exact HEAD unsigned provenance Run `39226414218`; not a signed release** |
 | GATE D | Supported OEM scope + fail-closed boundary | **PASS_SUPPORTED_SCOPE — prior supported-scope evidence** |
 | GATE E | Usage accounting accuracy / blocking latency + documented Android execution boundary | **PASS_SUPPORTED_SCOPE_WITH_DOCUMENTED_PLATFORM_LIMITATION — prior evidence only** |
 | GATE F | 24h stability + Protection Integrity | **FAIL — Issue #28 / FB-P1-08 remains OPEN; 24h run NOT_EXECUTED** |
@@ -70,6 +70,7 @@
 
 GATE C PASS 的范围（重要）：
 
+- **本轮精确候选已验证**：Draft PR #42 hosted verify Run `39226414218`，HEAD/source `4bd4d4cad44d265301329fc43cfe92034018f7d9`；Play AAB SHA-256 `3b0d00d1ef06aba8d8103faed2bb1abef94c96cdd30035b5f084355d3d2f9974`，Domestic unsigned APK SHA-256 `a63cd51c7d7592912b1fedbb38055fb1d05430ade9de00f677ddecdb5c2787d5`；artifact manifest 与 `SHA256SUMS.txt` 已下载复核，`signed=false`，版本为 CI test-only `versionCode=1` / `versionName=ci-763e482e9dc16d9d84740466f04a9135e0f7f1ab`。
 - **unsigned CI artifact provenance pipeline 已验证**：PR #1 CI Run `31900444404` verify SUCCESS；artifact 可下载、SHA256SUMS 复核一致、manifest sourceGitSha = PR head SHA、APK/AAB 内部 provenance 一致、版本信息与二进制独立读取一致。
 - **signed publishable build 仍属于 GATE G**；STORE READY 仍为 NO。
 

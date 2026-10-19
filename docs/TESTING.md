@@ -4,8 +4,8 @@
 
 ## 本轮集成候选验证快照（2026-10-19）
 
-- 分支：`integration/experience-quality-20261019`；功能代码基线 `64d2e42d675b0f6ef757e1084d68d285c1ac4daa`；`origin/master=695b11f0fe68e4260864c638fda51b949c3a04f8` 已重新核对。
-- 本快照用于候选冻结，目标状态为 **`INTEGRATION_ENGINEERING_READY / DEVICE_ACCEPTANCE_PENDING`**。模拟器、JVM、静态检查和 unsigned 产物都不能关闭真实设备 Gate F。
+- 分支：`integration/experience-quality-20261019`；功能代码基线 `64d2e42d675b0f6ef757e1084d68d285c1ac4daa`；候选冻结 HEAD `4bd4d4cad44d265301329fc43cfe92034018f7d9`；`origin/master=695b11f0fe68e4260864c638fda51b949c3a04f8` 已重新核对。
+- Draft PR #42 的 hosted verify Run `39226414218` 对精确 HEAD **PASS**；目标状态仍为 **`INTEGRATION_ENGINEERING_READY / DEVICE_ACCEPTANCE_PENDING`**。模拟器、JVM、静态检查和 unsigned 产物都不能关闭真实设备 Gate F。
 
 | 检查 | 结果与边界 |
 | ---- | ---- |
@@ -19,7 +19,7 @@
 | 双渠道 Lint | **PASS**；0 error（warnings 仅为既有工具链提示） |
 | 双渠道 Debug / unsigned Release | **PASS**；Play AAB 与 Domestic unsigned Release APK 均成功生成，R8/Room/Manifest 检查通过 |
 | Web → Android 同步 | **49 / 49 PASS**；Capacitor Web 资产与 Android assets SHA-256 一致 |
-| unsigned 产物 provenance | Play AAB `f2ca24a51e3b9de970c3e65e66ad76c33c95ad0a81816428e6c4300423d9a7e9`；Domestic unsigned Release APK `3f0e882542081268611ef07821016e165f5a696b4d8f420b203eaa9479d6296`；`versionCode=1001000` / `versionName=1.1.0` |
+| unsigned 产物 provenance | hosted Run `39226414218` / source `4bd4d4c…`：Play AAB `3b0d00d1ef06aba8d8103faed2bb1abef94c96cdd30035b5f084355d3d2f9974`；Domestic unsigned Release APK `a63cd51c7d7592912b1fedbb38055fb1d05430ade9de00f677ddecdb5c2787d5`；`versionCode=1` / `versionName=ci-763e482e9dc16d9d84740466f04a9135e0f7f1ab`。本地 `1.1.0` unsigned 产物仅为功能基线/AVD 使用 |
 | npm audit | **BLOCKED / NOT_PASS**；当前镜像 registry 返回 404/`NOT_IMPLEMENTED`，不能据此宣称依赖审计通过 |
 | API 36 AVD 启动与页面 | **受控范围 PASS**：`Medium_Phone_API_36.0` / Android 16 / API 36 / `emulator-5554`；Domestic debug 安装后启动，Onboarding、权限页、个性化、目标应用、首页、统计、个人中心、阻断设置、诊断均已截图 |
 | AVD 权限往返 | 初始权限页 **0/2**；Usage Access 与 Display over other apps 系统页可打开并返回，随后仅在模拟器上通过 app-op 受控授予进行后续页面 smoke；未触碰真实手机、未读取签名材料 |
