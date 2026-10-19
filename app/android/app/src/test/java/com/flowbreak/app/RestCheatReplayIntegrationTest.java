@@ -103,6 +103,61 @@ public class RestCheatReplayIntegrationTest {
         assertEquals(0L, tracker.accumulatedMs());
     }
 
+    @Test
+    public void verifiedTargetTimeIsClippedToRestWindow() {
+        TargetSessionGapReconciler.Result result = TargetSessionGapReconciler.reconcile(
+                new TargetSessionGapReconciler.Input(
+                        0L,
+                        40_000L,
+                        TARGET,
+                        true,
+                        true,
+                        Collections.singleton(TARGET),
+                        java.util.Arrays.asList(
+                                TargetSessionGapReconciler.Event.foreground(
+                                        "com.example.other", "Other", 8_000L
+                                ),
+                                TargetSessionGapReconciler.Event.foreground(
+                                        TARGET, "Main", 14_000L
+                                ),
+                                TargetSessionGapReconciler.Event.foreground(
+                                        "com.example.other", "Other", 26_000L
+                                ),
+                                TargetSessionGapReconciler.Event.foreground(
+                                        TARGET, "Main", 30_000L
+                                )
+                        )
+                )
+        );
+
+        assertEquals(TargetSessionGapReconciler.Status.SUCCESS, result.status);
+        assertEquals(9_000L, RestCheatReplay.verifiedTargetMsDuring(result, 5_000L, 20_000L));
+    }
+
+    @Test
+    public void sixSecondTargetUseRecoveredFromSingleGapCancelsRest() {
+        BlockStateMachine machine = restingMachine(400_000L);
+        RestCheatTracker tracker = new RestCheatTracker();
+        TargetSessionGapReconciler.Result result = historicalResult(6_000L);
+
+        long verifiedTargetMs = RestCheatReplay.verifiedTargetMsDuring(
+                result,
+                START,
+                START + 6_000L
+        );
+        RestCheatReplay.Decision decision = RestCheatReplay.applyVerifiedTargetMs(
+                machine,
+                tracker,
+                verifiedTargetMs,
+                LIMIT_MS
+        );
+
+        assertEquals(6_000L, verifiedTargetMs);
+        assertTrue(decision.cancelled);
+        assertEquals(BlockStateMachine.State.BLOCKED, machine.getState());
+        assertEquals(6_000L, decision.accumulatedMs);
+    }
+
     private static BlockStateMachine restingMachine(long sessionMs) {
         BlockStateMachine machine = new BlockStateMachine(
                 BlockStateMachine.State.RESTING,

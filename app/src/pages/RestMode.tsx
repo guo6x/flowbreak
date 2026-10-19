@@ -70,6 +70,8 @@ export default function RestMode() {
   // component or leak pending callbacks.
   const fanfareTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const cancelledRestRef = useRef(false);
+  const beginRequestTokenRef = useRef<string | null>(null);
+  const restSessionIdRef = useRef<number | null>(null);
 
   // ===== Timer hook =====
   const { timeLeft, setTimeLeft, progress } = useRestTimer({
@@ -92,17 +94,63 @@ export default function RestMode() {
   useEffect(() => {
     if (!isNative) return;
     let active = true;
+    let beginRequestToken: string | null = null;
+    let cancelWhenBeginResolves = false;
+    const cancelBoundRequest = (token: string) => {
+      void NativeFlow.cancelRest({ beginRequestToken: token }).catch(() => {});
+    };
     const restoreOrStartRest = async () => {
       try {
-        await NativeFlow.beginRest();
-        const state = await NativeFlow.getBlockState();
-        if (!active) return;
-        const requiredSeconds = state.restRequiredSeconds || profile.restDuration || 180;
-        const startedAt = state.restStartedAt || Date.now();
-        const endsAt = startedAt + requiredSeconds * 1000;
-        setRestEndsAt(endsAt);
-        setTimeLeft(Math.max(0, Math.ceil((endsAt - Date.now()) / 1000)));
-        setRestReady(true);
+        // beginRest() only enqueues a service command. Its promise resolution
+        // (or a stale BLOCKED snapshot) is not evidence that REST has started.
+        const begin = await NativeFlow.beginRest();
+        beginRequestToken = begin.beginRequestToken;
+        beginRequestTokenRef.current = beginRequestToken;
+        if (!active) {
+          if (cancelWhenBeginResolves) cancelBoundRequest(beginRequestToken);
+          return;
+        }
+        let attempt = 0;
+        let graceObservedAt: number | null = null;
+        // Monitor work can exceed six seconds while reconciling an Android
+        // execution gap. Keep waiting for authoritative RESTING while this
+        // page is open, backing off to avoid tight polling.
+        while (active) {
+          const state = await NativeFlow.getBlockState();
+          if (!active) return;
+          if (state.state === 'RESTING'
+              && state.restStartedAt > 0
+              && state.restRequiredSeconds > 0
+              && typeof state.restSessionId === 'number'
+              && state.restSessionId > 0) {
+            restSessionIdRef.current = state.restSessionId;
+            const endsAt = state.restStartedAt + state.restRequiredSeconds * 1000;
+            setRestEndsAt(endsAt);
+            setTimeLeft(Math.max(0, Math.ceil((endsAt - Date.now()) / 1000)));
+            setOperationError('');
+            setRestReady(true);
+            return;
+          }
+          if (state.state === 'GRACE') {
+            // BEGIN_REST is asynchronous, so tolerate a short-lived snapshot
+            // of the prior GRACE state. If it remains authoritative, leave
+            // the rest screen and let the dashboard render the grace window.
+            graceObservedAt ??= Date.now();
+            if (Date.now() - graceObservedAt >= 6_000) {
+              setBlockState(state.state, state.graceUntil, state.blockedPackage);
+              navigate('/dashboard', { replace: true });
+              return;
+            }
+          } else {
+            graceObservedAt = null;
+          }
+          if (attempt === 24) {
+            setOperationError('原生休息仍在启动，正在等待确认。');
+          }
+          const intervalMs = attempt < 24 ? 250 : 2_000;
+          attempt++;
+          await new Promise<void>(resolve => window.setTimeout(resolve, intervalMs));
+        }
       } catch {
         if (active) setOperationError('休息模式启动失败，请返回后重试。');
       }
@@ -111,10 +159,54 @@ export default function RestMode() {
     return () => {
       active = false;
       if (!completedRestRef.current && !cancelledRestRef.current) {
-        void NativeFlow.cancelRest().catch(() => {});
+        if (beginRequestToken) cancelBoundRequest(beginRequestToken);
+        else cancelWhenBeginResolves = true;
       }
     };
   }, []);
+
+  // The native service can cancel REST while the WebView is backgrounded.
+  // Reconcile on resume and periodically while visible; the wall-clock timer
+  // is a presentation aid, not the authority for native protection state.
+  useEffect(() => {
+    if (!isNative || !restReady || showReward) return;
+    let active = true;
+    let checking = false;
+    const reconcileNativeRest = async () => {
+      if (!active || checking || completedRestRef.current
+          || completionInFlightRef.current || cancelledRestRef.current
+          || document.visibilityState === 'hidden') return;
+      checking = true;
+      try {
+        const nativeState = await NativeFlow.getBlockState();
+        if (!active) return;
+        if (nativeState.state !== 'RESTING') {
+          // A native transition already happened. Avoid a second CANCEL_REST
+          // during unmount that could overwrite a legitimate GRACE/IDLE state.
+          cancelledRestRef.current = true;
+          setBlockState(nativeState.state, nativeState.graceUntil, nativeState.blockedPackage);
+          navigate('/dashboard', { replace: true });
+        }
+      } catch {
+        if (active) setOperationError('暂时无法确认休息状态，请返回后重试。');
+      } finally {
+        checking = false;
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void reconcileNativeRest();
+    };
+    const onFocus = () => { void reconcileNativeRest(); };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('focus', onFocus);
+    const timer = window.setInterval(() => { void reconcileNativeRest(); }, 2_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [isNative, restReady, showReward, navigate, setBlockState]);
 
   // ===== Static activity & derived visuals =====
   const activity = getActivityByIndex(activityIdx);
@@ -243,6 +335,7 @@ export default function RestMode() {
         const result = await NativeFlow.completeRestAndUnlock({
           activity: activity.id,
           duration: totalDuration,
+          restSessionId: restSessionIdRef.current ?? 0,
         });
         setBlockState('GRACE', result.graceUntil, '');
         useStore.setState({ points: result.points, streak: result.streak });
@@ -290,7 +383,11 @@ export default function RestMode() {
     setClosing(true);
     try {
       if (isNative) {
-        await NativeFlow.cancelRest();
+        const beginRequestToken = beginRequestTokenRef.current;
+        if (!beginRequestToken) {
+          throw new Error('休息请求尚未确认，请稍后重试。');
+        }
+        await NativeFlow.cancelRest({ beginRequestToken });
         cancelledRestRef.current = true;
       } else {
         // Web 端：已休息 30 秒以上时记录部分休息

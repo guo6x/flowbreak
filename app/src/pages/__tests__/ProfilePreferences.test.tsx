@@ -59,6 +59,11 @@ describe("ProfilePreferences", () => {
     expect(screen.getByText("1小时")).toBeInTheDocument();
   });
 
+  it("默认4小时目标可见且保持选中", () => {
+    renderProfilePreferences({ dailyGoal: 240 });
+    expect(screen.getByRole("button", { name: "4小时" })).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("修改昵称并保存Store更新", () => {
     renderProfilePreferences();
     const input = screen.getByPlaceholderText("FlowBreak 用户") as HTMLInputElement;

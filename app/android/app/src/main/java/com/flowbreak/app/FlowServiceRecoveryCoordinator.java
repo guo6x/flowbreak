@@ -23,19 +23,22 @@ public final class FlowServiceRecoveryCoordinator {
         public final FlowServiceStateStore.MachineSnapshot machineSnapshot;
         public final PullbackSessionCoordinator.Snapshot pullbackSnapshot;
         public final boolean autoCompletedRest;
+        public final boolean restCompletionPending;
 
         Result(
                 FlowServiceStateStore.Config config,
                 BlockStateMachine machine,
                 FlowServiceStateStore.MachineSnapshot machineSnapshot,
                 PullbackSessionCoordinator.Snapshot pullbackSnapshot,
-                boolean autoCompletedRest
+                boolean autoCompletedRest,
+                boolean restCompletionPending
         ) {
             this.config = config;
             this.machine = machine;
             this.machineSnapshot = machineSnapshot;
             this.pullbackSnapshot = pullbackSnapshot;
             this.autoCompletedRest = autoCompletedRest;
+            this.restCompletionPending = restCompletionPending;
         }
     }
 
@@ -47,6 +50,18 @@ public final class FlowServiceRecoveryCoordinator {
      * @return 恢复结果
      */
     public static Result restore(FlowServiceStateStore stateStore, long now) {
+        return restore(stateStore, now, false);
+    }
+
+    /**
+     * Restore while deferring an expired REST completion until its persisted
+     * UsageEvents window has been checked for target use.
+     */
+    public static Result restore(
+            FlowServiceStateStore stateStore,
+            long now,
+            boolean deferExpiredRestCompletion
+    ) {
         // 1) 读取配置
         FlowServiceStateStore.Config config = stateStore.loadConfig();
 
@@ -69,21 +84,40 @@ public final class FlowServiceRecoveryCoordinator {
                 )
         );
 
+        // A REST session without a session-bound target snapshot cannot be
+        // verified against current mutable settings. Keep it RESTING and let
+        // the service fail closed; never turn this legacy state into GRACE.
+        boolean missingRestTargetSnapshot = snapshot.persistedState
+                        == BlockStateMachine.State.RESTING
+                && snapshot.restStartedAt > 0L
+                && snapshot.restRequiredMs > 0L
+                && snapshot.restTargetApps == null;
+
         // 4) 自动完成时同步持久化
-        if (decision.autoCompletedRest) {
-            stateStore.persistAutoCompletedRest(
+        boolean restCompletionPending = decision.autoCompletedRest
+                && (deferExpiredRestCompletion || missingRestTargetSnapshot);
+        boolean autoCompletedRest = false;
+        if (decision.autoCompletedRest && !restCompletionPending) {
+            autoCompletedRest = stateStore.persistAutoCompletedRest(
                     decision.generatedGraceUntil,
                     decision.completedRestSessionId
             );
+            if (!autoCompletedRest) restCompletionPending = true;
         }
 
         // 5) 计算最终 machine 字段
-        BlockStateMachine.State restoredState = decision.restoredState;
-        long machineSessionMs = decision.autoCompletedRest ? 0L : snapshot.sessionMs;
-        long machineGraceUntil = decision.autoCompletedRest
+        BlockStateMachine.State restoredState = restCompletionPending
+                ? BlockStateMachine.State.RESTING
+                : decision.restoredState;
+        long machineSessionMs = autoCompletedRest
+                ? 0L
+                : snapshot.sessionMs;
+        long machineGraceUntil = autoCompletedRest
                 ? decision.generatedGraceUntil
                 : snapshot.graceUntil;
-        String machineBlockedPackage = decision.autoCompletedRest ? "" : snapshot.blockedPackage;
+        String machineBlockedPackage = autoCompletedRest
+                ? ""
+                : snapshot.blockedPackage;
 
         // 6) 创建 machine
         BlockStateMachine machine = new BlockStateMachine(
@@ -102,7 +136,8 @@ public final class FlowServiceRecoveryCoordinator {
                 machine,
                 snapshot,
                 pullbackSnapshot,
-                decision.autoCompletedRest
+                autoCompletedRest,
+                restCompletionPending
         );
     }
 

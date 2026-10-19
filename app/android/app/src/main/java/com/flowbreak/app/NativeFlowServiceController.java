@@ -23,8 +23,34 @@ public final class NativeFlowServiceController {
 
     /** 发送一个 action 到 FlowForegroundService。 */
     public void sendAction(String action) {
+        sendAction(action, null);
+    }
+
+    /** Sends an action with the REST session identity captured by its caller. */
+    public void sendAction(String action, Long expectedRestSessionId) {
+        sendAction(action, expectedRestSessionId, null);
+    }
+
+    /** Sends an action bound to a REST begin/cancel request token. */
+    public void sendAction(
+            String action,
+            Long expectedRestSessionId,
+            String restBeginRequestToken
+    ) {
         Intent intent = new Intent(context, FlowForegroundService.class);
         intent.setAction(action);
+        if (expectedRestSessionId != null) {
+            intent.putExtra(
+                    FlowForegroundService.EXTRA_EXPECTED_REST_SESSION_ID,
+                    expectedRestSessionId
+            );
+        }
+        if (restBeginRequestToken != null) {
+            intent.putExtra(
+                    FlowForegroundService.EXTRA_REST_BEGIN_REQUEST_TOKEN,
+                    restBeginRequestToken
+            );
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 && !FlowForegroundService.ACTION_STOP.equals(action)) {
             ContextCompat.startForegroundService(context, intent);
@@ -62,6 +88,9 @@ public final class NativeFlowServiceController {
         result.put("restRequiredSeconds", prefs.getLong(
                 FlowForegroundService.PREF_REST_REQUIRED_MS, 0L
         ) / 1000L);
+        result.put("restSessionId", prefs.getLong(
+                FlowForegroundService.PREF_REST_SESSION_ID, 0L
+        ));
         return result;
     }
 

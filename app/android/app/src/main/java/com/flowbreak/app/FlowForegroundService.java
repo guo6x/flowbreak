@@ -47,6 +47,15 @@ public class FlowForegroundService extends Service {
     public static final String PREF_REST_STARTED_AT = "restStartedAt";
     public static final String PREF_REST_REQUIRED_MS = "restRequiredMs";
     public static final String PREF_REST_SESSION_ID = "restSessionId";
+    public static final String PREF_REST_START_TARGET_ACTIVE = "restStartTargetActive";
+    public static final String PREF_REST_START_INTERACTION_AVAILABLE =
+            "restStartInteractionAvailable";
+    public static final String PREF_REST_START_FOREGROUND_PACKAGE = "restStartForegroundPackage";
+    public static final String PREF_REST_TARGET_APPS = "restTargetApps";
+    public static final String PREF_REST_TARGET_SESSION_ID = "restTargetSessionId";
+    public static final String EXTRA_EXPECTED_REST_SESSION_ID = "expectedRestSessionId";
+    public static final String EXTRA_REST_BEGIN_REQUEST_TOKEN = "restBeginRequestToken";
+    public static final String PREF_REST_BEGIN_REQUEST_TOKEN = "restBeginRequestToken";
     public static final String PREF_COMPLETED_REST_SESSION_ID = "completedRestSessionId";
     public static final String PREF_COMPLETED_REST_GRACE_UNTIL = "completedRestGraceUntil";
     public static final String PREF_PULLBACK_SESSION_ID = "pullbackSessionId";
@@ -83,6 +92,7 @@ public class FlowForegroundService extends Service {
     private static volatile Context staticServiceContext;
     private static volatile Set<String> staticRuntimeTargetSnapshot = Collections.emptySet();
     private static volatile boolean staticServiceRuntimeActive;
+    private static volatile FlowForegroundService activeService;
     private static volatile MonitorHeartbeat staticMonitorHeartbeat = MonitorHeartbeat.EMPTY;
     private static volatile String staticProtectionIntegrityFailureReason = "";
     private static volatile long staticLiveUsageQueryFailureCount;
@@ -140,8 +150,37 @@ public class FlowForegroundService extends Service {
     private boolean historicalGapIntegrityFailure;
     private long lastCheckpointPersistElapsedMs;
     private long pausedRestObservationAt;
+    private boolean pausedRestObservationTargetActive;
+    private boolean initialRestRecoveryCaptured;
+    private boolean restHistoryReplayPending;
+    private boolean restCompletionPending;
+    private long activeRestStartedAt;
+    private long activeRestRequiredMs;
+    private long activeRestSessionId;
+    private boolean activeRestStartTargetActive;
+    private boolean activeRestStartInteractionAvailable;
+    private String activeRestStartForegroundPackage = "";
+    private Set<String> activeRestTargetApps;
+    private boolean restCheatTimelineAppliedThisTick;
     private boolean monitoringLifecycleClean;
     private boolean monitoringLifecycleInitialized;
+    private final Object restCompletionCallbacksLock = new Object();
+    private final Set<RestCompletionCallback> pendingRestCompletionCallbacks = new HashSet<>();
+    private final Object restCancellationCallbacksLock = new Object();
+    private final Set<TrackedRestCancellationCallback> pendingRestCancellationCallbacks =
+            new HashSet<>();
+
+    public interface RestCompletionCallback {
+        void onSuccess(NativeFlowRestCoordinator.Result result);
+        void onDeferred();
+        void onRejected(String message, Exception error);
+    }
+
+    public interface RestCancellationCallback {
+        void onCancelled();
+        void onDeferred();
+        void onRejected(String message);
+    }
 
     private final Runnable monitor = new Runnable() {
         @Override public void run() {
@@ -278,6 +317,7 @@ public class FlowForegroundService extends Service {
         synchronized (runtimeTracking) {
             staticServiceRuntimeActive = true;
         }
+        activeService = this;
         // Establish the engine snapshot before any later service command can
         // reach the monitor owner (for example BEGIN_REST after a cold start).
         postMonitorCommand(this::load);
@@ -306,7 +346,17 @@ public class FlowForegroundService extends Service {
         // Foreground promotion stays on the Service/main entry path. The
         // engine command and the monitor loop are serialized on the worker.
         promoteToForeground();
-        postMonitorCommand(() -> handleEngineCommand(action));
+        long expectedRestSessionId = intent == null
+                ? 0L
+                : intent.getLongExtra(EXTRA_EXPECTED_REST_SESSION_ID, 0L);
+        String beginRequestToken = intent == null
+                ? ""
+                : intent.getStringExtra(EXTRA_REST_BEGIN_REQUEST_TOKEN);
+        postMonitorCommand(() -> handleEngineCommand(
+                action,
+                expectedRestSessionId,
+                beginRequestToken
+        ));
         return START_STICKY;
     }
 
@@ -320,40 +370,53 @@ public class FlowForegroundService extends Service {
         });
     }
 
-    private void handleEngineCommand(String action) {
+    private void handleEngineCommand(
+            String action,
+            long expectedRestSessionId,
+            String beginRequestToken
+    ) {
         if (ACTION_BEGIN_REST.equals(action)) {
-            String persistedState = machine == null
-                    ? BlockStateMachine.State.IDLE.name()
-                    : machine.getState().name();
-            if (!isRestEntryAllowedForState(persistedState)) {
-                Log.w("FlowForegroundService",
-                        "BEGIN_REST rejected: current protection runtime is unhealthy");
-                postOverlayAction(() -> overlayController.dismissAll());
-            } else {
-                beginRestSession();
-                postOverlayAction(() -> overlayController.dismissBlocker());
+            synchronized (RestBeginRequestTokenStore.LOCK) {
+                String activeBeginRequestToken = stateStore == null
+                        ? ""
+                        : stateStore.preferences().getString(PREF_REST_BEGIN_REQUEST_TOKEN, "");
+                if (!RestCancellationGate.shouldAcceptBegin(
+                        beginRequestToken,
+                        activeBeginRequestToken
+                )) {
+                    Log.i("FlowForegroundService", "Ignoring stale BEGIN_REST command");
+                    notificationController.updateServiceNotification(snapshot());
+                    startMonitorLoop(MonitorLivenessDiagnostics.LOOP_REASON_ENGINE_COMMAND_START);
+                    return;
+                }
+                String persistedState = machine == null
+                        ? BlockStateMachine.State.IDLE.name()
+                        : machine.getState().name();
+                if (!isRestEntryAllowedForState(persistedState)) {
+                    Log.w("FlowForegroundService",
+                            "BEGIN_REST rejected: current protection runtime is unhealthy");
+                    postOverlayAction(() -> overlayController.dismissAll());
+                } else {
+                    beginRestSession(beginRequestToken);
+                    postOverlayAction(() -> overlayController.dismissBlocker());
+                }
             }
         } else if (ACTION_COMPLETE_REST.equals(action)) {
-            // NativeFlowPlugin validates and persists a completed rest before
-            // asking a possibly recreated service to refresh its in-memory state.
+            // Compatibility refresh only; user completion commits via the
+            // monitor-owned request after a final history verification.
             load();
             persistState(true);
             postOverlayAction(() -> overlayController.dismissBlocker());
         } else if (ACTION_CANCEL_REST.equals(action)) {
-            machine.cancelRest(limitMinutes * 60_000L);
-            stateStore.clearActiveRestSession();
-            pausedRestObservationAt = 0L;
-            monitoringLifecycleClean = !monitoringEnabled
-                    && machine.getState() == BlockStateMachine.State.IDLE;
-            anchorCheckpointToNow(
-                    checkpointTargetActive,
-                    checkpointInteractionAvailable,
-                    checkpointForegroundPackage
-            );
-            persistState(true);
+            synchronized (RestBeginRequestTokenStore.LOCK) {
+                if (!cancelRestOnMonitor(expectedRestSessionId, beginRequestToken)) {
+                    Log.i("FlowForegroundService", "Ignoring stale CANCEL_REST command");
+                }
+            }
         } else if (ACTION_EMERGENCY.equals(action)) {
             machine.emergencyUnlock(System.currentTimeMillis(), EMERGENCY_GRACE_MS);
             stateStore.clearActiveRestSession();
+            clearActiveRestWindow();
             clearPullbackTracker();
             anchorCheckpointToNow(false, false, "");
             persistState(true);
@@ -364,6 +427,78 @@ public class FlowForegroundService extends Service {
 
         notificationController.updateServiceNotification(snapshot());
         startMonitorLoop(MonitorLivenessDiagnostics.LOOP_REASON_ENGINE_COMMAND_START);
+    }
+
+    private boolean cancelRestOnMonitor(long expectedRestSessionId, String beginRequestToken) {
+        long currentRestSessionId = stateStore == null
+                ? 0L
+                : stateStore.preferences().getLong(PREF_REST_SESSION_ID, 0L);
+        String activeBeginRequestToken = stateStore == null
+                ? ""
+                : stateStore.preferences().getString(PREF_REST_BEGIN_REQUEST_TOKEN, "");
+        if (machine == null || stateStore == null || !RestCancellationGate.shouldCancel(
+                machine.getState(),
+                expectedRestSessionId,
+                currentRestSessionId,
+                beginRequestToken,
+                activeBeginRequestToken
+        )) {
+            return false;
+        }
+        long nowWallMs = System.currentTimeMillis();
+        long nowElapsedMs = SystemClock.elapsedRealtime();
+        BlockStateMachine.State resultingState = BlockStateMachine.stateFor(
+                machine.getSessionMs(),
+                limitMinutes * 60_000L
+        );
+        FlowServiceStateStore.Checkpoint checkpoint = new FlowServiceStateStore.Checkpoint(
+                nowWallMs,
+                nowElapsedMs,
+                checkpointTargetActive,
+                checkpointInteractionAvailable,
+                checkpointForegroundPackage
+        );
+        if (!stateStore.commitRestCancellation(
+                expectedRestSessionId,
+                beginRequestToken,
+                resultingState,
+                machine.getSessionMs(),
+                machine.getGraceUntil(),
+                machine.getLeftTargetsAt(),
+                machine.getBlockedPackage(),
+                pullbackCoordinator == null ? null : pullbackCoordinator.snapshot(),
+                checkpoint
+        )) {
+            Log.w("FlowForegroundService", "REST cancellation persistence was not committed");
+            return false;
+        }
+
+        // Publish the in-memory transition only after the matching durable state
+        // and session cleanup have committed together.
+        machine.cancelRest(limitMinutes * 60_000L);
+        clearActiveRestWindow();
+        pausedRestObservationAt = 0L;
+        pausedRestObservationTargetActive = false;
+        machine.seedCheckpoint(nowWallMs, checkpointTargetActive);
+        if (usageAccumulator != null) {
+            usageAccumulator.restoreObservationAnchor(
+                    nowWallMs,
+                    checkpointForegroundPackage,
+                    checkpointTargetActive && checkpointInteractionAvailable
+            );
+        }
+        recordCheckpoint(
+                nowWallMs,
+                nowElapsedMs,
+                checkpointTargetActive,
+                checkpointInteractionAvailable,
+                checkpointForegroundPackage
+        );
+        lastCheckpointPersistElapsedMs = nowElapsedMs;
+        monitoringLifecycleClean = !monitoringEnabled
+                && machine.getState() == BlockStateMachine.State.IDLE;
+        publishState();
+        return true;
     }
 
     private void stopMonitoring(int startId) {
@@ -401,6 +536,7 @@ public class FlowForegroundService extends Service {
         if (stateStore != null) {
             stateStore.clearActiveRestSession();
         }
+        clearActiveRestWindow();
         if (pullbackCoordinator != null && stateStore != null) {
             clearPullbackTracker();
         }
@@ -409,6 +545,7 @@ public class FlowForegroundService extends Service {
         }
         clearIntegrityFailureIfCurrent();
         pausedRestObservationAt = 0L;
+        pausedRestObservationTargetActive = false;
         monitoringLifecycleClean = true;
         if (machine != null) {
             recordCheckpoint(nowWallMs, nowElapsedMs, false, false, "");
@@ -441,6 +578,7 @@ public class FlowForegroundService extends Service {
         if (usageAccumulator != null) usageAccumulator.resetObservation(nowWallMs);
         if (restCheatTracker != null) restCheatTracker.reset();
         pausedRestObservationAt = 0L;
+        pausedRestObservationTargetActive = false;
         staticForegroundPackage = "";
         if (machine != null) {
             if (shouldCancelRestForIntegrityFailure(machine.getState())) {
@@ -449,6 +587,7 @@ public class FlowForegroundService extends Service {
                 // could not verify that the user stayed away from targets.
                 machine.cancelRest(limitMinutes * 60_000L);
                 if (stateStore != null) stateStore.clearActiveRestSession();
+                clearActiveRestWindow();
                 lastAnnouncedState = machine.getState();
             }
             machine.seedCheckpoint(nowWallMs, false);
@@ -525,7 +664,11 @@ public class FlowForegroundService extends Service {
 
     private void load() {
         FlowServiceRecoveryCoordinator.Result result =
-                FlowServiceRecoveryCoordinator.restore(stateStore, System.currentTimeMillis());
+                FlowServiceRecoveryCoordinator.restore(
+                        stateStore,
+                        System.currentTimeMillis(),
+                        true
+                );
         boolean previousMonitoringEnabled = monitoringEnabled;
         boolean lifecycleWasInitialized = monitoringLifecycleInitialized;
         Set<String> loadedTargets = result.config.targetApps;
@@ -542,6 +685,21 @@ public class FlowForegroundService extends Service {
         staticAllowEmergencyUnlock = result.config.allowEmergencyUnlock;
         machine = result.machine;
         FlowServiceStateStore.MachineSnapshot machineSnapshot = result.machineSnapshot;
+        if (machine.getState() == BlockStateMachine.State.RESTING
+                && machineSnapshot.restStartedAt > 0L
+                && machineSnapshot.restRequiredMs > 0L) {
+            setActiveRestWindow(machineSnapshot);
+        } else {
+            clearActiveRestWindow();
+        }
+        if (!initialRestRecoveryCaptured) {
+            initialRestRecoveryCaptured = true;
+            restHistoryReplayPending = machine.getState() == BlockStateMachine.State.RESTING
+                    && machineSnapshot.restStartedAt > 0L;
+            restCompletionPending = result.restCompletionPending;
+        } else if (result.restCompletionPending) {
+            restCompletionPending = true;
+        }
         checkpointWallMs = machineSnapshot.checkpointWallMs;
         checkpointElapsedMs = machineSnapshot.checkpointElapsedMs;
         checkpointTargetActive = machineSnapshot.checkpointTargetActive;
@@ -574,6 +732,7 @@ public class FlowForegroundService extends Service {
         }
         monitoringLifecycleInitialized = true;
         pausedRestObservationAt = 0L;
+        pausedRestObservationTargetActive = false;
         lastAnnouncedState = machine.getState();
         publishState();
     }
@@ -595,30 +754,84 @@ public class FlowForegroundService extends Service {
                 && targets.contains(snapshot.checkpointForegroundPackage);
     }
 
-    private void beginRestSession() {
+    private void beginRestSession(String beginRequestToken) {
         long existingStartedAt = stateStore.preferences().getLong(PREF_REST_STARTED_AT, 0L);
         boolean alreadyResting = machine.getState() == BlockStateMachine.State.RESTING;
+        long now = System.currentTimeMillis();
         RestSessionManager.BeginRestDecision decision = RestSessionManager.prepareBeginRest(
                 alreadyResting,
                 existingStartedAt,
                 stateStore.restDurationSeconds(),
-                System.currentTimeMillis()
+                now
         );
         if (decision == null) {
             // React can remount after an orientation or WebView recreation.
-            // Keep the same session rather than granting a fresh timer.
+            // Bind the newest accepted request to the same session rather than
+            // granting a fresh timer, so its page can cancel the real session.
+            if (!stateStore.bindActiveRestBeginRequestToken(beginRequestToken)) {
+                Log.i("FlowForegroundService", "Ignoring stale duplicate BEGIN_REST request");
+                return;
+            }
             persistState(true);
             return;
         }
-        stateStore.persistBeginRest(decision.startedAt, decision.requiredMs, decision.sessionId);
+        String startForegroundPackage = staticForegroundPackage == null
+                ? ""
+                : staticForegroundPackage;
+        Set<String> configuredTargets = stateStore.loadConfig().targetApps;
+        Set<String> sessionTargetApps = configuredTargets == null
+                ? Collections.emptySet()
+                : Collections.unmodifiableSet(new HashSet<>(configuredTargets));
+        boolean startInteractionAvailable = isInteractionAvailable();
+        boolean startTargetActive = targetClassifier != null
+                && targetClassifier.isTarget(
+                        startForegroundPackage,
+                        sessionTargetApps,
+                        stateStore.isWechatInVideoChannel(),
+                        stateStore.wechatInVideoChannelAt(),
+                        now
+                );
+        boolean persisted = stateStore.persistBeginRest(
+                decision.startedAt,
+                decision.requiredMs,
+                decision.sessionId,
+                startTargetActive,
+                startInteractionAvailable,
+                startForegroundPackage,
+                beginRequestToken,
+                sessionTargetApps
+        );
+        if (!persisted) {
+            Log.i("FlowForegroundService", "Ignoring stale BEGIN_REST session commit");
+            return;
+        }
+        if (restCheatTracker != null) restCheatTracker.reset();
         machine.beginRest();
+        setActiveRestWindow(
+                decision.startedAt,
+                decision.requiredMs,
+                decision.sessionId,
+                startTargetActive,
+                startInteractionAvailable,
+                startForegroundPackage,
+                sessionTargetApps
+        );
+        restHistoryReplayPending = false;
+        restCompletionPending = false;
+        restCheatTimelineAppliedThisTick = false;
         pausedRestObservationAt = 0L;
+        pausedRestObservationTargetActive = false;
         monitoringLifecycleClean = false;
-        anchorCheckpointToNow(false, false, "");
+        anchorCheckpointToNow(
+                startTargetActive,
+                startInteractionAvailable,
+                startForegroundPackage
+        );
         persistState(true);
     }
 
     private boolean tick(long now, long nowElapsed) {
+        restCheatTimelineAppliedThisTick = false;
         boolean targetSetEmpty = targetApps == null || targetApps.isEmpty();
         boolean pausedResting = shouldRunPausedRestIntegrityTick(
                 monitoringEnabled,
@@ -741,7 +954,13 @@ public class FlowForegroundService extends Service {
             failClosedForIntegrity(prerequisites.reason.name(), now, nowElapsed);
             return false;
         }
-        long verifiedGapSafeEndWallMs = reconcileHistoricalGap(now, nowElapsed);
+        RestHistoryReplayOutcome restHistoryOutcome = replayRestWindowHistory(now, nowElapsed);
+        if (restHistoryOutcome == RestHistoryReplayOutcome.FAILED) return false;
+        long verifiedGapSafeEndWallMs = reconcileHistoricalGap(
+                now,
+                nowElapsed,
+                restHistoryOutcome != RestHistoryReplayOutcome.NOT_REQUIRED
+        );
         if (historicalGapIntegrityFailure) {
             // An incomplete historical interval is an integrity failure, not
             // a successful no-op. Do not clear it with a later live query in
@@ -787,6 +1006,7 @@ public class FlowForegroundService extends Service {
                 stateStore.wechatInVideoChannelAt(),
                 now
         );
+        boolean isRestTarget = isActiveRestTarget(foreground, now);
         runtimeTracking.recordClassifierSignals(
                 foregroundPresent,
                 foregroundInRuntimeTargets,
@@ -811,10 +1031,11 @@ public class FlowForegroundService extends Service {
         BlockStateMachine.State currentState = machine.getState();
         restCheatTracker.observe(
                 currentState == BlockStateMachine.State.RESTING,
-                isTarget,
-                prevObservedAt,
+                isRestTarget,
+                restCheatTimelineAppliedThisTick ? now : prevObservedAt,
                 now
         );
+        restCheatTimelineAppliedThisTick = false;
         if (restCheatTracker.triggered()) {
             RestCheatReplay.Decision liveRestCheat = RestCheatReplay.cancelTriggered(
                     machine,
@@ -970,6 +1191,18 @@ public class FlowForegroundService extends Service {
             return false;
         }
 
+        RestHistoryReplayOutcome restHistoryOutcome = replayRestWindowHistory(now, nowElapsed);
+        if (restHistoryOutcome == RestHistoryReplayOutcome.FAILED) return false;
+        if (restHistoryOutcome == RestHistoryReplayOutcome.CANCELLED
+                || restHistoryOutcome == RestHistoryReplayOutcome.COMPLETED) {
+            return true;
+        }
+
+        long previousPausedObservationAt = pausedRestObservationAt;
+        boolean previousPausedTargetActive = pausedRestObservationTargetActive;
+        String previousPausedForeground = staticForegroundPackage == null
+                ? ""
+                : staticForegroundPackage;
         String foreground;
         try {
             foreground = foregroundDetector.detect(now);
@@ -1011,13 +1244,45 @@ public class FlowForegroundService extends Service {
                 stateStore.wechatInVideoChannelAt(),
                 now
         );
+        boolean isRestTarget = isActiveRestTarget(foreground, now);
+        if (restHistoryOutcome == RestHistoryReplayOutcome.NOT_REQUIRED
+                && previousPausedObservationAt > 0L
+                && now - previousPausedObservationAt > GAP_RECONCILIATION_THRESHOLD_MS) {
+            if (!replayRestCheatGap(
+                    previousPausedObservationAt,
+                    now,
+                    previousPausedForeground,
+                    previousPausedTargetActive,
+                    true,
+                    nowElapsed
+            )) {
+                failClosedForIntegrity(
+                        "PAUSED_REST_GAP_RECONCILIATION_INCOMPLETE",
+                        now,
+                        nowElapsed
+                );
+                return false;
+            }
+            if (machine.getState() != BlockStateMachine.State.RESTING) {
+                persistState(true);
+                notificationController.updateServiceNotification(snapshot());
+                postOverlayAction(() -> {
+                    overlayController.dismissBlocker();
+                    overlayController.dismissWarningBar();
+                    overlayController.dismissGraceCountdown();
+                });
+                return true;
+            }
+        }
         restCheatTracker.observe(
                 true,
-                isTarget,
-                pausedRestObservationAt,
+                isRestTarget,
+                restCheatTimelineAppliedThisTick ? now : previousPausedObservationAt,
                 now
         );
+        restCheatTimelineAppliedThisTick = false;
         pausedRestObservationAt = now;
+        pausedRestObservationTargetActive = isRestTarget;
 
         if (restCheatTracker.triggered()) {
             RestCheatReplay.Decision liveRestCheat = RestCheatReplay.cancelTriggered(
@@ -1040,6 +1305,7 @@ public class FlowForegroundService extends Service {
                         ""
                 );
                 pausedRestObservationAt = 0L;
+                pausedRestObservationTargetActive = false;
                 monitoringLifecycleClean = !monitoringEnabled
                         && machine.getState() == BlockStateMachine.State.IDLE;
                 persistState(true);
@@ -1072,6 +1338,7 @@ public class FlowForegroundService extends Service {
         }
         staticForegroundPackage = "";
         pausedRestObservationAt = now;
+        pausedRestObservationTargetActive = false;
         notificationController.updateServiceNotification(snapshot());
         postOverlayAction(() -> {
             overlayController.dismissBlocker();
@@ -1086,7 +1353,11 @@ public class FlowForegroundService extends Service {
         return name == null || name.isEmpty() ? "FAILED" : name;
     }
 
-    private long reconcileHistoricalGap(long nowWallMs, long nowElapsedMs) {
+    private long reconcileHistoricalGap(
+            long nowWallMs,
+            long nowElapsedMs,
+            boolean restWindowHistoryReplayed
+    ) {
         historicalGapIntegrityFailure = false;
         if (!checkpointInitialized) return 0L;
 
@@ -1113,6 +1384,20 @@ public class FlowForegroundService extends Service {
             // The gap is above the replay threshold but the historical window
             // is not closed yet. Keep every anchor at the checkpoint so the
             // ordinary live path can account for the full clamped delta.
+            if (!restWindowHistoryReplayed
+                    && machine.getState() == BlockStateMachine.State.RESTING) {
+                if (!replayRestCheatGap(
+                        checkpointWallMs,
+                        nowWallMs,
+                        checkpointForegroundPackage,
+                        checkpointTargetActive,
+                        checkpointInteractionAvailable,
+                        nowElapsedMs
+                )) {
+                    markGapIncomplete(gapMs);
+                    return 0L;
+                }
+            }
             markGapResult("SKIPPED_LIVE_WINDOW", 0L, 0L);
             return 0L;
         }
@@ -1152,23 +1437,57 @@ public class FlowForegroundService extends Service {
         // authority for the final ten-second tail.
         machine.seedCheckpoint(checkpointWallMs, checkpointTargetActive);
         applyVerifiedGap(result);
-        RestCheatReplay.Decision historicalRestCheat = RestCheatReplay.applyVerifiedTargetMs(
-                machine,
-                restCheatTracker,
-                result.historicalTargetMsRecovered,
-                limitMinutes * 60_000L
-        );
-        if (historicalRestCheat.cancelled) {
-            handleRestCheatCancellation(
-                    historicalRestCheatPackage(result),
-                    historicalRestCheat.accumulatedMs,
-                    false,
-                    0L,
-                    0L,
-                    false,
-                    false,
-                    ""
+        if (!restWindowHistoryReplayed && machine.getState() == BlockStateMachine.State.RESTING) {
+            if (!hasActiveRestTargetSnapshot()) {
+                markGapIncomplete(gapMs);
+                discardUnreconciledGap(nowWallMs, nowElapsedMs);
+                return 0L;
+            }
+            long restEndWallMs = activeRestWindowEnd();
+            boolean restCheckpointTargetActive = isActiveRestTarget(
+                    checkpointForegroundPackage,
+                    checkpointWallMs
             );
+            TargetSessionGapReconciler.Result restResult =
+                    TargetSessionGapReconciler.reconcile(
+                            new TargetSessionGapReconciler.Input(
+                                    checkpointWallMs,
+                                    safeEndWallMs,
+                                    checkpointForegroundPackage,
+                                    restCheckpointTargetActive,
+                                    checkpointInteractionAvailable,
+                                    activeRestTargetApps,
+                                    query.events
+                            )
+                    );
+            long restTargetMs = RestCheatReplay.verifiedTargetMsDuring(
+                    restResult,
+                    activeRestStartedAt,
+                    restEndWallMs
+            );
+            if (restTargetMs < 0L) {
+                markGapIncomplete(gapMs);
+                discardUnreconciledGap(nowWallMs, nowElapsedMs);
+                return 0L;
+            }
+            RestCheatReplay.Decision historicalRestCheat = RestCheatReplay.applyVerifiedTargetMs(
+                    machine,
+                    restCheatTracker,
+                    restTargetMs,
+                    limitMinutes * 60_000L
+            );
+            if (historicalRestCheat.cancelled) {
+                handleRestCheatCancellation(
+                        historicalRestCheatPackage(restResult),
+                        historicalRestCheat.accumulatedMs,
+                        false,
+                        0L,
+                        0L,
+                        false,
+                        false,
+                        ""
+                );
+            }
         }
         for (java.util.Map.Entry<String, Long> entry : result.usageMsByTargetPackage.entrySet()) {
             usageAccumulator.queue(entry.getKey(), entry.getValue());
@@ -1200,6 +1519,75 @@ public class FlowForegroundService extends Service {
         flushPendingUsage(true);
         persistState(true);
         return safeEndWallMs;
+    }
+
+    /**
+     * Reconstructs the REST-only slice of a gap that is still inside the
+     * protected live tail. This does not move monitor checkpoints or usage
+     * accounting anchors; it only feeds independently verified cheat time.
+     */
+    private boolean replayRestCheatGap(
+            long gapStartWallMs,
+            long gapEndWallMs,
+            String startingForegroundPackage,
+            boolean startingTargetActive,
+            boolean startingInteractionAvailable,
+            long nowElapsedMs
+    ) {
+        if (!hasActiveRestTargetSnapshot()) return false;
+        long restWindowEndWallMs = activeRestWindowEnd();
+        if (activeRestStartedAt <= 0L
+                || restWindowEndWallMs <= activeRestStartedAt
+                || gapEndWallMs <= gapStartWallMs) {
+            return false;
+        }
+
+        ForegroundUsageDetector.GapQuery query = foregroundDetector.queryEventsForReconciliation(
+                Math.max(0L, gapStartWallMs - ForegroundUsageDetector.LATE_EVENT_OVERLAP_MS),
+                gapEndWallMs
+        );
+        if (!query.succeeded) {
+            staticLastGapQueryFailureClass = query.failureClass;
+            return false;
+        }
+        TargetSessionGapReconciler.Result result = TargetSessionGapReconciler.reconcile(
+                new TargetSessionGapReconciler.Input(
+                        gapStartWallMs,
+                        gapEndWallMs,
+                        startingForegroundPackage,
+                        isActiveRestTarget(startingForegroundPackage, gapStartWallMs),
+                        startingInteractionAvailable,
+                        activeRestTargetApps,
+                        query.events
+                )
+        );
+        long verifiedTargetMs = RestCheatReplay.verifiedTargetMsDuring(
+                result,
+                activeRestStartedAt,
+                restWindowEndWallMs
+        );
+        if (verifiedTargetMs < 0L) return false;
+
+        RestCheatReplay.Decision decision = RestCheatReplay.applyVerifiedTargetMs(
+                machine,
+                restCheatTracker,
+                verifiedTargetMs,
+                limitMinutes * 60_000L
+        );
+        restCheatTimelineAppliedThisTick = true;
+        if (decision.cancelled) {
+            handleRestCheatCancellation(
+                    historicalRestCheatPackage(result),
+                    decision.accumulatedMs,
+                    false,
+                    0L,
+                    0L,
+                    false,
+                    false,
+                    ""
+            );
+        }
+        return true;
     }
 
     private void applyVerifiedGap(TargetSessionGapReconciler.Result result) {
@@ -1277,6 +1665,7 @@ public class FlowForegroundService extends Service {
             );
         }
         stateStore.clearActiveRestSession();
+        clearActiveRestWindow();
         repository.log(
                 "rest_cheat",
                 packageName == null ? "" : packageName,
@@ -1288,6 +1677,7 @@ public class FlowForegroundService extends Service {
         // The live branch returns before the normal state-change announcer;
         // historical replay must preserve that behavior as well.
         pausedRestObservationAt = 0L;
+        pausedRestObservationTargetActive = false;
         monitoringLifecycleClean = !monitoringEnabled
                 && machine.getState() == BlockStateMachine.State.IDLE;
         lastAnnouncedState = machine.getState();
@@ -1347,6 +1737,211 @@ public class FlowForegroundService extends Service {
         recordCheckpoint(wallMs, elapsedMs, targetActive, interactionAvailable, pkg);
     }
 
+    private enum RestHistoryReplayOutcome {
+        NOT_REQUIRED,
+        REPLAYED,
+        CANCELLED,
+        COMPLETED,
+        FAILED
+    }
+
+    private void setActiveRestWindow(FlowServiceStateStore.MachineSnapshot snapshot) {
+        setActiveRestWindow(
+                snapshot.restStartedAt,
+                snapshot.restRequiredMs,
+                snapshot.restSessionId,
+                snapshot.restStartTargetActive,
+                snapshot.restStartInteractionAvailable,
+                snapshot.restStartForegroundPackage,
+                snapshot.restTargetApps
+        );
+    }
+
+    private void setActiveRestWindow(
+            long startedAt,
+            long requiredMs,
+            long sessionId,
+            boolean startTargetActive,
+            boolean startInteractionAvailable,
+            String startForegroundPackage,
+            Set<String> restTargetApps
+    ) {
+        activeRestStartedAt = Math.max(0L, startedAt);
+        activeRestRequiredMs = Math.max(0L, requiredMs);
+        activeRestSessionId = Math.max(0L, sessionId);
+        activeRestStartTargetActive = startTargetActive;
+        activeRestStartInteractionAvailable = startInteractionAvailable;
+        activeRestStartForegroundPackage = startForegroundPackage == null
+                ? ""
+                : startForegroundPackage;
+        activeRestTargetApps = restTargetApps == null
+                ? null
+                : Collections.unmodifiableSet(new HashSet<>(restTargetApps));
+    }
+
+    private boolean hasActiveRestTargetSnapshot() {
+        return activeRestSessionId > 0L
+                && activeRestTargetApps != null;
+    }
+
+    private boolean isActiveRestTarget(String packageName, long nowWallMs) {
+        return hasActiveRestTargetSnapshot()
+                && targetClassifier != null
+                && stateStore != null
+                && targetClassifier.isTarget(
+                        packageName,
+                        activeRestTargetApps,
+                        stateStore.isWechatInVideoChannel(),
+                        stateStore.wechatInVideoChannelAt(),
+                        nowWallMs
+                );
+    }
+
+    private void clearActiveRestWindow() {
+        activeRestStartedAt = 0L;
+        activeRestRequiredMs = 0L;
+        activeRestSessionId = 0L;
+        activeRestStartTargetActive = false;
+        activeRestStartInteractionAvailable = false;
+        activeRestStartForegroundPackage = "";
+        activeRestTargetApps = null;
+        restHistoryReplayPending = false;
+        restCompletionPending = false;
+        restCheatTimelineAppliedThisTick = false;
+        if (restCheatTracker != null) restCheatTracker.reset();
+    }
+
+    private long activeRestWindowEnd() {
+        if (activeRestStartedAt <= 0L || activeRestRequiredMs <= 0L) return 0L;
+        return Long.MAX_VALUE - activeRestStartedAt < activeRestRequiredMs
+                ? Long.MAX_VALUE
+                : activeRestStartedAt + activeRestRequiredMs;
+    }
+
+    /**
+     * Replays the persisted REST interval once after a service/process restart.
+     * An expired REST is not committed to GRACE until this history is verified.
+     */
+    private RestHistoryReplayOutcome replayRestWindowHistory(long nowWallMs, long nowElapsedMs) {
+        if (!restHistoryReplayPending) return RestHistoryReplayOutcome.NOT_REQUIRED;
+        restHistoryReplayPending = false;
+
+        if (!hasActiveRestTargetSnapshot()) {
+            failClosedForIntegrity(
+                    "REST_TARGET_SNAPSHOT_MISSING",
+                    nowWallMs,
+                    nowElapsedMs
+            );
+            return RestHistoryReplayOutcome.FAILED;
+        }
+
+        long restWindowEndWallMs = activeRestWindowEnd();
+        long verifiedEndWallMs = Math.min(nowWallMs, restWindowEndWallMs);
+        if (activeRestStartedAt <= 0L
+                || activeRestRequiredMs <= 0L
+                || restWindowEndWallMs <= activeRestStartedAt
+                || verifiedEndWallMs <= activeRestStartedAt
+                || !activeRestStartInteractionAvailable) {
+            failClosedForIntegrity(
+                    "REST_HISTORY_RECONCILIATION_INCOMPLETE",
+                    nowWallMs,
+                    nowElapsedMs
+            );
+            return RestHistoryReplayOutcome.FAILED;
+        }
+
+        ForegroundUsageDetector.GapQuery query = foregroundDetector.queryEventsForReconciliation(
+                Math.max(
+                        0L,
+                        activeRestStartedAt - ForegroundUsageDetector.LATE_EVENT_OVERLAP_MS
+                ),
+                verifiedEndWallMs
+        );
+        if (!query.succeeded) {
+            failClosedForIntegrity(
+                    "REST_HISTORY_USAGE_QUERY_" + query.failureClass,
+                    nowWallMs,
+                    nowElapsedMs
+            );
+            return RestHistoryReplayOutcome.FAILED;
+        }
+
+        TargetSessionGapReconciler.Result result = TargetSessionGapReconciler.reconcile(
+                new TargetSessionGapReconciler.Input(
+                        activeRestStartedAt,
+                        verifiedEndWallMs,
+                        activeRestStartForegroundPackage,
+                        activeRestStartTargetActive,
+                        activeRestStartInteractionAvailable,
+                        activeRestTargetApps,
+                        query.events
+                )
+        );
+        long verifiedTargetMs = RestCheatReplay.verifiedTargetMsDuring(
+                result,
+                activeRestStartedAt,
+                verifiedEndWallMs
+        );
+        if (verifiedTargetMs < 0L) {
+            failClosedForIntegrity(
+                    "REST_HISTORY_RECONCILIATION_INCOMPLETE",
+                    nowWallMs,
+                    nowElapsedMs
+            );
+            return RestHistoryReplayOutcome.FAILED;
+        }
+
+        RestCheatReplay.Decision decision = RestCheatReplay.applyVerifiedTargetMs(
+                machine,
+                restCheatTracker,
+                verifiedTargetMs,
+                limitMinutes * 60_000L
+        );
+        restCheatTimelineAppliedThisTick = true;
+        if (decision.cancelled) {
+            handleRestCheatCancellation(
+                    historicalRestCheatPackage(result),
+                    decision.accumulatedMs,
+                    false,
+                    0L,
+                    0L,
+                    false,
+                    false,
+                    ""
+            );
+            persistState(true);
+            notificationController.updateServiceNotification(snapshot());
+            return RestHistoryReplayOutcome.CANCELLED;
+        }
+
+        if (restCompletionPending
+                && RestSessionValidator.isComplete(
+                        activeRestStartedAt,
+                        activeRestRequiredMs,
+                        nowWallMs
+                )) {
+            long graceUntil = nowWallMs + FlowServiceStateStore.GRACE_MS;
+            if (!stateStore.persistAutoCompletedRest(graceUntil, activeRestSessionId)) {
+                failClosedForIntegrity(
+                        "REST_AUTO_COMPLETION_PERSIST_FAILED",
+                        nowWallMs,
+                        nowElapsedMs
+                );
+                return RestHistoryReplayOutcome.FAILED;
+            }
+            machine.completeRest(nowWallMs, FlowServiceStateStore.GRACE_MS);
+            if (restCheatTracker != null) restCheatTracker.reset();
+            clearActiveRestWindow();
+            pausedRestObservationAt = 0L;
+            pausedRestObservationTargetActive = false;
+            lastAnnouncedState = machine.getState();
+            persistState(true);
+            notificationController.updateServiceNotification(snapshot());
+            return RestHistoryReplayOutcome.COMPLETED;
+        }
+        return RestHistoryReplayOutcome.REPLAYED;
+    }
+
     private void handleScreenOff(long now) {
         trackPullbackOutcome(false, 0L, now);
         screenOn = false;
@@ -1354,6 +1949,7 @@ public class FlowForegroundService extends Service {
         foregroundDetector.reset();
         usageAccumulator.resetObservation(now);
         pausedRestObservationAt = 0L;
+        pausedRestObservationTargetActive = false;
         staticForegroundPackage = "";
         if (machine != null) {
             machine.onScreenOff(now);
@@ -1373,6 +1969,7 @@ public class FlowForegroundService extends Service {
         foregroundDetector.reset();
         foregroundDetector.resetCursor(Math.max(0, now - ForegroundUsageDetector.INITIAL_EVENT_LOOKBACK_MS));
         pausedRestObservationAt = 0L;
+        pausedRestObservationTargetActive = false;
         if (machine != null) {
             machine.onScreenOn(now);
             recordCheckpoint(now, SystemClock.elapsedRealtime(), false, false, "");
@@ -1387,6 +1984,410 @@ public class FlowForegroundService extends Service {
         worker.post(() -> {
             if (!monitorShutdownRequested) command.run();
         });
+    }
+
+    /**
+     * Queues REST completion on the sole state-machine owner. Usage history,
+     * cheat cancellation, and the reward/GRACE commit therefore cannot race a
+     * monitor tick or a matching CANCEL_REST command.
+     */
+    public static boolean requestRestCompletion(
+            long expectedSessionId,
+            String activity,
+            NativeFlowRestCoordinator coordinator,
+            RestCompletionCallback callback
+    ) {
+        FlowForegroundService service = activeService;
+        if (service == null || service.monitorShutdownRequested || callback == null) return false;
+        Handler worker = service.monitorHandler;
+        if (worker == null || !service.isProtectionServiceRuntimeActive()) return false;
+        RestCompletionCallback trackedCallback = service.trackRestCompletionCallback(callback);
+        synchronized (service.restCompletionCallbacksLock) {
+            if (service.monitorShutdownRequested || activeService != service) return false;
+            service.pendingRestCompletionCallbacks.add(trackedCallback);
+        }
+        boolean queued = worker.post(() -> {
+            if (service.monitorShutdownRequested || activeService != service) {
+                trackedCallback.onDeferred();
+                return;
+            }
+            service.completeRestOnMonitor(
+                    expectedSessionId,
+                    activity,
+                    coordinator,
+                    trackedCallback
+            );
+        });
+        if (!queued) trackedCallback.onDeferred();
+        // Once registered, every path completes the callback asynchronously
+        // or defers it, so the caller must not reject it a second time.
+        return true;
+    }
+
+    /**
+     * Queues REST cancellation on the sole state-machine owner. The caller is
+     * notified only after the monitor has either changed the REST state or
+     * rejected the request as stale; posting an intent alone is not success.
+     */
+    public static boolean requestRestCancellation(
+            long expectedRestSessionId,
+            String beginRequestToken,
+            RestCancellationCallback callback
+    ) {
+        FlowForegroundService service = activeService;
+        if (service == null || service.monitorShutdownRequested || callback == null) return false;
+        Handler worker = service.monitorHandler;
+        if (worker == null || !service.isProtectionServiceRuntimeActive()) return false;
+
+        TrackedRestCancellationCallback trackedCallback =
+                service.trackRestCancellationCallback(callback);
+        synchronized (service.restCancellationCallbacksLock) {
+            if (service.monitorShutdownRequested || activeService != service) return false;
+            service.pendingRestCancellationCallbacks.add(trackedCallback);
+        }
+        boolean queued = worker.post(() -> {
+            if (!trackedCallback.start()) return;
+            if (service.monitorShutdownRequested || activeService != service) {
+                trackedCallback.onDeferred();
+                return;
+            }
+            boolean cancelled;
+            synchronized (RestBeginRequestTokenStore.LOCK) {
+                cancelled = service.cancelRestOnMonitor(
+                        expectedRestSessionId,
+                        beginRequestToken
+                );
+            }
+            if (!cancelled) {
+                trackedCallback.onRejected(
+                        "休息状态或请求已变化，未退出休息模式，请返回后重试。"
+                );
+                return;
+            }
+            service.notificationController.updateServiceNotification(service.snapshot());
+            service.startMonitorLoop(MonitorLivenessDiagnostics.LOOP_REASON_ENGINE_COMMAND_START);
+            trackedCallback.onCancelled();
+        });
+        if (!queued) trackedCallback.onDeferred();
+        // After registration, every path delivers one result or a deferred
+        // outcome. Returning true prevents the caller from rejecting twice.
+        return true;
+    }
+
+    private TrackedRestCancellationCallback trackRestCancellationCallback(
+            RestCancellationCallback delegate
+    ) {
+        return new TrackedRestCancellationCallback(delegate);
+    }
+
+    /** Linearizes monitor execution against service-destroy deferral. */
+    private final class TrackedRestCancellationCallback implements RestCancellationCallback {
+        private final RestCancellationCallback delegate;
+        private final RestCancellationCallbackGate lifecycle =
+                new RestCancellationCallbackGate();
+
+        TrackedRestCancellationCallback(RestCancellationCallback delegate) {
+            this.delegate = delegate;
+        }
+
+        boolean start() {
+            return lifecycle.start();
+        }
+
+        void deferIfPending() {
+            if (!lifecycle.deferIfPending()) return;
+            deliver(delegate::onDeferred);
+        }
+
+        private void finish(Runnable notification) {
+            if (!lifecycle.finish()) return;
+            deliver(notification);
+        }
+
+        private void deliver(Runnable notification) {
+            synchronized (restCancellationCallbacksLock) {
+                pendingRestCancellationCallbacks.remove(this);
+            }
+            notification.run();
+        }
+
+        @Override public void onCancelled() {
+            finish(delegate::onCancelled);
+        }
+
+        @Override public void onDeferred() {
+            finish(delegate::onDeferred);
+        }
+
+        @Override public void onRejected(String message) {
+            finish(() -> delegate.onRejected(message));
+        }
+    }
+
+    private RestCompletionCallback trackRestCompletionCallback(
+            RestCompletionCallback delegate
+    ) {
+        AtomicBoolean delivered = new AtomicBoolean(false);
+        return new RestCompletionCallback() {
+            private void finish(Runnable notification) {
+                if (!delivered.compareAndSet(false, true)) return;
+                synchronized (restCompletionCallbacksLock) {
+                    pendingRestCompletionCallbacks.remove(this);
+                }
+                notification.run();
+            }
+
+            @Override public void onSuccess(NativeFlowRestCoordinator.Result result) {
+                finish(() -> delegate.onSuccess(result));
+            }
+
+            @Override public void onDeferred() {
+                finish(delegate::onDeferred);
+            }
+
+            @Override public void onRejected(String message, Exception error) {
+                finish(() -> delegate.onRejected(message, error));
+            }
+        };
+    }
+
+    private void completeRestOnMonitor(
+            long expectedSessionId,
+            String activity,
+            NativeFlowRestCoordinator coordinator,
+            RestCompletionCallback callback
+    ) {
+        SharedPreferences preferences = stateStore.preferences();
+        String persistedState = preferences.getString(
+                "blockState", BlockStateMachine.State.IDLE.name()
+        );
+        long activeSessionId = preferences.getLong(PREF_REST_SESSION_ID, 0L);
+        long completedSessionId = preferences.getLong(PREF_COMPLETED_REST_SESSION_ID, -1L);
+        long restStartedAt = preferences.getLong(PREF_REST_STARTED_AT, 0L);
+        long restRequiredMs = preferences.getLong(PREF_REST_REQUIRED_MS, 0L);
+        long completionRequestElapsedMs = SystemClock.elapsedRealtime();
+        long nowWallMs = System.currentTimeMillis();
+
+        RestCompletionHistoryGate.Decision preliminary = RestCompletionHistoryGate.evaluate(
+                persistedState,
+                expectedSessionId,
+                activeSessionId,
+                completedSessionId,
+                restStartedAt,
+                restRequiredMs,
+                nowWallMs,
+                false,
+                -1L
+        );
+        if (preliminary == RestCompletionHistoryGate.Decision.SESSION_MISMATCH) {
+            callback.onRejected("休息会话已变化，请返回后重试。", null);
+            return;
+        }
+        if (preliminary == RestCompletionHistoryGate.Decision.NOT_READY) {
+            callback.onRejected("休息尚未完成，请继续完成本次引导。",
+                    new NativeFlowRestCoordinator.RestPendingException());
+            return;
+        }
+
+        // A retry after a successful commit is idempotent and needs no second
+        // history query. No new points or session can be created here.
+        if (preliminary == RestCompletionHistoryGate.Decision.ALLOW) {
+            completeAfterVerifiedHistory(
+                    preferences, expectedSessionId, coordinator, activity, callback);
+            return;
+        }
+
+        ProtectionRuntimeHealthEvaluator.Result runtimeHealth =
+                getCurrentProtectionRuntimeHealth();
+        if (RestCompletionIntegrityGate.evaluate(persistedState, runtimeHealth)
+                        != RestCompletionIntegrityGate.Decision.ALLOW
+                || !runtimeHealth.serviceRuntimeActive
+                || machine == null
+                || machine.getState() != BlockStateMachine.State.RESTING
+                || activeRestSessionId != expectedSessionId
+                || activeRestStartedAt != restStartedAt
+                || activeRestRequiredMs != restRequiredMs
+                || foregroundDetector == null
+                || targetApps == null
+                || !hasActiveRestTargetSnapshot()) {
+            callback.onDeferred();
+            return;
+        }
+
+        TargetSessionGapReconciler.Result history = null;
+        long verifiedTargetMs = -1L;
+        boolean historyComplete = false;
+        try {
+            ForegroundUsageDetector.GapQuery query =
+                    foregroundDetector.queryEventsForReconciliation(
+                            Math.max(
+                                    0L,
+                                    restStartedAt - ForegroundUsageDetector.LATE_EVENT_OVERLAP_MS
+                            ),
+                            nowWallMs
+                    );
+            if (query.succeeded && activeRestStartInteractionAvailable) {
+                history = TargetSessionGapReconciler.reconcile(
+                        new TargetSessionGapReconciler.Input(
+                                restStartedAt,
+                                nowWallMs,
+                                activeRestStartForegroundPackage,
+                                activeRestStartTargetActive,
+                                activeRestStartInteractionAvailable,
+                                activeRestTargetApps,
+                                query.events
+                        )
+                );
+                verifiedTargetMs = RestCheatReplay.verifiedTargetMsDuring(
+                        history,
+                        restStartedAt,
+                        nowWallMs
+                );
+                historyComplete = history != null
+                        && history.status == TargetSessionGapReconciler.Status.SUCCESS
+                        && history.coverageMs == nowWallMs - restStartedAt
+                        && verifiedTargetMs >= 0L;
+            }
+        } catch (Exception error) {
+            Log.w("FlowForegroundService", "REST completion history query failed", error);
+        }
+
+        long verificationWallMs = System.currentTimeMillis();
+        long unverifiedTailMs = SystemClock.elapsedRealtime() - completionRequestElapsedMs;
+        RestCompletionHistoryGate.Decision decision = RestCompletionHistoryGate.evaluate(
+                preferences.getString("blockState", BlockStateMachine.State.IDLE.name()),
+                expectedSessionId,
+                preferences.getLong(PREF_REST_SESSION_ID, 0L),
+                preferences.getLong(PREF_COMPLETED_REST_SESSION_ID, -1L),
+                preferences.getLong(PREF_REST_STARTED_AT, 0L),
+                preferences.getLong(PREF_REST_REQUIRED_MS, 0L),
+                verificationWallMs,
+                historyComplete,
+                verifiedTargetMs,
+                unverifiedTailMs
+        );
+        if (stopCompletionForDecision(decision, history, verifiedTargetMs, callback)) return;
+
+        // Re-check liveness after the potentially slow UsageEvents query. The
+        // Handler still owns all transitions, and no reward is written if the
+        // worker became unhealthy while evidence was collected.
+        ProtectionRuntimeHealthEvaluator.Result finalHealth =
+                getCurrentProtectionRuntimeHealth();
+        if (RestCompletionIntegrityGate.evaluate(
+                        preferences.getString("blockState", BlockStateMachine.State.IDLE.name()),
+                        finalHealth
+                ) != RestCompletionIntegrityGate.Decision.ALLOW
+                || !finalHealth.serviceRuntimeActive
+                || monitorShutdownRequested
+                || activeService != this) {
+            callback.onDeferred();
+            return;
+        }
+        long commitGateWallMs = System.currentTimeMillis();
+        RestCompletionHistoryGate.Decision commitDecision =
+                RestCompletionHistoryGate.evaluate(
+                        preferences.getString(
+                                "blockState", BlockStateMachine.State.IDLE.name()
+                        ),
+                        expectedSessionId,
+                        preferences.getLong(PREF_REST_SESSION_ID, 0L),
+                        preferences.getLong(PREF_COMPLETED_REST_SESSION_ID, -1L),
+                        preferences.getLong(PREF_REST_STARTED_AT, 0L),
+                        preferences.getLong(PREF_REST_REQUIRED_MS, 0L),
+                        commitGateWallMs,
+                        historyComplete,
+                        verifiedTargetMs,
+                        SystemClock.elapsedRealtime() - completionRequestElapsedMs
+                );
+        if (stopCompletionForDecision(
+                commitDecision,
+                history,
+                verifiedTargetMs,
+                callback
+        )) return;
+        completeAfterVerifiedHistory(
+                preferences, expectedSessionId, coordinator, activity, callback);
+    }
+
+    private boolean stopCompletionForDecision(
+            RestCompletionHistoryGate.Decision decision,
+            TargetSessionGapReconciler.Result history,
+            long verifiedTargetMs,
+            RestCompletionCallback callback
+    ) {
+        switch (decision) {
+            case ALLOW:
+                return false;
+            case DEFER:
+                callback.onDeferred();
+                return true;
+            case SESSION_MISMATCH:
+                callback.onRejected("休息会话已变化，请返回后重试。", null);
+                return true;
+            case NOT_READY:
+                callback.onRejected(
+                        "休息尚未完成，请继续完成本次引导。",
+                        new NativeFlowRestCoordinator.RestPendingException()
+                );
+                return true;
+            case CHEATED:
+                if (machine == null || machine.getState() != BlockStateMachine.State.RESTING) {
+                    callback.onDeferred();
+                    return true;
+                }
+                machine.cancelRest(limitMinutes * 60_000L);
+                handleRestCheatCancellation(
+                        historicalRestCheatPackage(history),
+                        verifiedTargetMs,
+                        false,
+                        0L,
+                        0L,
+                        false,
+                        false,
+                        ""
+                );
+                persistState(true);
+                notificationController.updateServiceNotification(snapshot());
+                callback.onRejected(
+                        "检测到休息期间使用目标应用，本次休息已取消。", null
+                );
+                return true;
+            default:
+                callback.onDeferred();
+                return true;
+        }
+    }
+
+    private void completeAfterVerifiedHistory(
+            SharedPreferences preferences,
+            long expectedSessionId,
+            NativeFlowRestCoordinator coordinator,
+            String activity,
+            RestCompletionCallback callback
+    ) {
+        try {
+            NativeFlowRestCoordinator.Result result = coordinator.complete(
+                    preferences, activity, expectedSessionId);
+            if (result.needServiceRefresh) {
+                try {
+                    load();
+                    persistState(true);
+                    notificationController.updateServiceNotification(snapshot());
+                    postOverlayAction(() -> overlayController.dismissBlocker());
+                } catch (Exception refreshError) {
+                    // The committed GRACE/DB state is authoritative. A refresh
+                    // failure must not turn a successful settlement into a
+                    // second attempt that awards points again.
+                    Log.w("FlowForegroundService",
+                            "Service refresh failed after REST completion", refreshError);
+                }
+            }
+            callback.onSuccess(result);
+        } catch (NativeFlowRestCoordinator.RestPendingException pending) {
+            callback.onRejected("休息尚未完成，请继续完成本次引导。", pending);
+        } catch (Exception error) {
+            callback.onRejected("保存休息记录失败", error);
+        }
     }
 
     /** Overlay/View state is owned by the main Looper, never by the monitor. */
@@ -2723,6 +3724,9 @@ public class FlowForegroundService extends Service {
 
     @Override public void onDestroy() {
         monitorShutdownRequested = true;
+        if (activeService == this) activeService = null;
+        deferPendingRestCompletionCallbacks();
+        deferPendingRestCancellationCallbacks();
         runtimeTracking.deactivateServiceGeneration(livenessServiceGeneration);
         if (!serviceDestroyRecorded) {
             serviceDestroyRecorded = true;
@@ -2737,6 +3741,28 @@ public class FlowForegroundService extends Service {
         overlayController.dismissAll();
         try { unregisterReceiver(screenReceiver); } catch (Exception ignored) { }
         super.onDestroy();
+    }
+
+    private void deferPendingRestCompletionCallbacks() {
+        RestCompletionCallback[] pending;
+        synchronized (restCompletionCallbacksLock) {
+            pending = pendingRestCompletionCallbacks.toArray(new RestCompletionCallback[0]);
+        }
+        for (RestCompletionCallback callback : pending) {
+            callback.onDeferred();
+        }
+    }
+
+    private void deferPendingRestCancellationCallbacks() {
+        TrackedRestCancellationCallback[] pending;
+        synchronized (restCancellationCallbacksLock) {
+            pending = pendingRestCancellationCallbacks.toArray(
+                    new TrackedRestCancellationCallback[0]
+            );
+        }
+        for (TrackedRestCancellationCallback callback : pending) {
+            callback.deferIfPending();
+        }
     }
 
     private void requestMonitorShutdown() {

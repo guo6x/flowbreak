@@ -12,7 +12,8 @@
     "test:brand": "node scripts/generate-brand-assets.mjs --check",
     "test:ui": "node scripts/ui-smoke.mjs",
     "test:provenance": "node --test \"scripts/__tests__/provenance-lib.test.mjs\" \"scripts/__tests__/generate-build-provenance.test.mjs\" \"scripts/__tests__/verify-web-asset-sync.test.mjs\" \"scripts/__tests__/generate-artifact-manifest.test.mjs\"",
-    "test:release": "node --test \"scripts/__tests__/release-version.test.mjs\""
+    "test:release": "node --test \"scripts/__tests__/release-version.test.mjs\"",
+    "test:privacy-static": "node --test \"scripts/__tests__/audit-network-surface.test.mjs\" && node scripts/audit-network-surface.mjs"
   },
   "dependencies": {
     "@capacitor/android": "8.4.3",

@@ -149,6 +149,24 @@ describe("Permissions", () => {
     expect(NativeFlow.requestAccessibilityPermission).not.toHaveBeenCalled();
   });
 
+  it("关闭、Escape 或返回告知时都不打开系统设置", () => {
+    renderPermissions({ isNative: true, isDomestic: true });
+    fireEvent.click(screen.getByText("提升后台稳定性（可稍后设置）"));
+
+    fireEvent.click(screen.getByRole("button", { name: "设置无障碍强阻断" }));
+    fireEvent.click(screen.getByRole("button", { name: "关闭告知" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "设置无障碍强阻断" }));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "设置无障碍强阻断" }));
+    fireEvent.popState(window);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(NativeFlow.requestAccessibilityPermission).not.toHaveBeenCalled();
+  });
+
   it("确认国内版独立无障碍说明后才打开 Android 系统设置", async () => {
     renderPermissions({ isNative: true, isDomestic: true });
     fireEvent.click(screen.getByText("提升后台稳定性（可稍后设置）"));

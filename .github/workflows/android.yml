@@ -60,15 +60,22 @@ jobs:
       - name: Verify Recharts React 19 peer and test-only React 17 isolation
         run: |
           node -e "const assert=require('node:assert/strict');const fs=require('node:fs');const p=JSON.parse(fs.readFileSync('node_modules/react-is/package.json','utf8'));const n=JSON.parse(fs.readFileSync('node_modules/pretty-format/node_modules/react-is/package.json','utf8'));assert.equal(p.version,'19.2.5');assert.equal(n.version,'17.0.2');console.log('REACT_IS_PRODUCTION_RECHARTS=19.2.5; PRETTY_FORMAT_PRIVATE=17.0.2')"
+      - run: npm test
+      # Keep security audits observable when the regression suite fails, but
+      # respect an explicit workflow cancellation.
       - name: Audit production dependencies
+        if: ${{ !cancelled() }}
         run: npm audit --omit=dev --audit-level=high
       - name: Audit all dependencies for critical vulnerabilities
+        if: ${{ !cancelled() }}
         run: npm audit --audit-level=critical
-      - run: npm test
       - name: Verify generated brand assets
         run: npm run test:brand
       - run: npm run test:provenance
       - run: npm run test:release
+      - name: Audit first-party network surface (static only)
+        if: ${{ !cancelled() }}
+        run: npm run test:privacy-static
       - name: Targeted portable signing security regression
         shell: pwsh
         run: |
@@ -139,6 +146,19 @@ jobs:
 
           echo "AAB size: $(stat -c %s "$play_aab") bytes"
           echo "APK size: $(stat -c %s "$domestic_apk") bytes"
+      - name: Record channel-specific Android runtime dependency inventories
+        working-directory: app/android
+        shell: bash
+        run: |
+          set -euo pipefail
+          audit_dir=app/build/outputs/provenance
+          mkdir -p "$audit_dir"
+          ./gradlew :app:dependencies --configuration playReleaseRuntimeClasspath > "$audit_dir/runtime-deps-play.txt"
+          ./gradlew :app:dependencies --configuration domesticReleaseRuntimeClasspath > "$audit_dir/runtime-deps-domestic.txt"
+          test -s "$audit_dir/runtime-deps-play.txt"
+          test -s "$audit_dir/runtime-deps-domestic.txt"
+          echo "RUNTIME_SDK_INVENTORY=GENERATED_FOR_BOTH_CHANNELS"
+          echo "NOT_A_NETWORK_TRAFFIC_CAPTURE=YES"
       - name: Verify packaged provenance (APK/AAB)
         working-directory: app/android
         shell: bash
@@ -281,12 +301,14 @@ jobs:
           cp "$apk_file" "$prov_dir/app-domestic-release-unsigned.apk"
           cp android/app/build/outputs/mapping/playRelease/mapping.txt "$prov_dir/mapping-playRelease.txt"
           cp android/app/build/outputs/mapping/domesticRelease/mapping.txt "$prov_dir/mapping-domesticRelease.txt"
+          cp android/app/build/outputs/provenance/runtime-deps-play.txt "$prov_dir/runtime-deps-play.txt"
+          cp android/app/build/outputs/provenance/runtime-deps-domestic.txt "$prov_dir/runtime-deps-domestic.txt"
           cp dist/build-provenance.json "$prov_dir/build-provenance.json"
           node scripts/generate-artifact-manifest.mjs \
             --out "$prov_dir" \
             --provenance "$prov_dir/build-provenance.json" \
             --binaries '[{"channel":"play","type":"aab","path":"android/app/build/outputs/provenance/app-play-release.aab","filename":"app-play-release.aab"},{"channel":"domestic","type":"apk","path":"android/app/build/outputs/provenance/app-domestic-release-unsigned.apk","filename":"app-domestic-release-unsigned.apk"}]' \
-            --extra-sums '[{"channel":"play","type":"mapping","path":"android/app/build/outputs/provenance/mapping-playRelease.txt","filename":"mapping-playRelease.txt"},{"channel":"domestic","type":"mapping","path":"android/app/build/outputs/provenance/mapping-domesticRelease.txt","filename":"mapping-domesticRelease.txt"}]'
+            --extra-sums '[{"channel":"play","type":"mapping","path":"android/app/build/outputs/provenance/mapping-playRelease.txt","filename":"mapping-playRelease.txt"},{"channel":"domestic","type":"mapping","path":"android/app/build/outputs/provenance/mapping-domesticRelease.txt","filename":"mapping-domesticRelease.txt"},{"channel":"play","type":"runtime-sdk-list","path":"android/app/build/outputs/provenance/runtime-deps-play.txt","filename":"runtime-deps-play.txt"},{"channel":"domestic","type":"runtime-sdk-list","path":"android/app/build/outputs/provenance/runtime-deps-domestic.txt","filename":"runtime-deps-domestic.txt"}]'
           echo "=== SHA256SUMS.txt ==="
           cat "$prov_dir/SHA256SUMS.txt"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -447,6 +469,19 @@ jobs:
           FLOWBREAK_DOMESTIC_KEYSTORE_PASSWORD: ${{ secrets.FLOWBREAK_DOMESTIC_KEYSTORE_PASSWORD }}
           FLOWBREAK_DOMESTIC_KEY_ALIAS: ${{ secrets.FLOWBREAK_DOMESTIC_KEY_ALIAS }}
           FLOWBREAK_DOMESTIC_KEY_PASSWORD: ${{ secrets.FLOWBREAK_DOMESTIC_KEY_PASSWORD }}
+      - name: Record signed channel runtime dependency inventories
+        working-directory: app/android
+        shell: bash
+        run: |
+          set -euo pipefail
+          audit_dir=app/build/outputs/provenance
+          mkdir -p "$audit_dir"
+          ./gradlew :app:dependencies --configuration playReleaseRuntimeClasspath > "$audit_dir/runtime-deps-play.txt"
+          ./gradlew :app:dependencies --configuration domesticReleaseRuntimeClasspath > "$audit_dir/runtime-deps-domestic.txt"
+          test -s "$audit_dir/runtime-deps-play.txt"
+          test -s "$audit_dir/runtime-deps-domestic.txt"
+          echo "SIGNED_RUNTIME_SDK_INVENTORY=GENERATED_FOR_BOTH_CHANNELS"
+          echo "NOT_A_NETWORK_TRAFFIC_CAPTURE=YES"
       - name: Verify packaged provenance (APK/AAB)
         working-directory: app/android
         shell: bash
@@ -570,6 +605,8 @@ jobs:
           cp "$apk_file" "$prov_dir/$apk_name"
           cp android/app/build/outputs/mapping/playRelease/mapping.txt "$prov_dir/mapping-playRelease.txt"
           cp android/app/build/outputs/mapping/domesticRelease/mapping.txt "$prov_dir/mapping-domesticRelease.txt"
+          cp android/app/build/outputs/provenance/runtime-deps-play.txt "$prov_dir/runtime-deps-play.txt"
+          cp android/app/build/outputs/provenance/runtime-deps-domestic.txt "$prov_dir/runtime-deps-domestic.txt"
           cp dist/build-provenance.json "$prov_dir/build-provenance.json"
           signing_evidence=$(python3 - "$aab_name" "$apk_name" <<'PYEOF'
           import json, os, sys
@@ -592,7 +629,7 @@ jobs:
             --out "$prov_dir" \
             --provenance "$prov_dir/build-provenance.json" \
             --binaries "[{\"channel\":\"play\",\"type\":\"aab\",\"path\":\"$prov_dir/$aab_name\",\"filename\":\"$aab_name\"},{\"channel\":\"domestic\",\"type\":\"apk\",\"path\":\"$prov_dir/$apk_name\",\"filename\":\"$apk_name\"}]" \
-            --extra-sums "[{\"channel\":\"play\",\"type\":\"mapping\",\"path\":\"$prov_dir/mapping-playRelease.txt\",\"filename\":\"mapping-playRelease.txt\"},{\"channel\":\"domestic\",\"type\":\"mapping\",\"path\":\"$prov_dir/mapping-domesticRelease.txt\",\"filename\":\"mapping-domesticRelease.txt\"}]" \
+            --extra-sums "[{\"channel\":\"play\",\"type\":\"mapping\",\"path\":\"$prov_dir/mapping-playRelease.txt\",\"filename\":\"mapping-playRelease.txt\"},{\"channel\":\"domestic\",\"type\":\"mapping\",\"path\":\"$prov_dir/mapping-domesticRelease.txt\",\"filename\":\"mapping-domesticRelease.txt\"},{\"channel\":\"play\",\"type\":\"runtime-sdk-list\",\"path\":\"$prov_dir/runtime-deps-play.txt\",\"filename\":\"runtime-deps-play.txt\"},{\"channel\":\"domestic\",\"type\":\"runtime-sdk-list\",\"path\":\"$prov_dir/runtime-deps-domestic.txt\",\"filename\":\"runtime-deps-domestic.txt\"}]" \
             --signing-evidence "$signing_evidence"
           echo "=== SHA256SUMS.txt ==="
           cat "$prov_dir/SHA256SUMS.txt"

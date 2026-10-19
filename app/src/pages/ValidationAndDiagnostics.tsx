@@ -164,7 +164,7 @@ export default function ValidationAndDiagnostics() {
 
       <section className="rounded-2xl bg-gray-100/80 p-4 mb-5" aria-labelledby="export-privacy">
         <h3 id="export-privacy" className="flex items-center gap-2 text-[13px] font-semibold mb-2"><ShieldCheck size={17} className="text-primary" />只分享排查所需的信息</h3>
-        <p className="text-[12px] text-gray-600 leading-relaxed">脱敏诊断包含版本、渠道、状态机、服务心跳、权限结果和记录数量，不含姓名、受限 App 包名、具体使用明细或活动内容。</p>
+        <p className="text-[12px] text-gray-600 leading-relaxed">脱敏诊断包含版本、渠道、FlowBreak 自身包名、设备厂商与支持状态、权限/保护状态、记录数量和导出时间；不含姓名、所选目标包名、视频号派生标记及时间戳、逐条运行追踪或具体使用时间线。它仍会暴露设备环境信息。</p>
         {diagnostics ? <p className="text-[12px] text-gray-600 mt-3 pt-3 border-t border-gray-300/60">最近心跳：{formatTime(diagnostics.serviceHeartbeatAt)}</p> : null}
       </section>
       <button data-testid="export-diagnostics" disabled={exporting || loading || !diagnostics} onClick={() => void exportDiagnostics()} className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50"><Download size={18} />{exporting ? '正在导出...' : '导出脱敏诊断'}</button>

@@ -26,6 +26,9 @@ public class NativeFlowDataManagerDiagnosticsTest {
         source.put("lastUsageEventAt", 1_792_329_600_000L);
         source.put("latestEventAt", 1_792_329_600_000L);
         source.put("graceUntil", 1_792_329_600_000L);
+        source.put("wechatInVideoChannel", true);
+        source.put("wechatInVideoChannelAt", 1_792_329_600_000L);
+        source.put("restStartForegroundPackage", "com.example.target");
 
         assertTrue(source.has("versionName"));
         assertEquals("1.0.0", source.optString("versionName"));
@@ -40,5 +43,8 @@ public class NativeFlowDataManagerDiagnosticsTest {
         assertFalse(shared.has("lastUsageEventAt"));
         assertFalse(shared.has("latestEventAt"));
         assertFalse(shared.has("graceUntil"));
+        assertFalse(shared.has("wechatInVideoChannel"));
+        assertFalse(shared.has("wechatInVideoChannelAt"));
+        assertFalse(shared.has("restStartForegroundPackage"));
     }
 }

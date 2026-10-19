@@ -33,6 +33,21 @@ beforeEach(() => {
 });
 
 describe('PrivacyAndData', () => {
+  it('discloses Accessibility event fields and local WeChat signal before describing the feature', async () => {
+    render(<PrivacyAndData />);
+    await screen.findByText('本机暂无已保存的崩溃记录。');
+    expect(screen.getByText(/窗口事件中的应用包名及必要的窗口类名/)).toBeInTheDocument();
+    expect(screen.getByText(/保存“是否为视频号页面”的判断值和检测时间/)).toBeInTheDocument();
+    expect(screen.getByText(/最终安装包的运行时网络行为尚待核验/)).toBeInTheDocument();
+  });
+
+  it('explains the identifying environment fields in the shared diagnostics allowlist', async () => {
+    render(<PrivacyAndData />);
+    await screen.findByText('本机暂无已保存的崩溃记录。');
+    expect(screen.getByText(/设备厂商\/支持状态、权限与保护状态/)).toBeInTheDocument();
+    expect(screen.getByText(/设备环境信息/)).toBeInTheDocument();
+  });
+
   it('does not equate an empty crash log with verified healthy operation', async () => {
     render(<PrivacyAndData />);
     expect(await screen.findByText('本机暂无已保存的崩溃记录。')).toBeInTheDocument();

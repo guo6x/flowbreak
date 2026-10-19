@@ -1,6 +1,6 @@
 # FlowBreak v1.1.0 — Gate H 发布合规准备与证据矩阵
 
-**调查/文件准备日期：2026-10-12 · 状态：DOCUMENTATION_PREPARED / STORE_SUBMISSION_NOT_APPROVED。**
+**调查/文件准备日期：2026-10-12 · 状态复核日期：2026-10-18 · DOCUMENTATION_PREPARED / STORE_SUBMISSION_NOT_APPROVED。**
 
 本文件是审查用工作底稿，不构成法律意见或商店审批。**GATE H 仍为 PENDING。** 开发/自动化能完成的事实核查与文案草拟与必须由发行主体提交的资质、商店后台操作严格分开；任何未证实的事实保留为 **UNVERIFIED**。
 
@@ -11,8 +11,8 @@
 | 应用 | FlowBreak v1.1.0，Android Play 与 Domestic 双渠道；`app/package.json`、渠道 Manifest | CONFIRMED_SOURCE（非商店事实） |
 | 核心用途 | 用户选择应用，基于 Android 使用情况事件估算前台时长，超时提示/拦截，经休息恢复访问；统计存设备本地；`docs/PRODUCT.md`、`PRIVACY.md` | CONFIRMED_SOURCE；不宣传系统限制下的实时绝对保证 |
 | 账号/广告/云同步 | 当前公开隐私声明为不设账号、不接广告/第三方统计、不主动向服务器上传本地使用数据；`PRIVACY.md` | SOURCE_CLAIM；最终 AAB/APK 的 SDK 行为和网络动态检查 **PENDING** |
-| 本地使用信息 | 受限应用包名、聚合使用时长、休息和阻断事件、用户选择的日反馈、积分、成就、设置；Room/SharedPreferences | ON_DEVICE_PROCESSING，未证实离端传输；用户可主动导出完整 JSON |
-| 脱敏诊断 | 原生 `getDiagnostics/shareDiagnostics` 显示心跳、状态机、Permission、计数、restCheatEvidence；不导出目标包名/UsageEvents 明细；可能包含设备环境与精确诊断时间 | 不能将“脱敏”等同“不可关联”或“绝对无敏感信息”；用户选择分享后接收方可能获得数据 |
+| 本地使用信息 | 受限应用包名、聚合使用时长、休息和阻断事件、用户选择的日反馈、积分、成就、设置；Room/SharedPreferences。完整 JSON 导出包含所有现存 SharedPreferences 键值，因此也可能包含 REST 启动时前台包名 `restStartForegroundPackage` | ON_DEVICE_PROCESSING，未证实离端传输；用户可主动导出完整 JSON；分享前应检查内容 |
+| 脱敏诊断 | `shareDiagnostics` 先按固定字段白名单构造 JSON；不包含详细 `runtimeTracking`，当前源码也没有实现 `restCheatEvidence` 字段；不导出目标包名/UsageEvents 明细。仍可能包含设备环境、状态原因、查询失败计数及导出时间 | “脱敏”不等于不可关联或绝对无敏感信息；用户主动分享后接收方可能获得白名单中的运行状态 |
 | Android Manifest | 通用 INTERNET、PACKAGE_USAGE_STATS、SYSTEM_ALERT_WINDOW、RECEIVE_BOOT_COMPLETED、FOREGROUND_SERVICE、FOREGROUND_SERVICE_SPECIAL_USE、POST_NOTIFICATIONS、VIBRATE；`app/android/app/src/main/AndroidManifest.xml` | 声明与实际用途逐项复核；INTERNET 存在不等于确有数据上传 |
 | FGS | `FlowForegroundService` 声明 `specialUse`，manifest 的 subtype 字符串为“健康提醒：监控连续使用时长” | 须提供 Play 特殊用途说明、用户可感知通知、演示视频、任务推迟/中断影响；**PLAY_APPROVAL=UNVERIFIED** |
 | Accessibility | **仅 Domestic manifest** 声明 FlowAccessibilityService；Play manifest 应当完全不包含该 service。实际 service 读取窗口切换事件中的 `packageName` 与必要的 `className`；针对微信视频号从类名派生 `wechatInVideoChannel` 布尔值并在 SharedPreferences 保留检测时间戳（不获取页面文字、聊天内容或输入文本） | 国内版须独立明确披露窗口类名及本地派生信号；不能把辅助阻断表述为残障辅助工具；最终两渠道 manifest CI 审核 |
@@ -52,7 +52,7 @@
 
 - 官方工信部 `工信部信管〔2023〕105号` 规定**在境内从事互联网信息服务的 APP 主办者**按其条款履行 APP 备案；公布备案号、公开备案编号等要求适用时应遵守；网络接入/分发平台需核验。FlowBreak 属纯本地功能是否及如何适用、拟发行渠道所要求的备案范围，应由主办者/渠道按实际部署经营方式正式核对。**不能仅凭离线工具属性就自行断言豁免，也不能擅称已备案。**
 - 主办者类型（个人/企业）、实名及注册地址、拟投放平台、应用包名、签名证书、网站/域名/托管及实际分发地区、版权归属等均需发行方确定，形成 `OWNER_REQUIRED` 材料。
-- Domestic Accessibility 行为的用途：仅监听当前窗口包名，在被选目标达到阻断条件时辅助返回桌面；不读页内文本或按键；用户可在设置中拒绝/撤销。需突出权限说明并取得用户主动操作。**若 UI 尚无独立显著说明，不得宣称已实现合规授权。**
+- Domestic Accessibility 行为的用途：仅监听当前窗口包名，在被选目标达到阻断条件时辅助返回桌面；不读页内文本或按键；用户可在设置中拒绝/撤销。PR #33 已合并共享的独立告知与明确选择入口；仍需在最终 Domestic 候选复核呈现和用户主动授权，并按渠道审核，不代表已获商店批准。
 - 需要隐私政策公开地址与客服渠道、应用基本信息、权限逐项用途清单、截图/录屏、SDK清单、同主体版权授权及按发行渠道要求准备申请。ICP备案/APP备案编号只有获得确认后才进入 UI 与商店页面，不得预置假号码。
 - 无障碍能力与隐私用途以实际 manifest + service 代码为准，最终出包之后复查；Domestic 与 Play 使用不同声明，不互相借用资质。
 
@@ -64,8 +64,9 @@
 | Google Play Data safety 草表 | 本地/离端判定准则及可复查清单 | DRAFT_UNVERIFIED | 最终 AAB 网络/SDK证据后人工提交 |
 | FGS `specialUse` 说明 | 理由与中断影响及录屏脚本 | DRAFT_UNVERIFIED | 录制/上传真实视频、Play 审查 |
 | 用户隐私政策 | 现有政策已写，发布审核差异清单 | REVIEW_REQUIRED | 发行方提供公开联系方式与 URL |
+| 网络表面审计 | PR #39 仍 OPEN；其当前头部自动验证通过，但 release job 按策略跳过；可见 Codex review comment 针对较早提交 | CURRENT_HEAD_INDEPENDENT_REVIEW_PENDING | 完成当前头部复审、最终 merged-manifest/依赖核查与真实运行时流量观察；静态扫描不证明零网络流量 |
 | Store listing 文案与画面清单 | 文稿与逐屏取材说明 | DRAFT | 合法商店后台与真实截图 |
-| 国内版无障碍披露 | 两个 UI 入口已在 PR #33 中使用共享独立告知及明确选择，含窗口类名用途 | IMPLEMENTED_IN_PR_PENDING_CI_REVIEW | 通过 CI/独立复审后合并；不等于国内商店审核批准 |
+| 国内版无障碍披露 | PR #33 已合并共享的独立告知及明确选择，含窗口类名用途 | IMPLEMENTED_IN_MERGED_SOURCE; final candidate verification pending | 在最终 Domestic 候选核验两个入口及授权路径；不等于国内商店审核批准 |
 | APP 备案、主体、版权、资质 | 官方要求与待提交材料清单 | OWNER_REQUIRED | 发行主体/渠道决定并提供真实证据 |
 | 商店账号、审核结果 | 无权代替用户核实账号、支付或申请 | NOT_EXECUTED | 发行方授权并完成申报/审批 |
 

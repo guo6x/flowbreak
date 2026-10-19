@@ -14,7 +14,7 @@ const typeOptions = [
   { value: "other" as const, label: "其他" },
 ];
 
-const goalOptions = [30, 60, 90, 120, 180];
+const goalOptions = [30, 60, 90, 120, 180, 240];
 
 function formatGoal(minutes: number): string {
   if (minutes < 60) return minutes + "分钟";

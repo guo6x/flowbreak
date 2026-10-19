@@ -24,7 +24,19 @@
 
 ## Open
 
-> Redmi R1–R4 复测后，原 `FB-P1-01/02/03`、`FB-P2-01` 全部 RESOLVED；`FB-P1-05` 仍开放，并在 v1.1.0 被明确纳入 vivo/iQOO fail-closed 支持边界。
+> Redmi R1–R4 复测后，原 `FB-P1-01/02/03`、`FB-P2-01` 全部 RESOLVED；`FB-P1-05` 仍开放，并在 v1.1.0 被明确纳入 vivo/iQOO fail-closed 支持边界。Issue #28 / `FB-P1-08` 也仍为 OPEN，阻塞 Gate F。
+
+### FB-P1-08 Protection Integrity can report active while required runtime capability is absent
+
+- Severity：**P1（supported-scope 核心保护完整性）**
+- Status：**OPEN_SUPPORTED_SCOPE_RELEASE_BLOCKER**；GitHub [Issue #28](https://github.com/guo6x/flowbreak/issues/28) 当前仍 OPEN，`GATE_F=FAIL`。
+- Affected version/SHA：真实设备摘要没有记录可核验的 APK 来源版本/SHA。Issue 正文中的 master 发现基线属于代码审计背景，**不等同于设备复现包的来源 SHA**；本集成工作区也还没有最终候选 SHA。
+- Environment：历史真实设备记录描述在 REST 期间前台使用 Bilibili 约 33 秒。该摘要未包含可核验的设备型号、系统版本、渠道、签名证书或已安装 APK provenance；这些信息保持 **NOT_RECORDED / NOT_VERIFIED**，不得按相邻测试猜测。
+- Observed（设备摘要）：Bilibili 前台约 33 秒后，REST 界面仍显示倒计时。摘要中没有同时保存的原生持久状态、服务 tick、前台分类器或取消判定证据，因此无法判定当时是原生休息状态未取消，还是原生状态已变化而 Web 页面显示过期。此观察保留为真实设备失败，不将其解释成已确定的 native `cancelRest` 失败。
+- Additional code-audit findings in Issue #28（仍须在最终候选验证，不代表设备根因已定位）：必要的 Usage Access / Overlay 缺失时，保护状态 UI 与实际运行能力可能不一致；实时 UsageEvents 查询失败可能继续沿用旧前台包名；Domestic 无障碍在监控关闭后可能依赖过期的持久 `BLOCKED` 状态继续执行。无障碍是可选能力，缺失时应如实降级，不能因它缺失而禁用所有保护。通知、电池优化豁免与 OEM 自启动不是新增硬性前置条件。
+- Expected：遵守 **UI promise ≤ actual protection capability**。缺少硬性权限或当前原生运行能力时，不显示“保护有效”，不沿用过期前台状态累计使用；停止监控后 Domestic 无障碍不得继续依靠旧状态执行强阻断。恢复能力时只能按可验证、无虚构时长的路径恢复。
+- Evidence： [Issue #28](https://github.com/guo6x/flowbreak/issues/28)，特别是其 2026-10-10 设备失败摘要与取证说明。当前没有新的真实设备复测，也没有证据关闭该问题。
+- Next action：在最终候选 SHA 上完成确定性回归和独立代码复审；将虚拟设备用于可控权限、状态与界面场景，但不把 AVD/模拟 UsageEvents 记为 Gate F 通过。若未来有合规授权的真实设备条件，按 [FB-P1-08 设备验收交接](FB-P1-08-FINAL-DEVICE-HANDOFF.md) 收集最小化的 native 状态对照材料，并另行执行 24 小时稳定性观察。当前无设备的限制下，保留 OPEN / FAIL。
 
 ### FB-P1-05 vivo/iQOO native tick path may fail to accumulate foreground usage
 

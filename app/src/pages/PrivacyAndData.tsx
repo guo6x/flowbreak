@@ -9,9 +9,9 @@ type CrashLog = { filename: string; timestamp: number; content: string };
 type BuildInfo = Awaited<ReturnType<typeof NativeFlow.getBuildInfo>>;
 
 const privacyPromises = [
-  { icon: HardDrive, title: '只保存在这台设备', detail: '应用选择、使用时长、休息和进度均保存在本机，不上传使用明细。' },
+  { icon: HardDrive, title: '产品数据保存在本机', detail: '设置、应用选择、使用记录、休息和进度保存在本机；当前源码没有实现 FlowBreak 用户数据上传或云同步。Android 仍声明网络权限，最终安装包的运行时网络行为尚待核验。' },
   { icon: LockKeyhole, title: '不用账号，也没有广告', detail: '无需注册，不提供云同步，不集成第三方统计或广告 SDK。' },
-  { icon: ShieldCheck, title: '权限有明确的边界', detail: '使用情况访问用于识别所选应用与计时。国内版无障碍服务不读取、记录或上传页面内容。' },
+  { icon: ShieldCheck, title: '权限有明确的边界', detail: '使用情况访问在本机识别前台应用并计时，不读取页面文字。国内版可选无障碍服务会处理窗口事件中的应用包名及必要的窗口类名；遇到微信时还会在本机保存“是否为视频号页面”的判断值和检测时间，不保存页面文字、聊天或输入内容。Google Play 版不含该服务。' },
 ];
 
 export default function PrivacyAndData() {
@@ -153,7 +153,7 @@ export default function PrivacyAndData() {
 
       <section aria-labelledby="local-data" className="card p-5 mb-6">
         <h2 id="local-data" className="text-[16px] font-bold">数据由你掌握</h2>
-        <p className="text-[13px] text-gray-600 mt-1 mb-3">导出文件可能包含昵称、应用选择与使用明细，请妥善保管。</p>
+        <p className="text-[13px] text-gray-600 mt-1 mb-3">完整数据导出可能包含昵称、应用选择与使用明细；脱敏诊断分享则包含版本、渠道、FlowBreak 自身包名、设备厂商/支持状态、权限与保护状态、记录数量和导出时间。诊断不含目标应用包名或逐条使用时间线，但仍会暴露设备环境信息。分享前请确认接收方并妥善保管。</p>
         <button onClick={() => void exportData()} disabled={busyAction !== ''} className="w-full flex items-center gap-3 py-4 text-left border-b border-gray-200 disabled:opacity-50">
           <span className="w-10 h-10 rounded-xl bg-secondary/8 text-secondary flex items-center justify-center shrink-0"><Download size={19} /></span>
           <span className="flex-1"><span className="block text-[14px] font-semibold">{busyAction === 'export' ? '正在准备导出...' : '导出 JSON 数据'}</span><span className="block text-[12px] text-gray-600 mt-0.5">将本机记录保存为可读文件</span></span>

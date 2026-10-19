@@ -93,6 +93,10 @@ describe("首次设置的真实前端路由往返", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: getAppName(DEFAULT_TARGET_APPS[1]) })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: getAppName(DEFAULT_TARGET_APPS[1]) }));
     fireEvent.click(screen.getByRole("button", { name: "保存更改" }));
+    await waitFor(() => expect(NativeFlow.saveTargetApps).toHaveBeenCalledWith({
+      packageNames: [DEFAULT_TARGET_APPS[0], DEFAULT_TARGET_APPS[1]],
+    }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "设置你的保护规则" })).toBeInTheDocument());
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("设备设置读取失败"));
     expect(screen.getByRole("button", { name: "请先重新读取设置" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "30分钟" })).toHaveAttribute("aria-pressed", "true");

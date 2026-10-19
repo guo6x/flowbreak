@@ -101,6 +101,24 @@ describe("BlockingSettings", () => {
     expect(NativeFlow.requestAccessibilityPermission).not.toHaveBeenCalled();
   });
 
+  it("关闭、Escape 或返回告知时都不打开系统权限", () => {
+    mockPermissions(true, true);
+    renderBlockingSettings();
+
+    fireEvent.click(screen.getByRole("button", { name: "前往授权无障碍服务" }));
+    fireEvent.click(screen.getByRole("button", { name: "关闭告知" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "前往授权无障碍服务" }));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "前往授权无障碍服务" }));
+    fireEvent.popState(window);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(NativeFlow.requestAccessibilityPermission).not.toHaveBeenCalled();
+  });
+
   it("国内版阻断设置只能在主动确认之后打开系统权限", async () => {
     mockPermissions(true, true);
     renderBlockingSettings();

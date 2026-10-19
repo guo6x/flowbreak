@@ -6,6 +6,7 @@ import android.content.SharedPreferences;
 import android.content.Context;
 import android.net.Uri;
 import android.os.Build;
+import android.util.Log;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -13,6 +14,7 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -36,6 +38,18 @@ public class NativeFlowPlugin extends Plugin {
 
     private SharedPreferences prefs() {
         return getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+    }
+
+    private void enqueueRestCancellationFallback(long expectedSessionId, String beginRequestToken) {
+        try {
+            serviceController.sendAction(
+                    FlowForegroundService.ACTION_CANCEL_REST,
+                    expectedSessionId,
+                    beginRequestToken
+            );
+        } catch (RuntimeException error) {
+            Log.w("NativeFlowPlugin", "Could not enqueue token-bound REST cancellation", error);
+        }
     }
 
     /**
@@ -198,8 +212,23 @@ public class NativeFlowPlugin extends Plugin {
                 call.reject("PROTECTION_RUNTIME_UNHEALTHY");
                 return;
             }
-            serviceController.sendAction(FlowForegroundService.ACTION_BEGIN_REST);
-            call.resolve();
+            String beginRequestToken = UUID.randomUUID().toString();
+            boolean persisted = RestBeginRequestTokenStore.persistLatestRequest(
+                    prefs(),
+                    beginRequestToken
+            );
+            if (!persisted) {
+                call.reject("休息模式请求未能安全保存，请重试。");
+                return;
+            }
+            serviceController.sendAction(
+                    FlowForegroundService.ACTION_BEGIN_REST,
+                    null,
+                    beginRequestToken
+            );
+            JSObject result = new JSObject();
+            result.put("beginRequestToken", beginRequestToken);
+            call.resolve(result);
         } catch (Exception error) {
             call.reject("休息模式启动失败", error);
         }
@@ -207,8 +236,53 @@ public class NativeFlowPlugin extends Plugin {
 
     @PluginMethod public void cancelRest(PluginCall call) {
         try {
-            serviceController.sendAction(FlowForegroundService.ACTION_CANCEL_REST);
-            call.resolve();
+            String beginRequestToken = call.getString("beginRequestToken", "");
+            if (beginRequestToken == null || beginRequestToken.isEmpty()) {
+                call.reject("休息请求已失效，请返回后重试。");
+                return;
+            }
+            long expectedRestSessionId = prefs().getLong(
+                    FlowForegroundService.PREF_REST_SESSION_ID,
+                    0L
+            );
+            boolean queued = FlowForegroundService.requestRestCancellation(
+                    expectedRestSessionId,
+                    beginRequestToken,
+                    new FlowForegroundService.RestCancellationCallback() {
+                        private void finishOnUiThread(Runnable completion) {
+                            android.app.Activity activity = getActivity();
+                            if (activity == null) {
+                                call.reject("休息状态暂时无法确认；请保持页面并重试。");
+                                return;
+                            }
+                            activity.runOnUiThread(completion);
+                        }
+
+                        @Override public void onCancelled() {
+                            finishOnUiThread(call::resolve);
+                        }
+
+                        @Override public void onRejected(String message) {
+                            finishOnUiThread(() -> call.reject(message));
+                        }
+
+                        @Override public void onDeferred() {
+                            // The asynchronous API stays unconfirmed, but leave a token-bound
+                            // service command queued so the session can still be reconciled.
+                            enqueueRestCancellationFallback(
+                                    expectedRestSessionId,
+                                    beginRequestToken
+                            );
+                            finishOnUiThread(() -> call.reject(
+                                    "尚未确认退出休息模式；后台可能仍在处理，请刷新状态后再操作。"
+                            ));
+                        }
+                    }
+            );
+            if (!queued) {
+                enqueueRestCancellationFallback(expectedRestSessionId, beginRequestToken);
+                call.reject("尚未确认退出休息模式；请刷新状态后再操作。");
+            }
         } catch (Exception error) {
             call.reject("休息模式退出失败", error);
         }
@@ -296,43 +370,35 @@ public class NativeFlowPlugin extends Plugin {
 
     @PluginMethod public void completeRestAndUnlock(PluginCall call) {
         String requestedActivity = call.getString("activity", "breathe");
-        executor.execute(() -> {
-            try {
-                SharedPreferences preferences = prefs();
-                ProtectionRuntimeHealthEvaluator.Result runtimeHealth =
-                        FlowForegroundService.getCurrentProtectionRuntimeHealth();
-                RestCompletionIntegrityGate.Attempt<NativeFlowRestCoordinator.Result> attempt =
-                        RestCompletionIntegrityGate.execute(
-                                preferences.getString(
-                                        "blockState", BlockStateMachine.State.IDLE.name()
-                                ),
-                                runtimeHealth,
-                                () -> restCoordinator.complete(preferences, requestedActivity)
+        long expectedSessionId = call.getData().optLong("restSessionId", 0L);
+        if (expectedSessionId <= 0L) {
+            call.reject(RestCompletionIntegrityGate.RETRYABLE_MESSAGE);
+            return;
+        }
+        boolean queued = FlowForegroundService.requestRestCompletion(
+                expectedSessionId,
+                requestedActivity,
+                restCoordinator,
+                new FlowForegroundService.RestCompletionCallback() {
+                    @Override public void onSuccess(NativeFlowRestCoordinator.Result result) {
+                        getActivity().runOnUiThread(() -> call.resolve(result.response));
+                    }
+
+                    @Override public void onDeferred() {
+                        getActivity().runOnUiThread(
+                                () -> call.reject(RestCompletionIntegrityGate.RETRYABLE_MESSAGE)
                         );
-                if (attempt.deferred()) {
-                    getActivity().runOnUiThread(
-                            () -> call.reject(RestCompletionIntegrityGate.RETRYABLE_MESSAGE)
-                    );
-                    return;
-                }
-                NativeFlowRestCoordinator.Result outcome = attempt.value;
-                if (outcome.needServiceRefresh) {
-                    try {
-                        serviceController.sendAction(FlowForegroundService.ACTION_COMPLETE_REST);
-                    } catch (Exception serviceError) {
-                        // commit 已成功，状态已持久化到 GRACE。服务下次启动时 load() 会读到正确状态。
-                        // 不中断流程，前端仍收到成功响应，避免用户被卡在休息完成按钮上。
-                        android.util.Log.w("NativeFlowPlugin",
-                                "startService failed after rest commit", serviceError);
+                    }
+
+                    @Override public void onRejected(String message, Exception error) {
+                        getActivity().runOnUiThread(() -> {
+                            if (error == null) call.reject(message);
+                            else call.reject(message, error);
+                        });
                     }
                 }
-                getActivity().runOnUiThread(() -> call.resolve(outcome.response));
-            } catch (NativeFlowRestCoordinator.RestPendingException pending) {
-                getActivity().runOnUiThread(() -> call.reject("休息尚未完成，请继续完成本次引导。"));
-            } catch (Exception error) {
-                getActivity().runOnUiThread(() -> call.reject("保存休息记录失败", error));
-            }
-        });
+        );
+        if (!queued) call.reject(RestCompletionIntegrityGate.RETRYABLE_MESSAGE);
     }
 
     @PluginMethod public void requestEmergencyUnlock(PluginCall call) {
@@ -376,7 +442,6 @@ public class NativeFlowPlugin extends Plugin {
                 && current.getBoolean("monitoringEnabled", true);
         prefs().edit()
                 .putStringSet(PreferenceUtils.PREF_TARGET_APPS, filtered)
-                .putBoolean("serviceConfigured", true)
                 .apply();
         try {
             if (shouldReload) serviceController.sendAction(FlowForegroundService.ACTION_RELOAD);
