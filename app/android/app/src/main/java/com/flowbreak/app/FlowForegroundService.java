@@ -862,6 +862,18 @@ public class FlowForegroundService extends Service {
         checkpointInteractionAvailable = machineSnapshot.checkpointInteractionAvailable;
         checkpointForegroundPackage = machineSnapshot.checkpointForegroundPackage;
         checkpointInitialized = isUsableCheckpoint(machineSnapshot, targetApps);
+        // A process restart clears the live foreground package before the
+        // first monitor tick.  When a durable BLOCKED state is restored, keep
+        // only a target package that was persisted by the last trusted
+        // checkpoint (or by the machine itself as a conservative fallback).
+        // This lets the first failed live query fail closed without silently
+        // dropping an already-visible blocker for the cold-start window.
+        if (staticForegroundPackage == null || staticForegroundPackage.isEmpty()) {
+            staticForegroundPackage = restoreBlockedForegroundPackage(
+                    machineSnapshot,
+                    targetApps
+            );
+        }
         if (checkpointInitialized) {
             machine.seedCheckpoint(checkpointWallMs, checkpointTargetActive);
             usageAccumulator.restoreObservationAnchor(
@@ -924,6 +936,38 @@ public class FlowForegroundService extends Service {
                 && !snapshot.checkpointForegroundPackage.isEmpty()
                 && targets != null
                 && targets.contains(snapshot.checkpointForegroundPackage);
+    }
+
+    /**
+     * Recover the last target package needed to preserve a BLOCKED overlay
+     * across a cold service start.  Never trust a package outside the current
+     * target set, and prefer the checkpoint only when it recorded a live,
+     * interactive target observation.  The persisted machine package is a
+     * conservative fallback for older checkpoints that lack those fields.
+     */
+    static String restoreBlockedForegroundPackage(
+            FlowServiceStateStore.MachineSnapshot snapshot,
+            Set<String> targets
+    ) {
+        if (snapshot == null
+                || snapshot.persistedState != BlockStateMachine.State.BLOCKED
+                || targets == null
+                || targets.isEmpty()) {
+            return "";
+        }
+        String checkpointPackage = snapshot.checkpointForegroundPackage == null
+                ? ""
+                : snapshot.checkpointForegroundPackage;
+        if (snapshot.checkpointTargetActive
+                && snapshot.checkpointInteractionAvailable
+                && !checkpointPackage.isEmpty()
+                && targets.contains(checkpointPackage)) {
+            return checkpointPackage;
+        }
+        String blockedPackage = snapshot.blockedPackage == null
+                ? ""
+                : snapshot.blockedPackage;
+        return targets.contains(blockedPackage) ? blockedPackage : "";
     }
 
     private void beginRestSession(String beginRequestToken) {
