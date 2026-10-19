@@ -3,25 +3,29 @@
 > 这是「项目现在在哪」的唯一当前视图。易变事实（HEAD、测试数、Run ID、APK SHA）只出现在本文档与 `TESTING.md` 的验证快照中。
 > 2026-08-12 的「真机验收 FAILED / RELEASE BLOCKED」快照已降级为历史记录（见下方「历史状态」），不再代表当前状态。
 
-## 当前集成候选状态（2026-10-18）
+## 当前集成候选状态（2026-10-19）
 
-这是集成工作区的进度快照，不是最终候选或发布验收。集成工作树仍含未提交代码、测试、工作流和文档 WIP；**最终源代码 SHA、APK/AAB SHA 均未确定**。不要把本地工作树的检查、体验分支结果或既有签名包结果描述成对最终候选的验证。
+这是本轮冻结前的集成候选快照。功能代码基线已完成收口，文档和测试修补随后作为候选冻结提交；最终交付仍保持 **`INTEGRATION_ENGINEERING_READY / DEVICE_ACCEPTANCE_PENDING`**，不是正式发布批准。
 
 | 项 | 当前可核验状态 |
 | ---- | ---- |
-| master | `695b11f0fe68e4260864c638fda51b949c3a04f8`（受保护主分支；集成分支包含该基线） |
-| 集成工作区 | `integration/experience-quality-20261018`，提交头 `509f503af3114894e2647d480f7e93dde10ece7d`；其后仍有未提交 WIP，因此不是最终候选 SHA |
-| 最终候选与产物 | **NOT_FINALIZED**；最终 SHA、APK/AAB SHA 与签名/来源证明待集成差异审阅和精确 SHA 构建后确定 |
-| REST 完成完整性 WIP | **PENDING_VALIDATION** — 候选正在加入：`completeRestAndUnlock` 绑定 `restSessionId`，在唯一 monitor Handler 上先回放完整 REST UsageEvents；查询或 coverage 不完整时 `DEFER`，完整历史达到 5 秒则取消，低于阈值才进入 completion coordinator。BEGIN/CANCEL 使用 UUID request token；BEGIN promise 尚未确认时页面卸载需使用该 token 发起取消。当前没有最终 SHA 上的测试/审阅结论，不得记为已修复或 Gate F 通过 |
-| Gate A–E | 既有发布基线的历史/沿用证据仍按各门禁记录保留；**不构成本集成候选的精确 SHA 验收** |
-| Gate F | **FAIL** — Issue #28 / `FB-P1-08` 仍为 OPEN。既有真实设备记录显示 Bilibili 前台约 33 秒时 REST 页面仍显示倒计时；摘要缺少当时原生持久状态、tick、分类器和作弊判定证据，不能据此断定根因。新的 24 小时稳定性运行 **NOT_EXECUTED** |
-| Gate G | **PENDING** — 跨机器签名恢复 `NOT_YET_TESTED`；真实 lower-version → current-version 签名升级 `NOT_TESTED`。同版本覆盖安装不能替代版本升级；本候选无签名发布包 |
-| Gate H | **PENDING** — PR #33 的无手机合规准备与国内无障碍独立告知已合并，但公开政策 URL、发行主体/联系方式、备案与商店材料/提交均未完成；PR #39 仍 OPEN，当前头部 verify 通过、release job 跳过，现有 review 针对较早提交，当前头部独立复审待完成 |
+| master | `695b11f0fe68e4260864c638fda51b949c3a04f8`（已重新 `fetch origin`；候选分支以该基线为祖先） |
+| 集成分支 | `integration/experience-quality-20261019`；功能代码基线 `64d2e42d675b0f6ef757e1084d68d285c1ac4daa`；候选工作树在文档冻结前保持干净 |
+| 候选身份 | **INTEGRATION_ENGINEERING_READY / DEVICE_ACCEPTANCE_PENDING**；未合并到 `master`，未创建正式 tag |
+| unsigned 产物 | Play AAB SHA-256 `f2ca24a51e3b9de970c3e65e66ad76c33c95ad0a81816428e6c4300423d9a7e9`；Domestic unsigned Release APK SHA-256 `3f0e882542e081268611ef07821016e165f5a696b4d8f420b203eaa9479d6296`；`versionCode=1001000`、`versionName=1.1.0`，provenance 与版本一致 |
+| 自动化快照 | Vitest **290/290 PASS**（单 worker 重跑，27 files）；UI smoke 44/44；品牌 36/36；Provenance 20/20；Release policy 8/8；Privacy static 15/15；Android 双渠道 JVM/Lint/Debug/unsigned Release、Room/Manifest/资产同步均 PASS（详见 [TESTING.md](TESTING.md)） |
+| npm audit | **BLOCKED / NOT_PASS** — 当前镜像 registry 对审计请求返回 404/`NOT_IMPLEMENTED`；不能把网络阻塞记为安全通过 |
+| API 36 AVD | **受控范围 PASS**：`Medium_Phone_API_36.0` / `emulator-5554`；启动、权限页 0/2、系统 Usage Access/Overlay 页面往返、个性化、目标应用选择、首页、统计、个人中心、阻断设置和运行诊断均已截图；证据目录 `D:\temp\flowbreak-avd-evidence-20261019` |
+| AVD 诊断边界 | 诊断页显示服务心跳、监控线程、设备支持、监控配置、关键权限、Room v3 和 1 个目标应用；这是模拟器受控证据，不是 Redmi/HyperOS 后台稳定性或真实用户证据 |
+| Gate A–E | 既有发布基线的历史/支持范围证据保留；不转移为本候选的真实设备验收 |
+| Gate F | **FAIL** — Issue #28 / `FB-P1-08` 仍为 OPEN；Bilibili 前台约 33 秒历史失败与 24 小时稳定性 `NOT_EXECUTED` 保持不变，AVD 不关闭该门禁 |
+| Gate G | **PENDING** — 跨机器签名恢复 `NOT_YET_TESTED`；真实 lower-version → current-version 签名升级 `NOT_TESTED`；本候选没有签名发布包 |
+| Gate H | **PENDING** — 发行主体、公开政策 URL/联系方式、备案与商店材料/提交均未完成；当前候选仅有无手机合规准备 |
 | Gate I | **PENDING / NOT_STARTED** — 尚无真实小规模 Beta |
-| 发布 | `STORE_READY=NO`；`PRODUCTION_RELEASE_APPROVED=NO`；不得因模拟器、静态审计或自动化结果创建正式发布 tag 或发布 |
-| Gate F 后续取证 | [FB-P1-08 设备验收交接](FB-P1-08-FINAL-DEVICE-HANDOFF.md) 说明现有证据边界和未来复验流程；当前没有新的真实设备验收 |
+| 独立复审 | **PARTIAL / PENDING** — 已有只读集成风险复核；PR #39 当前头部与最终候选仍需独立审阅，不把开发者自检称为完成 |
+| 发布 | `STORE_READY=NO`；`PRODUCTION_RELEASE_APPROVED=NO`；不得合并、force-push、读取生产签名材料或创建正式 release |
 
-本工作允许使用 Android 虚拟设备开展受控功能与界面验证，但 AVD 不模拟 Redmi/HyperOS 的后台调度，也不能替代 Gate F 的真实设备与 24 小时稳定性门禁。准确的候选验证快照应在最终提交后写入本文件与 [TESTING.md](TESTING.md)。
+本工作允许使用 Android 虚拟设备开展受控功能与界面验证，但 AVD 不模拟 Redmi/HyperOS 的后台调度，也不能替代 Gate F 的真实设备与 24 小时稳定性门禁。候选文档、精确 SHA、CI 和 Draft PR 仍需在本轮提交后更新。
 
 ## 体验分支历史快照（非当前候选）
 

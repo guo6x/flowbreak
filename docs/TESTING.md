@@ -2,6 +2,33 @@
 
 > 定义自动化测试层级、CI 范围、真机测试矩阵与证据标准。易变的数字只出现在下方「验证快照」；历史验证记录在 `docs/archive/progress/`（含 `VERIFICATION.md` 的 Beta 1.1 记录）。
 
+## 本轮集成候选验证快照（2026-10-19）
+
+- 分支：`integration/experience-quality-20261019`；功能代码基线 `64d2e42d675b0f6ef757e1084d68d285c1ac4daa`；`origin/master=695b11f0fe68e4260864c638fda51b949c3a04f8` 已重新核对。
+- 本快照用于候选冻结，目标状态为 **`INTEGRATION_ENGINEERING_READY / DEVICE_ACCEPTANCE_PENDING`**。模拟器、JVM、静态检查和 unsigned 产物都不能关闭真实设备 Gate F。
+
+| 检查 | 结果与边界 |
+| ---- | ---- |
+| Frontend (Vitest) | **290 / 290 PASS**，27 个测试文件；修补 `TargetApps` Native 保存用例，等待按钮可用后再点击；Windows 复核使用单 worker，避免并行 fork 启动超时 |
+| TypeScript / Vite | **PASS**（`npm run build`） |
+| 网页逐页 / 交互 | **44 / 44 PASS**；涵盖窄屏、导航、统计图、Web 休息控制和完成态 |
+| 品牌一致性 | **36 / 36 PASS**（`npm run test:brand`） |
+| Provenance / Release policy | **20 / 20 PASS**、**8 / 8 PASS** |
+| Privacy static | **15 / 15 PASS**；静态网络与 SDK 清单检查通过 |
+| Android JVM | Domestic **482 / 482 PASS**；Play **449 / 449 PASS**；0 failure / 0 error / 0 skipped（JUnit XML 汇总） |
+| 双渠道 Lint | **PASS**；0 error（warnings 仅为既有工具链提示） |
+| 双渠道 Debug / unsigned Release | **PASS**；Play AAB 与 Domestic unsigned Release APK 均成功生成，R8/Room/Manifest 检查通过 |
+| Web → Android 同步 | **49 / 49 PASS**；Capacitor Web 资产与 Android assets SHA-256 一致 |
+| unsigned 产物 provenance | Play AAB `f2ca24a51e3b9de970c3e65e66ad76c33c95ad0a81816428e6c4300423d9a7e9`；Domestic unsigned Release APK `3f0e882542081268611ef07821016e165f5a696b4d8f420b203eaa9479d6296`；`versionCode=1001000` / `versionName=1.1.0` |
+| npm audit | **BLOCKED / NOT_PASS**；当前镜像 registry 返回 404/`NOT_IMPLEMENTED`，不能据此宣称依赖审计通过 |
+| API 36 AVD 启动与页面 | **受控范围 PASS**：`Medium_Phone_API_36.0` / Android 16 / API 36 / `emulator-5554`；Domestic debug 安装后启动，Onboarding、权限页、个性化、目标应用、首页、统计、个人中心、阻断设置、诊断均已截图 |
+| AVD 权限往返 | 初始权限页 **0/2**；Usage Access 与 Display over other apps 系统页可打开并返回，随后仅在模拟器上通过 app-op 受控授予进行后续页面 smoke；未触碰真实手机、未读取签名材料 |
+| AVD 诊断与服务 | 诊断页显示服务心跳、监控线程、设备支持、已配置、关键权限、Room v3 和 1 个目标应用；服务 `isForeground=true`。这是模拟器证据，不是 Redmi/HyperOS 或 24h 稳定性证据 |
+| 崩溃检查 | 本次筛选日志未见 `FATAL EXCEPTION` / `AndroidRuntime` fatal；WebView variations seed 告警属于系统环境提示 |
+| Instrumentation / 真机 / 发布 | 未运行 connected instrumentation；无真实手机/OEM smoke、24h soak、生产签名、商店审核或正式发布 |
+
+AVD 截图与脱敏日志保存在工作区外：`D:\temp\flowbreak-avd-evidence-20261019`。该目录中的截图仅证明指定 API 36 模拟器的受控页面和权限状态，不能转译为 Gate F/G/H/I 通过。
+
 ## 本轮本地验证快照（2026-10-18，默认设置 / 隐私分享 / 权限页回归）
 
 - 分支：`product/experience-polish-20261018`；本轮源码与测试提交：`154a7cfab7da1c7924ae1acb53acd63a931c2626`。文档快照在后续单独提交，不改变 App 运行时源码。

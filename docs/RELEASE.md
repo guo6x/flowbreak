@@ -7,7 +7,7 @@
 
 **RELEASE PREPARATION · NOT APPROVED**（当前状态快照见 [CURRENT_STATUS.md](CURRENT_STATUS.md)；测试和候选来源事实见 [TESTING.md](TESTING.md)）。
 
-- 集成工作树仍有未提交 WIP，最终候选源 SHA 与 APK/AAB provenance 均未冻结。Gate A–E 的既有 PASS 是已记录的历史/支持范围决策；它们不是本轮集成候选的精确 SHA 验收。
+- 本轮集成候选的功能代码基线为 `64d2e42d675b0f6ef757e1084d68d285c1ac4daa`；文档/测试修补将在候选冻结提交中落盘。当前 unsigned APK/AAB 产物均来自该功能基线，不能冒充最终签名发布包；候选冻结提交后的 CI 仍需对精确 HEAD 重新生成并核对 provenance。Gate A–E 的既有 PASS 是已记录的历史/支持范围决策；它们不是本轮集成候选的精确 SHA 验收。
 - **GATE F = FAIL**：Issue #28 / `FB-P1-08` 仍 OPEN。真实设备摘要报告 Bilibili 前台约 33 秒时 REST 页面仍倒计时；摘要未含足够原生诊断，根因未定。**24 小时稳定性运行 NOT_EXECUTED**。见 [设备验收交接](FB-P1-08-FINAL-DEVICE-HANDOFF.md)。
 - **GATE G = PENDING**：`CROSS_MACHINE_SIGNING_RECOVERY=NOT_YET_TESTED`，`TRUE_VERSION_UPGRADE=NOT_TESTED`。本地恢复、已有安装/同签名覆盖安装与 off-machine backup 记录不能替代这两个独立验证，也不等于本轮集成候选有签名发布包。
 - **GATE H = PENDING**：PR #33 的无手机准备及国内无障碍独立告知已合并；发行主体、公开支持联系方式、隐私政策 URL、最终包网络/依赖审查、平台申报与审核资质仍未完成。PR #39 仍 OPEN；其当前头部的自动验证通过、release job 跳过，但现有 Codex review comment 针对较早提交，当前头部独立复审仍待完成。静态网络审计不证明运行时没有网络流量。
@@ -18,9 +18,9 @@
 
 | Gate | 内容 | 状态 |
 | ---- | ---- | ---- |
-| GATE A | Core automated validation | **PASS — historical baseline; candidate not revalidated** |
+| GATE A | Core automated validation | **PASS — local candidate checks recorded; hosted exact-HEAD run pending** |
 | GATE B | Redmi targeted P1/P2 revalidation | **PASS — historical R1–R4 evidence; not a new-build smoke** |
-| GATE C | Artifact Provenance / Controlled Release Build | **PASS — historical pipeline evidence; final candidate not built** |
+| GATE C | Artifact Provenance / Controlled Release Build | **PASS — functional-baseline unsigned provenance recorded; exact frozen HEAD rebuild pending** |
 | GATE D | Supported OEM scope + fail-closed boundary | **PASS_SUPPORTED_SCOPE — prior supported-scope evidence** |
 | GATE E | Usage accounting accuracy / blocking latency + documented Android execution boundary | **PASS_SUPPORTED_SCOPE_WITH_DOCUMENTED_PLATFORM_LIMITATION — prior evidence only** |
 | GATE F | 24h stability + Protection Integrity | **FAIL — Issue #28 / FB-P1-08 remains OPEN; 24h run NOT_EXECUTED** |
@@ -224,7 +224,7 @@ GATE H remains **PENDING**. Do not submit store forms, invent a contact, or mark
 - [x] `testPlayDebugUnitTest`（244）、`testDomesticDebugUnitTest`（254）、lint 双渠道通过
 - [x] `assemblePlayDebug`、`assembleDomesticDebug`、`bundlePlayRelease`、`assembleDomesticRelease` 通过，R8 mapping 存在
 - [x] Room schema drift 检查通过（migrations 6/6，无未提交 schema 变更）
-- [x] npm audit 门禁通过（生产依赖无 high，全依赖无 critical）
+- [ ] npm audit 门禁通过（本轮镜像 registry 返回 404/`NOT_IMPLEMENTED`，状态为 **BLOCKED / NOT_PASS**；网络恢复后需在精确候选 SHA 重跑）
 - [x] 构建产物持久上传/归档并可复核（GATE C，PASS：`flowbreak-unsigned-<sha>` artifact，retention 90 天，已实际下载复核）
 - [x] provenance 工具链测试 `npm run test:provenance` 20/20（原 18 + signing evidence 2）
 - [x] Web asset sync 校验（dist → Android assets SHA-256 全量一致，缺失/mismatch 即 FAIL）
@@ -253,7 +253,7 @@ GATE H remains **PENDING**. Do not submit store forms, invent a contact, or mark
 
 - [x] Play 清单不含 AccessibilityService；国内版包含且默认关闭
 - [ ] 两个 applicationId 可同时安装，设置互不污染（待发布版最终验证）
-- [ ] 本体验分支 release-candidate 的 AAB/APK 签名与安装验收（产物尚未构建）
+- [ ] 本体验分支 release-candidate 的 AAB/APK 签名与安装验收（当前只有功能基线 unsigned 产物；生产签名与安装验收仍归 Gate G）
 - [x] 既有 final-signed Domestic APK 安装 / `adb install -r` 数据保留验证通过（GATE G）；真实 lower-version 到 current-version 升级仍未测试，且不代表本分支 release-candidate 已验收
 
 ### 真机设备矩阵

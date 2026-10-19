@@ -113,7 +113,7 @@ describe("TargetApps", () => {
   it("Native模式保存参数正确", async () => {
     isNative = true;
     renderTargetApps();
-    await waitFor(() => { expect(screen.getByText("保存更改")).toBeInTheDocument(); });
+    await waitFor(() => { expect(screen.getByText("保存更改")).toBeEnabled(); });
     fireEvent.click(screen.getByText("保存更改"));
     await waitFor(() => {
       expect(NativeFlow.saveTargetApps).toHaveBeenCalledWith({ packageNames: ["com.test.a"] });
