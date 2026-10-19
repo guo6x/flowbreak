@@ -2,25 +2,26 @@
 
 > 定义自动化测试层级、CI 范围、真机测试矩阵与证据标准。易变的数字只出现在下方「验证快照」；历史验证记录在 `docs/archive/progress/`（含 `VERIFICATION.md` 的 Beta 1.1 记录）。
 
-## 本轮集成候选验证快照（2026-10-19）
+## 本轮集成候选验证快照（2026-10-20）
 
-- 分支：`integration/experience-quality-20261019`；功能代码基线 `64d2e42d675b0f6ef757e1084d68d285c1ac4daa`；候选冻结 HEAD `4bd4d4cad44d265301329fc43cfe92034018f7d9`；`origin/master=695b11f0fe68e4260864c638fda51b949c3a04f8` 已重新核对。
-- Draft PR #42 的 hosted verify Run `39226414218` 对精确 HEAD **PASS**；目标状态仍为 **`INTEGRATION_ENGINEERING_READY / DEVICE_ACCEPTANCE_PENDING`**。模拟器、JVM、静态检查和 unsigned 产物都不能关闭真实设备 Gate F。
+- 分支：`integration/experience-quality-20261019`；功能代码基线 `64d2e42d675b0f6ef757e1084d68d285c1ac4daa`；当前候选 HEAD `5f03872789f720ba50b0c8c0a6ecafe273c67d11`；`origin/master=695b11f0fe68e4260864c638fda51b949c3a04f8` 已重新核对。
+- Draft PR #42 的 hosted verify [Run `39274263247`](https://github.com/guo6x/flowbreak/actions/runs/39274263247) 对精确 HEAD **PASS**；目标状态仍为 **`INTEGRATION_ENGINEERING_READY / DEVICE_ACCEPTANCE_PENDING`**。模拟器、JVM、静态检查和 unsigned 产物都不能关闭真实设备 Gate F。
 
 | 检查 | 结果与边界 |
 | ---- | ---- |
-| Frontend (Vitest) | **290 / 290 PASS**，27 个测试文件；修补 `TargetApps` Native 保存用例，等待按钮可用后再点击；Windows 复核使用单 worker，避免并行 fork 启动超时 |
+| Frontend (Vitest) | **291 / 291 PASS**，27 个测试文件；覆盖设置/受限应用保存后服务动作失败的真实状态对账；Windows 复核使用单 worker，避免并行 fork 启动超时 |
 | TypeScript / Vite | **PASS**（`npm run build`） |
 | 网页逐页 / 交互 | **44 / 44 PASS**；涵盖窄屏、导航、统计图、Web 休息控制和完成态 |
 | 品牌一致性 | **36 / 36 PASS**（`npm run test:brand`） |
 | Provenance / Release policy | **20 / 20 PASS**、**8 / 8 PASS** |
 | Privacy static | **15 / 15 PASS**；静态网络与 SDK 清单检查通过 |
-| Android JVM | Domestic **482 / 482 PASS**；Play **449 / 449 PASS**；0 failure / 0 error / 0 skipped（JUnit XML 汇总） |
+| Android JVM | Domestic **484 / 484 PASS**；Play **451 / 451 PASS**；当前工作树 JUnit XML 汇总为 0 failure / 0 error / 0 skipped（CI 同一命令双渠道执行并通过） |
 | 双渠道 Lint | **PASS**；0 error（warnings 仅为既有工具链提示） |
 | 双渠道 Debug / unsigned Release | **PASS**；Play AAB 与 Domestic unsigned Release APK 均成功生成，R8/Room/Manifest 检查通过 |
 | Web → Android 同步 | **49 / 49 PASS**；Capacitor Web 资产与 Android assets SHA-256 一致 |
-| unsigned 产物 provenance | hosted Run `39226414218` / source `4bd4d4c…`：Play AAB `3b0d00d1ef06aba8d8103faed2bb1abef94c96cdd30035b5f084355d3d2f9974`；Domestic unsigned Release APK `a63cd51c7d7592912b1fedbb38055fb1d05430ade9de00f677ddecdb5c2787d5`；`versionCode=1` / `versionName=ci-763e482e9dc16d9d84740466f04a9135e0f7f1ab`。本地 `1.1.0` unsigned 产物仅为功能基线/AVD 使用 |
-| npm audit | **BLOCKED / NOT_PASS**；当前镜像 registry 返回 404/`NOT_IMPLEMENTED`，不能据此宣称依赖审计通过 |
+| unsigned 产物 provenance | hosted Run `39274263247` / source `5f038727…`：Play AAB `2a72d86c5b0c47876b728b4b5942bde3063172530f7035fcea00efb651fbb3ca`；Domestic unsigned Release APK `b052c8b02f7a084a92249520b6a165f9a42b1c45f04b3124a198acdac5694cdc`；`versionCode=1` / `versionName=ci-398796f332bb09dec0ea10642ac5bc9062cda78b`。本地 `1.1.0` unsigned 产物仅为功能基线/AVD 使用 |
+| npm audit（GitHub CI） | **PASS — 0 vulnerabilities**；生产依赖 high、全依赖 critical，以及 build 后回归重跑均返回 `found 0 vulnerabilities` |
+| npm audit（本地环境） | **BLOCKED / NOT_PASS**；当前配置的 `https://registry.npmmirror.com` 返回 404/`NOT_IMPLEMENTED`，不能把本地镜像阻塞写成安全审计通过；该状态不覆盖 hosted CI 结果 |
 | API 36 AVD 启动与页面 | **受控范围 PASS**：`Medium_Phone_API_36.0` / Android 16 / API 36 / `emulator-5554`；Domestic debug 安装后启动，Onboarding、权限页、个性化、目标应用、首页、统计、个人中心、阻断设置、诊断均已截图 |
 | AVD 权限往返 | 初始权限页 **0/2**；Usage Access 与 Display over other apps 系统页可打开并返回，随后仅在模拟器上通过 app-op 受控授予进行后续页面 smoke；未触碰真实手机、未读取签名材料 |
 | AVD 诊断与服务 | 诊断页显示服务心跳、监控线程、设备支持、已配置、关键权限、Room v3 和 1 个目标应用；服务 `isForeground=true`。这是模拟器证据，不是 Redmi/HyperOS 或 24h 稳定性证据 |

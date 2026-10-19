@@ -173,9 +173,9 @@
         <h1 id="report-title">让保护承诺，<br>始终不超过真实能力。</h1>
         <p class="hero-copy">这份简报整理当前集成候选的证据边界与剩余发布门禁。它是供团队审阅的离线草稿，不是产品通过证书，也不替代项目状态与测试单一事实源。</p>
         <div class="hero-meta">
-          <span>复核日期 <strong>2026-10-19</strong></span>
+          <span>复核日期 <strong>2026-10-20</strong></span>
           <span>候选身份 <strong>工程就绪 · 待设备验收</strong></span>
-          <span>冻结 HEAD <strong>4bd4d4c</strong></span>
+          <span>冻结 HEAD <strong>5f03872</strong></span>
         </div>
       </div>
     </section>
@@ -224,29 +224,29 @@
             <h3>候选已冻结，等待设备门禁</h3>
             <p>功能代码、文档/测试和发布流水线修补已冻结并通过 hosted verify。当前仍只能称为“工程候选”，不是签名发布包。</p>
             <div class="identity-lines">
-              <div class="identity-line"><span>候选冻结 HEAD</span><strong>4bd4d4cad44d…</strong></div>
-              <div class="identity-line"><span>CI Run / unsigned</span><strong>39226414218 · 已核验</strong></div>
+              <div class="identity-line"><span>候选冻结 HEAD</span><strong>5f03872789f7…</strong></div>
+              <div class="identity-line"><span>CI Run / unsigned</span><strong>39274263247 · 已核验</strong></div>
               <div class="identity-line"><span>发布决定</span><strong>STORE READY = NO</strong></div>
             </div>
           </article>
           <div class="evidence-stack" aria-label="证据核验清单">
-            <div class="evidence-item"><strong>源代码与测试必须同 SHA</strong><span>Run 39226414218 的 provenance、PR head 和 artifact manifest 均指向精确冻结 HEAD `4bd4d4c…`。</span></div>
+            <div class="evidence-item"><strong>源代码与测试必须同 SHA</strong><span>Run 39274263247 的 provenance、PR head 和 artifact manifest 均指向精确冻结 HEAD `5f038727…`。</span></div>
             <div class="evidence-item"><strong>虚拟设备证据有清晰边界</strong><span>可覆盖页面、权限、状态和受控 REST 流程；不代表真实设备 OEM 行为。</span></div>
-            <div class="evidence-item"><strong>REST 完成完整性 · 候选复审范围</strong><span>候选将绑定 restSessionId，在 monitor Handler 上回放完整 REST UsageEvents；查询/coverage 失败时 DEFER，完整目标历史 ≥5 秒才允许取消。BEGIN/CANCEL 采用 UUID token，并处理 BEGIN 未确认时页面卸载的取消竞态。精确冻结 HEAD 的独立审阅仍待完成。</span></div>
+            <div class="evidence-item"><strong>REST 完成完整性 · 候选复审范围</strong><span>候选将绑定 restSessionId，在 monitor Handler 上回放完整 REST UsageEvents；查询/coverage 失败时 DEFER，完整目标历史 ≥5 秒才允许取消。BEGIN/CANCEL 采用 UUID token，并处理 BEGIN 未确认时页面卸载的取消竞态。精确冻结 HEAD 已完成独立差异复审。</span></div>
             <div class="evidence-item"><strong>不要编造产物或真人证据</strong><span>AVD 受控页面证据与 unsigned provenance 已记录；没有新的 Redmi/HyperOS 真机复测、24 小时稳定性或正式签名发布证据。</span></div>
           </div>
         </div>
       </section>
 
       <section class="timeline" aria-label="尚待完成的工作">
-        <article class="timeline-item"><span class="timeline-number">01</span><h3>冻结并复审候选</h3><p>精确 HEAD 与 unsigned provenance 已冻结并通过 CI；独立差异审查仍待完成。</p><small>候选来源 · 自动化 · 产物溯源</small></article>
+        <article class="timeline-item"><span class="timeline-number">01</span><h3>冻结并复审候选</h3><p>精确 HEAD 与 unsigned provenance 已冻结并通过 CI；独立差异审查已完成。</p><small>候选来源 · 自动化 · 产物溯源</small></article>
         <article class="timeline-item"><span class="timeline-number">02</span><h3>关闭独立发布门禁</h3><p>G 的跨机恢复与真实版本升级是两个独立事项；H 还需发行主体、公开联系方式/URL 和平台材料。</p><small>GATE G · GATE H</small></article>
         <article class="timeline-item"><span class="timeline-number">03</span><h3>保持诚实的设备边界</h3><p>无手机期间继续用 AVD 做受控验证，但 Gate F 失败与 24h 未执行状态不变。</p><small>GATE F · GATE I</small></article>
       </section>
 
       <aside class="notice" aria-labelledby="notice-title">
         <span class="notice-mark" aria-hidden="true">i</span>
-        <div><h3 id="notice-title">这不是发布批准</h3><p>PR #33 已合并的是无手机合规准备与告知实现，不代表完成商店申报。PR #39 仍开放；当前头部尚未完成独立复审。静态网络审计、自动化、AVD 与旧签名包都不能证明最终运行包的零网络流量或 Gate F 通过。</p></div>
+        <div><h3 id="notice-title">这不是发布批准</h3><p>PR #33 已合并的是无手机合规准备与告知实现，不代表完成商店申报。PR #42 仍为 Draft/Open；当前头部已完成独立差异复审。静态网络审计、自动化、AVD 与旧签名包都不能证明最终运行包的零网络流量或 Gate F 通过。</p></div>
       </aside>
 
       <section class="sources" aria-labelledby="sources-title">
