@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Build;
+import android.os.SystemClock;
 import androidx.core.content.ContextCompat;
 import com.getcapacitor.JSObject;
 
@@ -70,9 +71,49 @@ public final class NativeFlowServiceController {
      */
     public JSObject blockState(SharedPreferences prefs) {
         JSObject result = new JSObject();
-        result.put("state", prefs.getString(
+        String state = prefs.getString(
                 "blockState", FlowForegroundService.getState().name()
-        ));
+        );
+        long restSessionId = prefs.getLong(
+                FlowForegroundService.PREF_REST_SESSION_ID, 0L
+        );
+        long restStartedAt = prefs.getLong(
+                FlowForegroundService.PREF_REST_STARTED_AT, 0L
+        );
+        long restStartedElapsedAt = prefs.getLong(
+                FlowForegroundService.PREF_REST_STARTED_ELAPSED_AT, 0L
+        );
+        int restStartedBootCount = prefs.getInt(
+                FlowForegroundService.PREF_REST_STARTED_BOOT_COUNT, -1
+        );
+        long restRequiredMs = prefs.getLong(
+                FlowForegroundService.PREF_REST_REQUIRED_MS, 0L
+        );
+        long nowWallMs = System.currentTimeMillis();
+        long nowElapsedMs = SystemClock.elapsedRealtime();
+        boolean restClockValid = !BlockStateMachine.State.RESTING.name().equals(state)
+                || RestSessionClock.isValid(
+                        restSessionId,
+                        prefs.getLong(
+                                FlowForegroundService.PREF_REST_CLOCK_INVALIDATED_SESSION_ID,
+                                0L
+                        ),
+                        restStartedAt,
+                        restStartedElapsedAt,
+                        restStartedBootCount,
+                        nowWallMs,
+                        nowElapsedMs,
+                        RestSessionClock.currentBootCount(context)
+                );
+        long remainingMs = BlockStateMachine.State.RESTING.name().equals(state)
+                        && restClockValid
+                ? RestSessionClock.remainingMs(
+                        restStartedElapsedAt, restRequiredMs, nowElapsedMs
+                )
+                : 0L;
+        long remainingSeconds = remainingMs / 1000L
+                + (remainingMs % 1000L == 0L ? 0L : 1L);
+        result.put("state", state);
         result.put("sessionSeconds", prefs.getLong(
                 "sessionMs", FlowForegroundService.getSessionSeconds() * 1000L
         ) / 1000L);
@@ -82,15 +123,12 @@ public final class NativeFlowServiceController {
         result.put("blockedPackage", prefs.getString(
                 "blockedPackage", FlowForegroundService.getBlockedPackage()
         ));
-        result.put("restStartedAt", prefs.getLong(
-                FlowForegroundService.PREF_REST_STARTED_AT, 0L
-        ));
-        result.put("restRequiredSeconds", prefs.getLong(
-                FlowForegroundService.PREF_REST_REQUIRED_MS, 0L
-        ) / 1000L);
-        result.put("restSessionId", prefs.getLong(
-                FlowForegroundService.PREF_REST_SESSION_ID, 0L
-        ));
+        result.put("restStartedAt", restStartedAt);
+        result.put("restRequiredSeconds", restRequiredMs / 1000L);
+        result.put("restSessionId", restSessionId);
+        result.put("restClockValid", restClockValid);
+        result.put("restRemainingMs", remainingMs);
+        result.put("restRemainingSeconds", remainingSeconds);
         return result;
     }
 

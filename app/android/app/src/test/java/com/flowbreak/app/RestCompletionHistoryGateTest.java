@@ -140,4 +140,57 @@ public class RestCompletionHistoryGateTest {
                 unverifiedTailMs
         );
     }
+
+    @Test
+    public void productionClockGateRejectsWallClockFastForward() {
+        assertEquals(RestCompletionHistoryGate.Decision.NOT_READY,
+                RestCompletionHistoryGate.evaluate(
+                        BlockStateMachine.State.RESTING.name(),
+                        SESSION_ID,
+                        SESSION_ID,
+                        0L,
+                        STARTED_AT,
+                        STARTED_AT,
+                        4,
+                        REQUIRED_MS,
+                        STARTED_AT + 24 * 60 * 60_000L,
+                        STARTED_AT + 10_000L,
+                        4,
+                        0L,
+                        true,
+                        0L,
+                        0L
+                ));
+    }
+
+    @Test
+    public void productionClockGateRejectsBootChangeAndTimeSetMarker() {
+        assertEquals(RestCompletionHistoryGate.Decision.NOT_READY,
+                evaluateProduction(5, 0L));
+        assertEquals(RestCompletionHistoryGate.Decision.NOT_READY,
+                evaluateProduction(4, SESSION_ID));
+    }
+
+    private static RestCompletionHistoryGate.Decision evaluateProduction(
+            int currentBootCount,
+            long invalidatedSessionId
+    ) {
+        return RestCompletionHistoryGate.evaluate(
+                BlockStateMachine.State.RESTING.name(),
+                SESSION_ID,
+                SESSION_ID,
+                0L,
+                STARTED_AT,
+                STARTED_AT,
+                4,
+                REQUIRED_MS,
+                NOW,
+                NOW,
+                currentBootCount,
+                invalidatedSessionId,
+                true,
+                0L,
+                0L
+        );
+    }
 }

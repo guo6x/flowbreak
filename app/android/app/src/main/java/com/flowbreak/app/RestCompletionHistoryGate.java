@@ -10,6 +10,7 @@ public final class RestCompletionHistoryGate {
         NOT_READY
     }
 
+    /** Legacy synthetic-clock overload retained for focused pure tests. */
     public static Decision evaluate(
             String persistedState,
             long expectedSessionId,
@@ -22,19 +23,12 @@ public final class RestCompletionHistoryGate {
             long verifiedTargetMs
     ) {
         return evaluate(
-                persistedState,
-                expectedSessionId,
-                activeSessionId,
-                completedSessionId,
-                restStartedAt,
-                restRequiredMs,
-                nowWallMs,
-                historyComplete,
-                verifiedTargetMs,
-                0L
+                persistedState, expectedSessionId, activeSessionId, completedSessionId,
+                restStartedAt, restRequiredMs, nowWallMs, historyComplete, verifiedTargetMs, 0L
         );
     }
 
+    /** Legacy synthetic-clock overload retained for focused pure tests. */
     public static Decision evaluate(
             String persistedState,
             long expectedSessionId,
@@ -43,6 +37,43 @@ public final class RestCompletionHistoryGate {
             long restStartedAt,
             long restRequiredMs,
             long nowWallMs,
+            boolean historyComplete,
+            long verifiedTargetMs,
+            long unverifiedTailMs
+    ) {
+        return evaluate(
+                persistedState,
+                expectedSessionId,
+                activeSessionId,
+                completedSessionId,
+                restStartedAt,
+                restStartedAt,
+                0,
+                restRequiredMs,
+                nowWallMs,
+                nowWallMs,
+                0,
+                0L,
+                historyComplete,
+                verifiedTargetMs,
+                unverifiedTailMs
+        );
+    }
+
+    /** Clock- and session-bound gate used by every production completion path. */
+    public static Decision evaluate(
+            String persistedState,
+            long expectedSessionId,
+            long activeSessionId,
+            long completedSessionId,
+            long restStartedAtWallMs,
+            long restStartedAtElapsedMs,
+            int restStartedBootCount,
+            long restRequiredMs,
+            long nowWallMs,
+            long nowElapsedMs,
+            int currentBootCount,
+            long invalidatedSessionId,
             boolean historyComplete,
             long verifiedTargetMs,
             long unverifiedTailMs
@@ -58,7 +89,18 @@ public final class RestCompletionHistoryGate {
         if (activeSessionId <= 0L || expectedSessionId != activeSessionId) {
             return Decision.SESSION_MISMATCH;
         }
-        if (!RestSessionValidator.isComplete(restStartedAt, restRequiredMs, nowWallMs)) {
+        if (!RestSessionClock.isValid(
+                activeSessionId,
+                invalidatedSessionId,
+                restStartedAtWallMs,
+                restStartedAtElapsedMs,
+                restStartedBootCount,
+                nowWallMs,
+                nowElapsedMs,
+                currentBootCount
+        ) || !RestSessionValidator.isComplete(
+                restStartedAtElapsedMs, restRequiredMs, nowElapsedMs
+        )) {
             return Decision.NOT_READY;
         }
         if (!historyComplete || verifiedTargetMs < 0L) return Decision.DEFER;
@@ -69,12 +111,7 @@ public final class RestCompletionHistoryGate {
         long possibleTargetMs = Long.MAX_VALUE - verifiedTargetMs < unverifiedTailMs
                 ? Long.MAX_VALUE
                 : verifiedTargetMs + unverifiedTailMs;
-        if (possibleTargetMs >= RestCheatTracker.CHEAT_THRESHOLD_MS) {
-            // The gap after the history query is not evidence of cheating, but
-            // it is too large to authorize completion safely. Ask for a fresh
-            // query rather than rewarding against an unverified threshold.
-            return Decision.DEFER;
-        }
+        if (possibleTargetMs >= RestCheatTracker.CHEAT_THRESHOLD_MS) return Decision.DEFER;
         return Decision.ALLOW;
     }
 

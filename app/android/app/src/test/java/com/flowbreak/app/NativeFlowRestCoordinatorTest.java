@@ -7,6 +7,8 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.SystemClock;
+import android.provider.Settings;
 import androidx.test.core.app.ApplicationProvider;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
@@ -18,12 +20,13 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.annotation.SQLiteMode;
 import org.robolectric.RobolectricTestRunner;
+import org.robolectric.shadows.ShadowSystemClock;
 
 /**
  * 验证休息协调器的 activity 规范化和完成态幂等重试。
  */
 @RunWith(RobolectricTestRunner.class)
-@SQLiteMode(SQLiteMode.Mode.LEGACY)
+@SQLiteMode(SQLiteMode.Mode.NATIVE)
 public class NativeFlowRestCoordinatorTest {
     private static final long ROOM_WORKER_TIMEOUT_SECONDS = 30L;
 
@@ -45,6 +48,56 @@ public class NativeFlowRestCoordinatorTest {
         assertEquals("breathe", NativeFlowRestCoordinator.normalizeActivity("walking"));
         assertEquals("breathe", NativeFlowRestCoordinator.normalizeActivity("EYE"));
         assertEquals("breathe", NativeFlowRestCoordinator.normalizeActivity(null));
+    }
+
+    @Test public void completedRestKeepsAQueuedNewBeginTokenForTheNextSession() throws Exception {
+        Context context = ApplicationProvider.getApplicationContext();
+        Settings.Global.putInt(
+                context.getContentResolver(), Settings.Global.BOOT_COUNT, 12
+        );
+        int bootCount = RestSessionClock.currentBootCount(context);
+        assertTrue(bootCount >= 0);
+        runOnWorker(() -> {
+            FlowDao dao = FlowDatabase.get(context).flowDao();
+            dao.clearAll();
+            return null;
+        });
+        SharedPreferences prefs = context.getSharedPreferences(
+                FlowServiceStateStore.PREFS, Context.MODE_PRIVATE);
+        prefs.edit().clear().commit();
+
+        ShadowSystemClock.advanceBy(180_000L, TimeUnit.MILLISECONDS);
+        long nowWall = System.currentTimeMillis();
+        long nowElapsed = SystemClock.elapsedRealtime();
+        long sessionId = 9_010L;
+        prefs.edit()
+                .putString("blockState", BlockStateMachine.State.RESTING.name())
+                .putLong(FlowForegroundService.PREF_REST_STARTED_AT, nowWall - 180_000L)
+                .putLong(FlowForegroundService.PREF_REST_STARTED_ELAPSED_AT,
+                        nowElapsed - 180_000L)
+                .putInt(FlowForegroundService.PREF_REST_STARTED_BOOT_COUNT, bootCount)
+                .putLong(FlowForegroundService.PREF_REST_REQUIRED_MS, 180_000L)
+                .putLong(FlowForegroundService.PREF_REST_SESSION_ID, sessionId)
+                .putString(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, "begin-new")
+                .putString(FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN,
+                        "begin-original")
+                .putStringSet(FlowForegroundService.PREF_REST_TARGET_APPS,
+                        java.util.Collections.singleton("com.example.target"))
+                .putLong(FlowForegroundService.PREF_REST_TARGET_SESSION_ID, sessionId)
+                .commit();
+
+        NativeFlowRestCoordinator.Result result = runOnWorker(
+                () -> new NativeFlowRestCoordinator(context)
+                        .complete(prefs, "breathe", sessionId)
+        );
+
+        assertTrue(result.needServiceRefresh);
+        assertEquals("begin-new", prefs.getString(
+                FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, ""
+        ));
+        assertFalse(prefs.contains(FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN));
+        assertEquals(BlockStateMachine.State.GRACE.name(),
+                prefs.getString("blockState", ""));
     }
 
     @Test public void legacyRestWithoutTargetSnapshotCannotBeCompletedDirectly()
@@ -108,11 +161,11 @@ public class NativeFlowRestCoordinatorTest {
     @Test public void committedSessionRetryReturnsExistingResultWithoutRepeatingEffects()
             throws Exception {
         Context context = ApplicationProvider.getApplicationContext();
-        FlowDao dao = FlowDatabase.get(context).flowDao();
         SharedPreferences prefs = context.getSharedPreferences(
                 FlowServiceStateStore.PREFS, Context.MODE_PRIVATE);
         AtomicReference<String> fixtureStage = new AtomicReference<>("starting Room fixture");
         runOnWorker(() -> {
+            FlowDao dao = FlowDatabase.get(context).flowDao();
             fixtureStage.set("clearAll");
             dao.clearAll();
             long now = System.currentTimeMillis();
@@ -160,15 +213,18 @@ public class NativeFlowRestCoordinatorTest {
         assertEquals(1, retry.response.getInt("streak"));
         assertEquals("", retry.response.getString("achievement"));
         int restCompleteEventCount = runOnWorker(
-                () -> dao.countEventsSince("rest_complete", 0L)
+                () -> FlowDatabase.get(context).flowDao()
+                        .countEventsSince("rest_complete", 0L)
         );
         assertEquals(1, restCompleteEventCount);
-        ProgressEntity progressAfterRetry = runOnWorker(dao::getProgress);
+        ProgressEntity progressAfterRetry = runOnWorker(
+                () -> FlowDatabase.get(context).flowDao().getProgress()
+        );
         assertNotNull(progressAfterRetry);
         assertEquals(20, progressAfterRetry.points);
         assertEquals(1, progressAfterRetry.streak);
-        DailySummaryEntity summary = runOnWorker(() -> dao.summaryForDay(
-                NativeFlowStatisticsService.day(System.currentTimeMillis())));
+        DailySummaryEntity summary = runOnWorker(() -> FlowDatabase.get(context).flowDao()
+                .summaryForDay(NativeFlowStatisticsService.day(System.currentTimeMillis())));
         assertNotNull(summary);
         assertEquals(1, summary.restCount);
         assertEquals(0L, prefs.getLong("dbRestRecordedSessionId", 0L));

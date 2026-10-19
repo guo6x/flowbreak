@@ -33,6 +33,7 @@ public class FlowServiceRecoveryIntegrationTest {
     private static final long GRACE_MS = FlowServiceStateStore.GRACE_MS; // 600_000L
     private static final int LIMIT_MINUTES = 25;
     private static final long LIMIT_MS = LIMIT_MINUTES * 60_000L; // 1_500_000L
+    private static final int TEST_BOOT_COUNT = 7;
 
     private SharedPreferences prefs;
 
@@ -188,6 +189,8 @@ public class FlowServiceRecoveryIntegrationTest {
                 .putString("blockState", BlockStateMachine.State.RESTING.name())
                 .putLong("sessionMs", 500_000L)
                 .putLong("restStartedAt", startedAt)
+                .putLong(FlowForegroundService.PREF_REST_STARTED_ELAPSED_AT, startedAt)
+                .putInt(FlowForegroundService.PREF_REST_STARTED_BOOT_COUNT, TEST_BOOT_COUNT)
                 .putLong("restRequiredMs", requiredMs)
                 .putLong("restSessionId", 1001L)
                 .putInt("limitMinutes", 25)
@@ -223,6 +226,8 @@ public class FlowServiceRecoveryIntegrationTest {
                 .putString("blockState", BlockStateMachine.State.RESTING.name())
                 .putLong("sessionMs", 1L)
                 .putLong(FlowForegroundService.PREF_REST_STARTED_AT, startedAt)
+                .putLong(FlowForegroundService.PREF_REST_STARTED_ELAPSED_AT, startedAt)
+                .putInt(FlowForegroundService.PREF_REST_STARTED_BOOT_COUNT, TEST_BOOT_COUNT)
                 .putLong(FlowForegroundService.PREF_REST_REQUIRED_MS, requiredMs)
                 .putLong(FlowForegroundService.PREF_REST_SESSION_ID, 2_001L)
                 .putBoolean(FlowForegroundService.PREF_REST_START_TARGET_ACTIVE, true)
@@ -264,6 +269,8 @@ public class FlowServiceRecoveryIntegrationTest {
                 .putLong("sessionMs", 1L)
                 .putString("blockedPackage", "com.example.video")
                 .putLong("restStartedAt", startedAt)
+                .putLong(FlowForegroundService.PREF_REST_STARTED_ELAPSED_AT, startedAt)
+                .putInt(FlowForegroundService.PREF_REST_STARTED_BOOT_COUNT, TEST_BOOT_COUNT)
                 .putLong("restRequiredMs", requiredMs)
                 .putLong("restSessionId", 2002L)
                 .putBoolean(FlowForegroundService.PREF_REST_START_TARGET_ACTIVE, false)
@@ -318,6 +325,8 @@ public class FlowServiceRecoveryIntegrationTest {
                 .putLong("sessionMs", 1L)
                 .putString("blockedPackage", "com.example.video")
                 .putLong("restStartedAt", startedAt)
+                .putLong(FlowForegroundService.PREF_REST_STARTED_ELAPSED_AT, startedAt)
+                .putInt(FlowForegroundService.PREF_REST_STARTED_BOOT_COUNT, TEST_BOOT_COUNT)
                 .putLong("restRequiredMs", requiredMs)
                 .putLong("restSessionId", 3003L)
                 .putStringSet(FlowForegroundService.PREF_REST_TARGET_APPS, setOf("a"))
@@ -370,6 +379,8 @@ public class FlowServiceRecoveryIntegrationTest {
                 .putString("blockState", BlockStateMachine.State.RESTING.name())
                 .putLong("sessionMs", 1L)
                 .putLong(FlowForegroundService.PREF_REST_STARTED_AT, startedAt)
+                .putLong(FlowForegroundService.PREF_REST_STARTED_ELAPSED_AT, startedAt)
+                .putInt(FlowForegroundService.PREF_REST_STARTED_BOOT_COUNT, TEST_BOOT_COUNT)
                 .putLong(FlowForegroundService.PREF_REST_REQUIRED_MS, 180_000L)
                 .putLong(FlowForegroundService.PREF_REST_SESSION_ID, 4_004L)
                 .putStringSet(PreferenceUtils.PREF_TARGET_APPS, setOf("com.example.new"))
@@ -403,7 +414,9 @@ public class FlowServiceRecoveryIntegrationTest {
                 true,
                 "com.example.other",
                 "empty-target-begin",
-                setOf()
+                setOf(),
+                startedAt,
+                TEST_BOOT_COUNT
         ));
         store.persist(
                 new BlockStateMachine(BlockStateMachine.State.RESTING, 1L, 0L, 0L, ""),
@@ -559,6 +572,50 @@ public class FlowServiceRecoveryIntegrationTest {
         assertFalse(prefs.contains(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN));
         assertFalse(prefs.contains(FlowForegroundService.PREF_REST_TARGET_APPS));
         assertFalse(prefs.contains(FlowForegroundService.PREF_REST_TARGET_SESSION_ID));
+    }
+
+    @Test
+    public void automaticCheatCancellationKeepsAQueuedNewBeginToken() {
+        long sessionId = 4_009L;
+        FlowServiceStateStore store = newStore();
+        assertTrue(RestBeginRequestTokenStore.persistLatestRequest(prefs, "begin-original"));
+        assertTrue(store.persistBeginRest(
+                NOW - 45_000L,
+                180_000L,
+                sessionId,
+                true,
+                true,
+                "com.example.video",
+                "begin-original",
+                setOf("com.example.video"),
+                NOW - 45_000L,
+                TEST_BOOT_COUNT
+        ));
+        assertTrue(RestBeginRequestTokenStore.persistLatestRequest(prefs, "begin-new"));
+
+        BlockStateMachine machine = new BlockStateMachine(
+                BlockStateMachine.State.COGNITION, 900_000L, 0L, 0L, ""
+        );
+        assertTrue(store.commitAutomaticRestCancellation(
+                sessionId,
+                "begin-new",
+                "begin-new",
+                BlockStateMachine.State.COGNITION,
+                machine.getSessionMs(),
+                machine.getGraceUntil(),
+                machine.getLeftTargetsAt(),
+                machine.getBlockedPackage(),
+                PullbackSessionCoordinator.Snapshot.empty(),
+                new FlowServiceStateStore.Checkpoint(NOW, NOW, false, false, "")
+        ));
+
+        assertEquals(BlockStateMachine.State.COGNITION.name(),
+                prefs.getString("blockState", ""));
+        assertEquals("begin-new", prefs.getString(
+                FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, ""
+        ));
+        assertFalse(prefs.contains(FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN));
+        assertFalse(prefs.contains(FlowForegroundService.PREF_REST_SESSION_ID));
     }
 
     @Test

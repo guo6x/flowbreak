@@ -25,9 +25,13 @@ public final class RestSessionManager {
         public final String blockedPackage;
         public final int limitMinutes;
         public final long restStartedAt;
+        public final long restStartedElapsedAt;
+        public final int restStartedBootCount;
         public final long restRequiredMs;
         public final long restSessionId;
         public final long now;
+        public final long nowElapsed;
+        public final boolean restClockValid;
 
         public RestoreInput(
                 BlockStateMachine.State persistedState,
@@ -41,6 +45,40 @@ public final class RestSessionManager {
                 long restSessionId,
                 long now
         ) {
+            this(
+                    persistedState,
+                    sessionMs,
+                    graceUntil,
+                    leftTargetsAt,
+                    blockedPackage,
+                    limitMinutes,
+                    restStartedAt,
+                    restRequiredMs,
+                    restSessionId,
+                    now,
+                    restStartedAt,
+                    0,
+                    now,
+                    true
+            );
+        }
+
+        public RestoreInput(
+                BlockStateMachine.State persistedState,
+                long sessionMs,
+                long graceUntil,
+                long leftTargetsAt,
+                String blockedPackage,
+                int limitMinutes,
+                long restStartedAt,
+                long restRequiredMs,
+                long restSessionId,
+                long nowWall,
+                long restStartedElapsedAt,
+                int restStartedBootCount,
+                long nowElapsed,
+                boolean restClockValid
+        ) {
             this.persistedState = persistedState;
             this.sessionMs = sessionMs;
             this.graceUntil = graceUntil;
@@ -48,9 +86,13 @@ public final class RestSessionManager {
             this.blockedPackage = blockedPackage;
             this.limitMinutes = limitMinutes;
             this.restStartedAt = restStartedAt;
+            this.restStartedElapsedAt = restStartedElapsedAt;
+            this.restStartedBootCount = restStartedBootCount;
             this.restRequiredMs = restRequiredMs;
             this.restSessionId = restSessionId;
-            this.now = now;
+            this.now = nowWall;
+            this.nowElapsed = nowElapsed;
+            this.restClockValid = restClockValid;
         }
     }
 
@@ -110,7 +152,17 @@ public final class RestSessionManager {
             );
             return RestoreDecision.keep(fallback);
         }
-        if (RestSessionValidator.isComplete(input.restStartedAt, input.restRequiredMs, input.now)) {
+        if (!input.restClockValid) {
+            // Missing or discontinuous wall/elapsed/boot evidence cannot be
+            // converted into a successful rest during recovery. Keep the
+            // in-memory machine RESTING just long enough for the owner to
+            // atomically clear the invalid persisted session and restore the
+            // pre-rest enforcement state.
+            return RestoreDecision.keep(BlockStateMachine.State.RESTING);
+        }
+        if (RestSessionValidator.isComplete(
+                input.restStartedElapsedAt, input.restRequiredMs, input.nowElapsed
+        )) {
             // 服务被杀后实际已超过所需休息时长：自动完成休息进入 GRACE
             return RestoreDecision.autoComplete(input.now, input.restSessionId);
         }
@@ -133,12 +185,33 @@ public final class RestSessionManager {
             int restDurationSeconds,
             long now
     ) {
+        return prepareBeginRest(
+                alreadyResting,
+                existingStartedAt,
+                restDurationSeconds,
+                now,
+                now
+        );
+    }
+
+    /**
+     * Same begin decision with a caller-supplied collision-resistant session
+     * identity. The legacy overload remains for pure callers and fixtures;
+     * the foreground service supplies a persisted monotonic sequence.
+     */
+    public static BeginRestDecision prepareBeginRest(
+            boolean alreadyResting,
+            long existingStartedAt,
+            int restDurationSeconds,
+            long now,
+            long sessionId
+    ) {
         if (alreadyResting && existingStartedAt > 0L) {
             // React remount：保持同一 session
             return null;
         }
         long requiredMs = Math.max(MIN_REST_DURATION_SECONDS, restDurationSeconds) * 1000L;
-        return new BeginRestDecision(now, requiredMs, now);
+        return new BeginRestDecision(now, requiredMs, sessionId > 0L ? sessionId : now);
     }
 
     /** beginRest 的决策结果。 */

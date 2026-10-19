@@ -156,6 +156,9 @@ export interface NativeFlowPlugin {
     restStartedAt: number;
     restRequiredSeconds: number;
     restSessionId?: number;
+    restClockValid?: boolean;
+    restRemainingMs?: number;
+    restRemainingSeconds?: number;
   }>;
   completeRestAndUnlock(options: {
     activity: 'eye' | 'stretch' | 'breathe';

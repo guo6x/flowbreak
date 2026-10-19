@@ -81,6 +81,8 @@ public final class FlowServiceStateStore {
         public final long leftTargetsAt;
         public final String blockedPackage;
         public final long restStartedAt;
+        public final long restStartedElapsedAt;
+        public final int restStartedBootCount;
         public final long restRequiredMs;
         public final long restSessionId;
         public final boolean restStartTargetActive;
@@ -217,12 +219,58 @@ public final class FlowServiceStateStore {
                 String checkpointForegroundPackage,
                 Set<String> restTargetApps
         ) {
+            this(
+                    persistedState,
+                    sessionMs,
+                    graceUntil,
+                    leftTargetsAt,
+                    blockedPackage,
+                    restStartedAt,
+                    restRequiredMs,
+                    restSessionId,
+                    restStartTargetActive,
+                    restStartInteractionAvailable,
+                    restStartForegroundPackage,
+                    checkpointWallMs,
+                    checkpointElapsedMs,
+                    checkpointTargetActive,
+                    checkpointInteractionAvailable,
+                    checkpointForegroundPackage,
+                    restStartedAt,
+                    0,
+                    restTargetApps
+            );
+        }
+
+        public MachineSnapshot(
+                BlockStateMachine.State persistedState,
+                long sessionMs,
+                long graceUntil,
+                long leftTargetsAt,
+                String blockedPackage,
+                long restStartedAt,
+                long restRequiredMs,
+                long restSessionId,
+                boolean restStartTargetActive,
+                boolean restStartInteractionAvailable,
+                String restStartForegroundPackage,
+                long checkpointWallMs,
+                long checkpointElapsedMs,
+                boolean checkpointTargetActive,
+                boolean checkpointInteractionAvailable,
+                String checkpointForegroundPackage,
+                long restStartedElapsedAt,
+                int restStartedBootCount,
+                Set<String> restTargetApps
+        ) {
             this.persistedState = persistedState;
             this.sessionMs = sessionMs;
             this.graceUntil = graceUntil;
             this.leftTargetsAt = leftTargetsAt;
             this.blockedPackage = blockedPackage;
             this.restStartedAt = restStartedAt;
+            this.restStartedElapsedAt = restStartedElapsedAt;
+            this.restStartedBootCount = restStartedBootCount;
             this.restRequiredMs = restRequiredMs;
             this.restSessionId = restSessionId;
             this.restStartTargetActive = restStartTargetActive;
@@ -243,12 +291,13 @@ public final class FlowServiceStateStore {
         }
     }
 
+    private final Context context;
     private final SharedPreferences prefs;
     private long lastHeartbeatWrittenAt;
 
     public FlowServiceStateStore(Context context) {
-        this.prefs = context.getApplicationContext()
-                .getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        this.context = context.getApplicationContext();
+        this.prefs = this.context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
     /** 直接暴露 prefs，供 Service 中仍需直接读取的少量字段使用。 */
@@ -309,6 +358,8 @@ public final class FlowServiceStateStore {
                 prefs.getBoolean("checkpointTargetActive", false),
                 prefs.getBoolean("checkpointInteractionAvailable", false),
                 prefs.getString("checkpointForegroundPackage", ""),
+                prefs.getLong(FlowForegroundService.PREF_REST_STARTED_ELAPSED_AT, 0L),
+                prefs.getInt(FlowForegroundService.PREF_REST_STARTED_BOOT_COUNT, -1),
                 restTargetApps
         );
     }
@@ -331,30 +382,32 @@ public final class FlowServiceStateStore {
             PullbackSessionCoordinator.Snapshot pullback,
             Checkpoint checkpoint
     ) {
-        SharedPreferences.Editor editor = prefs.edit()
-                .putString("blockState", machine.getState().name())
-                .putLong("sessionMs", machine.getSessionMs())
-                .putLong("graceUntil", machine.getGraceUntil())
-                .putLong("leftTargetsAt", machine.getLeftTargetsAt())
-                .putString("blockedPackage", machine.getBlockedPackage());
-        if (checkpoint != null) {
-            editor.putLong("checkpointWallMs", checkpoint.wallMs)
-                    .putLong("checkpointElapsedMs", checkpoint.elapsedMs)
-                    .putBoolean("checkpointTargetActive", checkpoint.targetActive)
-                    .putBoolean("checkpointInteractionAvailable", checkpoint.interactionAvailable)
-                    .putString("checkpointForegroundPackage", checkpoint.foregroundPackage);
+        synchronized (RestSessionClock.LOCK) {
+            SharedPreferences.Editor editor = prefs.edit()
+                    .putString("blockState", machine.getState().name())
+                    .putLong("sessionMs", machine.getSessionMs())
+                    .putLong("graceUntil", machine.getGraceUntil())
+                    .putLong("leftTargetsAt", machine.getLeftTargetsAt())
+                    .putString("blockedPackage", machine.getBlockedPackage());
+            if (checkpoint != null) {
+                editor.putLong("checkpointWallMs", checkpoint.wallMs)
+                        .putLong("checkpointElapsedMs", checkpoint.elapsedMs)
+                        .putBoolean("checkpointTargetActive", checkpoint.targetActive)
+                        .putBoolean("checkpointInteractionAvailable", checkpoint.interactionAvailable)
+                        .putString("checkpointForegroundPackage", checkpoint.foregroundPackage);
+            }
+            if (pullback != null && pullback.present) {
+                editor.putLong(FlowForegroundService.PREF_PULLBACK_SESSION_ID, pullback.sessionId)
+                        .putLong(FlowForegroundService.PREF_PULLBACK_STARTED_AT, pullback.startedAt)
+                        .putLong(FlowForegroundService.PREF_PULLBACK_TARGET_MS, pullback.targetMs)
+                        .putLong(FlowForegroundService.PREF_PULLBACK_LEFT_AT, pullback.leftTargetsAt)
+                        .putBoolean(FlowForegroundService.PREF_PULLBACK_SAW_TARGET, pullback.sawTarget)
+                        .putBoolean(FlowForegroundService.PREF_PULLBACK_RETURN_REPORTED, pullback.returnReported)
+                        .putBoolean(FlowForegroundService.PREF_PULLBACK_RESOLVED, pullback.resolved)
+                        .putBoolean(FlowForegroundService.PREF_PULLBACK_SUCCESS, pullback.success);
+            }
+            editor.apply();
         }
-        if (pullback != null && pullback.present) {
-            editor.putLong(FlowForegroundService.PREF_PULLBACK_SESSION_ID, pullback.sessionId)
-                    .putLong(FlowForegroundService.PREF_PULLBACK_STARTED_AT, pullback.startedAt)
-                    .putLong(FlowForegroundService.PREF_PULLBACK_TARGET_MS, pullback.targetMs)
-                    .putLong(FlowForegroundService.PREF_PULLBACK_LEFT_AT, pullback.leftTargetsAt)
-                    .putBoolean(FlowForegroundService.PREF_PULLBACK_SAW_TARGET, pullback.sawTarget)
-                    .putBoolean(FlowForegroundService.PREF_PULLBACK_RETURN_REPORTED, pullback.returnReported)
-                    .putBoolean(FlowForegroundService.PREF_PULLBACK_RESOLVED, pullback.resolved)
-                    .putBoolean(FlowForegroundService.PREF_PULLBACK_SUCCESS, pullback.success);
-        }
-        editor.apply();
     }
 
     /**
@@ -362,34 +415,70 @@ public final class FlowServiceStateStore {
      * 使用 commit()，关键状态在服务被杀恢复时不能丢失。
      * 返回 commit() 的结果，调用方可记录但不改变对外行为。
      */
-    public boolean persistAutoCompletedRest(long graceUntil, long restSessionId) {
-        if (restSessionId <= 0L
-                || !BlockStateMachine.State.RESTING.name().equals(
-                        prefs.getString("blockState", BlockStateMachine.State.IDLE.name()))
-                || prefs.getLong(FlowForegroundService.PREF_REST_SESSION_ID, 0L)
-                        != restSessionId
-                || !prefs.contains(FlowForegroundService.PREF_REST_TARGET_APPS)
-                || prefs.getLong(FlowForegroundService.PREF_REST_TARGET_SESSION_ID, 0L)
-                        != restSessionId) {
-            return false;
+    public boolean persistAutoCompletedRest(
+            long graceUntil,
+            long restSessionId,
+            long nowWallMs,
+            long nowElapsedMs,
+            int currentBootCount
+    ) {
+        synchronized (RestSessionClock.LOCK) {
+            long startedAt = prefs.getLong(FlowForegroundService.PREF_REST_STARTED_AT, 0L);
+            long startedAtElapsed = prefs.getLong(
+                    FlowForegroundService.PREF_REST_STARTED_ELAPSED_AT, 0L
+            );
+            long requiredMs = prefs.getLong(FlowForegroundService.PREF_REST_REQUIRED_MS, 0L);
+            int startedBootCount = prefs.getInt(
+                    FlowForegroundService.PREF_REST_STARTED_BOOT_COUNT, -1
+            );
+            if (restSessionId <= 0L
+                    || !BlockStateMachine.State.RESTING.name().equals(
+                            prefs.getString("blockState", BlockStateMachine.State.IDLE.name()))
+                    || prefs.getLong(FlowForegroundService.PREF_REST_SESSION_ID, 0L)
+                            != restSessionId
+                    || !prefs.contains(FlowForegroundService.PREF_REST_TARGET_APPS)
+                    || prefs.getLong(FlowForegroundService.PREF_REST_TARGET_SESSION_ID, 0L)
+                            != restSessionId
+                    || !RestSessionClock.isValid(
+                            restSessionId,
+                            prefs.getLong(
+                                    FlowForegroundService.PREF_REST_CLOCK_INVALIDATED_SESSION_ID,
+                                    0L
+                            ),
+                            startedAt,
+                            startedAtElapsed,
+                            startedBootCount,
+                            nowWallMs,
+                            nowElapsedMs,
+                            currentBootCount
+                    )
+                    || !RestSessionValidator.isComplete(
+                            startedAtElapsed, requiredMs, nowElapsedMs
+                    )) {
+                return false;
+            }
+            return prefs.edit()
+                    .putString("blockState", BlockStateMachine.State.GRACE.name())
+                    .putLong("sessionMs", 0L)
+                    .putLong("graceUntil", graceUntil)
+                    .putString("blockedPackage", "")
+                    .remove(FlowForegroundService.PREF_REST_STARTED_AT)
+                    .remove(FlowForegroundService.PREF_REST_STARTED_ELAPSED_AT)
+                    .remove(FlowForegroundService.PREF_REST_STARTED_BOOT_COUNT)
+                    .remove(FlowForegroundService.PREF_REST_CLOCK_INVALIDATED_SESSION_ID)
+                    .remove(FlowForegroundService.PREF_REST_REQUIRED_MS)
+                    .remove(FlowForegroundService.PREF_REST_SESSION_ID)
+                    .remove(FlowForegroundService.PREF_REST_START_TARGET_ACTIVE)
+                    .remove(FlowForegroundService.PREF_REST_START_INTERACTION_AVAILABLE)
+                    .remove(FlowForegroundService.PREF_REST_START_FOREGROUND_PACKAGE)
+                    .remove(FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN)
+                    .remove(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN)
+                    .remove(FlowForegroundService.PREF_REST_TARGET_APPS)
+                    .remove(FlowForegroundService.PREF_REST_TARGET_SESSION_ID)
+                    .putLong(FlowForegroundService.PREF_COMPLETED_REST_SESSION_ID, restSessionId)
+                    .putLong(FlowForegroundService.PREF_COMPLETED_REST_GRACE_UNTIL, graceUntil)
+                    .commit();
         }
-        return prefs.edit()
-                .putString("blockState", BlockStateMachine.State.GRACE.name())
-                .putLong("sessionMs", 0L)
-                .putLong("graceUntil", graceUntil)
-                .putString("blockedPackage", "")
-                .remove(FlowForegroundService.PREF_REST_STARTED_AT)
-                .remove(FlowForegroundService.PREF_REST_REQUIRED_MS)
-                .remove(FlowForegroundService.PREF_REST_SESSION_ID)
-                .remove(FlowForegroundService.PREF_REST_START_TARGET_ACTIVE)
-                .remove(FlowForegroundService.PREF_REST_START_INTERACTION_AVAILABLE)
-                .remove(FlowForegroundService.PREF_REST_START_FOREGROUND_PACKAGE)
-                .remove(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN)
-                .remove(FlowForegroundService.PREF_REST_TARGET_APPS)
-                .remove(FlowForegroundService.PREF_REST_TARGET_SESSION_ID)
-                .putLong(FlowForegroundService.PREF_COMPLETED_REST_SESSION_ID, restSessionId)
-                .putLong(FlowForegroundService.PREF_COMPLETED_REST_GRACE_UNTIL, graceUntil)
-                .commit();
     }
 
     /**
@@ -409,8 +498,36 @@ public final class FlowServiceStateStore {
             PullbackSessionCoordinator.Snapshot pullback,
             Checkpoint checkpoint
     ) {
+        return commitRestCancellation(
+                expectedRestSessionId,
+                expectedBeginRequestToken,
+                "",
+                resultingState,
+                sessionMs,
+                graceUntil,
+                leftTargetsAt,
+                blockedPackage,
+                pullback,
+                checkpoint
+        );
+    }
+
+    /** Atomically cancel while optionally retaining a newly queued BEGIN token. */
+    public boolean commitRestCancellation(
+            long expectedRestSessionId,
+            String expectedBeginRequestToken,
+            String nextBeginRequestToken,
+            BlockStateMachine.State resultingState,
+            long sessionMs,
+            long graceUntil,
+            long leftTargetsAt,
+            String blockedPackage,
+            PullbackSessionCoordinator.Snapshot pullback,
+            Checkpoint checkpoint
+    ) {
         if (resultingState == null) return false;
-        synchronized (RestBeginRequestTokenStore.LOCK) {
+        synchronized (RestSessionClock.LOCK) {
+          synchronized (RestBeginRequestTokenStore.LOCK) {
             long activeRestSessionId = prefs.getLong(
                     FlowForegroundService.PREF_REST_SESSION_ID,
                     0L
@@ -438,11 +555,15 @@ public final class FlowServiceStateStore {
                     .putLong("leftTargetsAt", leftTargetsAt)
                     .putString("blockedPackage", blockedPackage == null ? "" : blockedPackage)
                     .remove(FlowForegroundService.PREF_REST_STARTED_AT)
+                    .remove(FlowForegroundService.PREF_REST_STARTED_ELAPSED_AT)
+                    .remove(FlowForegroundService.PREF_REST_STARTED_BOOT_COUNT)
+                    .remove(FlowForegroundService.PREF_REST_CLOCK_INVALIDATED_SESSION_ID)
                     .remove(FlowForegroundService.PREF_REST_REQUIRED_MS)
                     .remove(FlowForegroundService.PREF_REST_SESSION_ID)
                     .remove(FlowForegroundService.PREF_REST_START_TARGET_ACTIVE)
                     .remove(FlowForegroundService.PREF_REST_START_INTERACTION_AVAILABLE)
                     .remove(FlowForegroundService.PREF_REST_START_FOREGROUND_PACKAGE)
+                    .remove(FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN)
                     .remove(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN)
                     .remove(FlowForegroundService.PREF_REST_TARGET_APPS)
                     .remove(FlowForegroundService.PREF_REST_TARGET_SESSION_ID);
@@ -466,8 +587,223 @@ public final class FlowServiceStateStore {
                         .putBoolean(FlowForegroundService.PREF_PULLBACK_RESOLVED, pullback.resolved)
                         .putBoolean(FlowForegroundService.PREF_PULLBACK_SUCCESS, pullback.success);
             }
+            if (nextBeginRequestToken != null && !nextBeginRequestToken.isEmpty()) {
+                if (!nextBeginRequestToken.equals(activeBeginRequestToken)) return false;
+                editor.putString(
+                        FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN,
+                        nextBeginRequestToken
+                );
+            }
             return editor.commit();
+          }
         }
+    }
+
+    /**
+     * Invalid REST clocks may be cleared without a user CANCEL token, but only
+     * while the same persisted session remains RESTING and its current clock
+     * evidence is still invalid. This is the fail-closed recovery path for old
+     * sessions without monotonic anchors and for TIME_SET changes.
+     */
+    public boolean commitInvalidRestCancellation(
+            long expectedRestSessionId,
+            String expectedActiveBeginRequestToken,
+            String nextBeginRequestToken,
+            BlockStateMachine.State resultingState,
+            long sessionMs,
+            long graceUntil,
+            long leftTargetsAt,
+            String blockedPackage,
+            PullbackSessionCoordinator.Snapshot pullback,
+            Checkpoint checkpoint,
+            long nowWallMs,
+            long nowElapsedMs,
+            int currentBootCount
+    ) {
+        if (resultingState == null) return false;
+        synchronized (RestSessionClock.LOCK) {
+          synchronized (RestBeginRequestTokenStore.LOCK) {
+            long activeRestSessionId = prefs.getLong(
+                    FlowForegroundService.PREF_REST_SESSION_ID, 0L
+            );
+            String activeBeginRequestToken = prefs.getString(
+                    FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, ""
+            );
+            long startedAt = prefs.getLong(FlowForegroundService.PREF_REST_STARTED_AT, 0L);
+            long startedAtElapsed = prefs.getLong(
+                    FlowForegroundService.PREF_REST_STARTED_ELAPSED_AT, 0L
+            );
+            int startedBootCount = prefs.getInt(
+                    FlowForegroundService.PREF_REST_STARTED_BOOT_COUNT, -1
+            );
+            long invalidatedSessionId = prefs.getLong(
+                    FlowForegroundService.PREF_REST_CLOCK_INVALIDATED_SESSION_ID, 0L
+            );
+            if (!BlockStateMachine.State.RESTING.name().equals(
+                            prefs.getString("blockState", BlockStateMachine.State.IDLE.name()))
+                    || expectedRestSessionId != activeRestSessionId
+                    || !safeToken(expectedActiveBeginRequestToken).equals(
+                            activeBeginRequestToken
+                    )
+                    || RestSessionClock.isValid(
+                            activeRestSessionId,
+                            invalidatedSessionId,
+                            startedAt,
+                            startedAtElapsed,
+                            startedBootCount,
+                            nowWallMs,
+                            nowElapsedMs,
+                            currentBootCount
+                    )) {
+                return false;
+            }
+
+            SharedPreferences.Editor editor = prefs.edit()
+                    .putString("blockState", resultingState.name())
+                    .putLong("sessionMs", sessionMs)
+                    .putLong("graceUntil", graceUntil)
+                    .putLong("leftTargetsAt", leftTargetsAt)
+                    .putString("blockedPackage", blockedPackage == null ? "" : blockedPackage)
+                    .remove(FlowForegroundService.PREF_REST_STARTED_AT)
+                    .remove(FlowForegroundService.PREF_REST_STARTED_ELAPSED_AT)
+                    .remove(FlowForegroundService.PREF_REST_STARTED_BOOT_COUNT)
+                    .remove(FlowForegroundService.PREF_REST_CLOCK_INVALIDATED_SESSION_ID)
+                    .remove(FlowForegroundService.PREF_REST_REQUIRED_MS)
+                    .remove(FlowForegroundService.PREF_REST_SESSION_ID)
+                    .remove(FlowForegroundService.PREF_REST_START_TARGET_ACTIVE)
+                    .remove(FlowForegroundService.PREF_REST_START_INTERACTION_AVAILABLE)
+                    .remove(FlowForegroundService.PREF_REST_START_FOREGROUND_PACKAGE)
+                    .remove(FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN)
+                    .remove(FlowForegroundService.PREF_REST_TARGET_APPS)
+                    .remove(FlowForegroundService.PREF_REST_TARGET_SESSION_ID);
+            if (nextBeginRequestToken != null && !nextBeginRequestToken.isEmpty()) {
+                if (!nextBeginRequestToken.equals(activeBeginRequestToken)) return false;
+                editor.putString(
+                        FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN,
+                        nextBeginRequestToken
+                );
+            } else {
+                editor.remove(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN);
+            }
+            if (checkpoint != null) {
+                editor.putLong("checkpointWallMs", checkpoint.wallMs)
+                        .putLong("checkpointElapsedMs", checkpoint.elapsedMs)
+                        .putBoolean("checkpointTargetActive", checkpoint.targetActive)
+                        .putBoolean("checkpointInteractionAvailable",
+                                checkpoint.interactionAvailable)
+                        .putString("checkpointForegroundPackage", checkpoint.foregroundPackage);
+            }
+            if (pullback != null && pullback.present) {
+                editor.putLong(FlowForegroundService.PREF_PULLBACK_SESSION_ID, pullback.sessionId)
+                        .putLong(FlowForegroundService.PREF_PULLBACK_STARTED_AT, pullback.startedAt)
+                        .putLong(FlowForegroundService.PREF_PULLBACK_TARGET_MS, pullback.targetMs)
+                        .putLong(FlowForegroundService.PREF_PULLBACK_LEFT_AT, pullback.leftTargetsAt)
+                        .putBoolean(FlowForegroundService.PREF_PULLBACK_SAW_TARGET,
+                                pullback.sawTarget)
+                        .putBoolean(FlowForegroundService.PREF_PULLBACK_RETURN_REPORTED,
+                                pullback.returnReported)
+                        .putBoolean(FlowForegroundService.PREF_PULLBACK_RESOLVED,
+                                pullback.resolved)
+                        .putBoolean(FlowForegroundService.PREF_PULLBACK_SUCCESS,
+                                pullback.success);
+            }
+            return editor.commit();
+          }
+        }
+    }
+
+    /**
+     * Atomically records an automatic REST cancellation (for example a
+     * verified cheat timeline) while preserving a newer BEGIN request.
+     * Unlike a user CANCEL this path also supports legacy sessions that have
+     * no BEGIN token, but it remains bound to the active REST session.
+     */
+    public boolean commitAutomaticRestCancellation(
+            long expectedRestSessionId,
+            String expectedActiveBeginRequestToken,
+            String nextBeginRequestToken,
+            BlockStateMachine.State resultingState,
+            long sessionMs,
+            long graceUntil,
+            long leftTargetsAt,
+            String blockedPackage,
+            PullbackSessionCoordinator.Snapshot pullback,
+            Checkpoint checkpoint
+    ) {
+        if (resultingState == null) return false;
+        synchronized (RestSessionClock.LOCK) {
+          synchronized (RestBeginRequestTokenStore.LOCK) {
+            long activeRestSessionId = prefs.getLong(
+                    FlowForegroundService.PREF_REST_SESSION_ID, 0L
+            );
+            String activeBeginRequestToken = prefs.getString(
+                    FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, ""
+            );
+            if (!BlockStateMachine.State.RESTING.name().equals(
+                            prefs.getString("blockState", BlockStateMachine.State.IDLE.name()))
+                    || expectedRestSessionId <= 0L
+                    || expectedRestSessionId != activeRestSessionId
+                    || !safeToken(expectedActiveBeginRequestToken).equals(
+                            activeBeginRequestToken
+                    )) {
+                return false;
+            }
+
+            SharedPreferences.Editor editor = prefs.edit()
+                    .putString("blockState", resultingState.name())
+                    .putLong("sessionMs", sessionMs)
+                    .putLong("graceUntil", graceUntil)
+                    .putLong("leftTargetsAt", leftTargetsAt)
+                    .putString("blockedPackage", blockedPackage == null ? "" : blockedPackage)
+                    .remove(FlowForegroundService.PREF_REST_STARTED_AT)
+                    .remove(FlowForegroundService.PREF_REST_STARTED_ELAPSED_AT)
+                    .remove(FlowForegroundService.PREF_REST_STARTED_BOOT_COUNT)
+                    .remove(FlowForegroundService.PREF_REST_CLOCK_INVALIDATED_SESSION_ID)
+                    .remove(FlowForegroundService.PREF_REST_REQUIRED_MS)
+                    .remove(FlowForegroundService.PREF_REST_SESSION_ID)
+                    .remove(FlowForegroundService.PREF_REST_START_TARGET_ACTIVE)
+                    .remove(FlowForegroundService.PREF_REST_START_INTERACTION_AVAILABLE)
+                    .remove(FlowForegroundService.PREF_REST_START_FOREGROUND_PACKAGE)
+                    .remove(FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN)
+                    .remove(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN)
+                    .remove(FlowForegroundService.PREF_REST_TARGET_APPS)
+                    .remove(FlowForegroundService.PREF_REST_TARGET_SESSION_ID);
+            if (nextBeginRequestToken != null && !nextBeginRequestToken.isEmpty()) {
+                if (!nextBeginRequestToken.equals(activeBeginRequestToken)) return false;
+                editor.putString(
+                        FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN,
+                        nextBeginRequestToken
+                );
+            }
+            if (checkpoint != null) {
+                editor.putLong("checkpointWallMs", checkpoint.wallMs)
+                        .putLong("checkpointElapsedMs", checkpoint.elapsedMs)
+                        .putBoolean("checkpointTargetActive", checkpoint.targetActive)
+                        .putBoolean("checkpointInteractionAvailable",
+                                checkpoint.interactionAvailable)
+                        .putString("checkpointForegroundPackage", checkpoint.foregroundPackage);
+            }
+            if (pullback != null && pullback.present) {
+                editor.putLong(FlowForegroundService.PREF_PULLBACK_SESSION_ID, pullback.sessionId)
+                        .putLong(FlowForegroundService.PREF_PULLBACK_STARTED_AT, pullback.startedAt)
+                        .putLong(FlowForegroundService.PREF_PULLBACK_TARGET_MS, pullback.targetMs)
+                        .putLong(FlowForegroundService.PREF_PULLBACK_LEFT_AT, pullback.leftTargetsAt)
+                        .putBoolean(FlowForegroundService.PREF_PULLBACK_SAW_TARGET,
+                                pullback.sawTarget)
+                        .putBoolean(FlowForegroundService.PREF_PULLBACK_RETURN_REPORTED,
+                                pullback.returnReported)
+                        .putBoolean(FlowForegroundService.PREF_PULLBACK_RESOLVED,
+                                pullback.resolved)
+                        .putBoolean(FlowForegroundService.PREF_PULLBACK_SUCCESS,
+                                pullback.success);
+            }
+            return editor.commit();
+          }
+        }
+    }
+
+    private static String safeToken(String token) {
+        return token == null ? "" : token;
     }
 
     /** 写入 beginRest 的 session 字段；未传目标快照时恢复必须 fail-closed。 */
@@ -527,36 +863,75 @@ public final class FlowServiceStateStore {
             String beginRequestToken,
             Set<String> restTargetApps
     ) {
-        SharedPreferences.Editor editor = prefs.edit()
-                .putLong(FlowForegroundService.PREF_REST_STARTED_AT, startedAt)
-                .putLong(FlowForegroundService.PREF_REST_REQUIRED_MS, requiredMs)
-                .putLong(FlowForegroundService.PREF_REST_SESSION_ID, sessionId)
-                .putBoolean(FlowForegroundService.PREF_REST_START_TARGET_ACTIVE, startTargetActive)
-                .putBoolean(FlowForegroundService.PREF_REST_START_INTERACTION_AVAILABLE,
-                        startInteractionAvailable)
-                .putString(FlowForegroundService.PREF_REST_START_FOREGROUND_PACKAGE,
-                        startForegroundPackage == null ? "" : startForegroundPackage)
-                .remove(FlowForegroundService.PREF_REST_TARGET_APPS)
-                .remove(FlowForegroundService.PREF_REST_TARGET_SESSION_ID);
-        if (restTargetApps != null) {
-            editor.putStringSet(
-                            FlowForegroundService.PREF_REST_TARGET_APPS,
-                            new HashSet<>(restTargetApps)
-                    )
-                    .putLong(FlowForegroundService.PREF_REST_TARGET_SESSION_ID, sessionId);
+        return persistBeginRest(
+                startedAt,
+                requiredMs,
+                sessionId,
+                startTargetActive,
+                startInteractionAvailable,
+                startForegroundPackage,
+                beginRequestToken,
+                restTargetApps,
+                startedAt,
+                0
+        );
+    }
+
+    /** Writes the REST session with wall, monotonic and boot-identity anchors. */
+    public boolean persistBeginRest(
+            long startedAt,
+            long requiredMs,
+            long sessionId,
+            boolean startTargetActive,
+            boolean startInteractionAvailable,
+            String startForegroundPackage,
+            String beginRequestToken,
+            Set<String> restTargetApps,
+            long startedAtElapsed,
+            int startedBootCount
+    ) {
+        synchronized (RestSessionClock.LOCK) {
+            SharedPreferences.Editor editor = prefs.edit()
+                    .putString("blockState", BlockStateMachine.State.RESTING.name())
+                    .putLong(FlowForegroundService.PREF_REST_STARTED_AT, startedAt)
+                    .putLong(FlowForegroundService.PREF_REST_STARTED_ELAPSED_AT, startedAtElapsed)
+                    .putInt(FlowForegroundService.PREF_REST_STARTED_BOOT_COUNT, startedBootCount)
+                    .putLong(FlowForegroundService.PREF_REST_REQUIRED_MS, requiredMs)
+                    .putLong(FlowForegroundService.PREF_REST_SESSION_ID, sessionId)
+                    .remove(FlowForegroundService.PREF_REST_CLOCK_INVALIDATED_SESSION_ID)
+                    .putBoolean(FlowForegroundService.PREF_REST_START_TARGET_ACTIVE, startTargetActive)
+                    .putBoolean(FlowForegroundService.PREF_REST_START_INTERACTION_AVAILABLE,
+                            startInteractionAvailable)
+                    .putString(FlowForegroundService.PREF_REST_START_FOREGROUND_PACKAGE,
+                            startForegroundPackage == null ? "" : startForegroundPackage)
+                    .remove(FlowForegroundService.PREF_REST_TARGET_APPS)
+                    .remove(FlowForegroundService.PREF_REST_TARGET_SESSION_ID);
+            if (restTargetApps != null) {
+                editor.putStringSet(
+                                FlowForegroundService.PREF_REST_TARGET_APPS,
+                                new HashSet<>(restTargetApps)
+                        )
+                        .putLong(FlowForegroundService.PREF_REST_TARGET_SESSION_ID, sessionId);
+            }
+            String normalizedToken = beginRequestToken == null ? "" : beginRequestToken;
+            if (!normalizedToken.isEmpty()) {
+                editor.putString(
+                        FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN,
+                        normalizedToken
+                );
+                return RestBeginRequestTokenStore.applySessionIfCurrent(
+                        prefs,
+                        normalizedToken,
+                        editor
+                );
+            }
+            synchronized (RestBeginRequestTokenStore.LOCK) {
+                editor.remove(FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN)
+                        .putString(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, "")
+                        .apply();
+            }
+            return true;
         }
-        String normalizedToken = beginRequestToken == null ? "" : beginRequestToken;
-        if (!normalizedToken.isEmpty()) {
-            return RestBeginRequestTokenStore.applySessionIfCurrent(
-                    prefs,
-                    normalizedToken,
-                    editor
-            );
-        }
-        synchronized (RestBeginRequestTokenStore.LOCK) {
-            editor.putString(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, "").apply();
-        }
-        return true;
     }
 
     /** Bind a remounted REST page's current BEGIN token to the existing session. */
@@ -566,17 +941,23 @@ public final class FlowServiceStateStore {
 
     /** 移除 REST 会话和目标快照字段，使用 apply()。 */
     public void clearActiveRestSession() {
-        prefs.edit()
-                .remove(FlowForegroundService.PREF_REST_STARTED_AT)
-                .remove(FlowForegroundService.PREF_REST_REQUIRED_MS)
-                .remove(FlowForegroundService.PREF_REST_SESSION_ID)
-                .remove(FlowForegroundService.PREF_REST_START_TARGET_ACTIVE)
-                .remove(FlowForegroundService.PREF_REST_START_INTERACTION_AVAILABLE)
-                .remove(FlowForegroundService.PREF_REST_START_FOREGROUND_PACKAGE)
-                .remove(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN)
-                .remove(FlowForegroundService.PREF_REST_TARGET_APPS)
-                .remove(FlowForegroundService.PREF_REST_TARGET_SESSION_ID)
-                .apply();
+        synchronized (RestSessionClock.LOCK) {
+            prefs.edit()
+                    .remove(FlowForegroundService.PREF_REST_STARTED_AT)
+                    .remove(FlowForegroundService.PREF_REST_STARTED_ELAPSED_AT)
+                    .remove(FlowForegroundService.PREF_REST_STARTED_BOOT_COUNT)
+                    .remove(FlowForegroundService.PREF_REST_CLOCK_INVALIDATED_SESSION_ID)
+                    .remove(FlowForegroundService.PREF_REST_REQUIRED_MS)
+                    .remove(FlowForegroundService.PREF_REST_SESSION_ID)
+                    .remove(FlowForegroundService.PREF_REST_START_TARGET_ACTIVE)
+                    .remove(FlowForegroundService.PREF_REST_START_INTERACTION_AVAILABLE)
+                    .remove(FlowForegroundService.PREF_REST_START_FOREGROUND_PACKAGE)
+                    .remove(FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN)
+                    .remove(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN)
+                    .remove(FlowForegroundService.PREF_REST_TARGET_APPS)
+                    .remove(FlowForegroundService.PREF_REST_TARGET_SESSION_ID)
+                    .apply();
+        }
     }
 
     /** 移除全部 pullback 字段，使用 apply()。 */

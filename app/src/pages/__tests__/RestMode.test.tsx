@@ -55,6 +55,8 @@ const resting = {
   restStartedAt: Date.now(),
   restRequiredSeconds: 180,
   restSessionId: 101,
+  restClockValid: true,
+  restRemainingMs: 180_000,
 };
 const cancelled = {
   ...resting,
@@ -114,6 +116,21 @@ describe('RestMode native state reconciliation', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(300); });
     expect(NativeFlow.getBlockState).toHaveBeenCalledTimes(2);
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('does not expose a completed timer when native clock evidence is invalid', async () => {
+    const invalidRest = { ...resting, restClockValid: false, restRemainingMs: 0 };
+    vi.mocked(NativeFlow.getBlockState).mockResolvedValue(invalidRest);
+    await mountRest();
+
+    expect(screen.getByText('休息计时暂时无法确认，正在恢复保护状态。'))
+      .toBeInTheDocument();
+    expect(mockNavigate).not.toHaveBeenCalled();
+
+    vi.mocked(NativeFlow.getBlockState).mockResolvedValueOnce(cancelled);
+    await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+    expect(mockNavigate).toHaveBeenCalledWith('/dashboard', { replace: true });
+    expect(useStore.getState().blockState).toBe('IDLE');
   });
 
   it('continues checking when native BEGIN_REST takes longer than six seconds', async () => {

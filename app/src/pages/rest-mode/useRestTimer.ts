@@ -1,8 +1,8 @@
 // Rest countdown timer hook.
 //
 // Behaviour preserved exactly from the original RestMode.tsx:
-//  - Native: derives remaining seconds from a wall-clock `restEndsAt` timestamp
-//    via setInterval(1s) so backgrounding the WebView cannot shorten a rest.
+//  - Native: anchors the latest native remaining-time sample to performance.now()
+//    so wall-clock changes cannot shorten or extend the displayed countdown.
 //  - Web: decrements via setTimeout(1s) re-armed on each tick.
 //  - Pauses only on web (native has no pause button).
 //  - The hook does NOT auto-fire a completion callback when the timer reaches
@@ -17,8 +17,8 @@ export interface UseRestTimerOptions {
   totalDuration: number;
   /** Initial remaining seconds before native sync. */
   initialSeconds: number;
-  /** Wall-clock end timestamp (ms) from the native service, or null on web. */
-  restEndsAt: number | null;
+  /** Remaining milliseconds from the monotonic native clock, or null until synced. */
+  nativeRemainingMs: number | null;
   /** Whether running on Capacitor native platform. */
   isNative: boolean;
   /** Whether the timer should be ticking (equivalent to !showReward && restReady). */
@@ -34,23 +34,34 @@ export interface UseRestTimerResult {
 }
 
 export function useRestTimer(options: UseRestTimerOptions): UseRestTimerResult {
-  const { totalDuration, initialSeconds, restEndsAt, isNative, active, isPaused } = options;
+  const {
+    totalDuration,
+    initialSeconds,
+    nativeRemainingMs,
+    isNative,
+    active,
+    isPaused,
+  } = options;
   const [timeLeft, setTimeLeft] = useState(initialSeconds);
 
   useEffect(() => {
-    if (!active) return;
-    if (isPaused && !isNative) return;
+    if (!isNative || !active
+        || nativeRemainingMs === null || !Number.isFinite(nativeRemainingMs)) return;
+    const monotonicEnd = performance.now() + Math.max(0, nativeRemainingMs);
+    const update = () => setTimeLeft(Math.max(
+      0,
+      Math.ceil((monotonicEnd - performance.now()) / 1000),
+    ));
+    update();
+    const timer = setInterval(update, 1000);
+    return () => clearInterval(timer);
+  }, [isNative, active, nativeRemainingMs]);
 
-    if (isNative && restEndsAt !== null) {
-      const update = () => setTimeLeft(Math.max(0, Math.ceil((restEndsAt - Date.now()) / 1000)));
-      update();
-      const timer = setInterval(update, 1000);
-      return () => clearInterval(timer);
-    }
-    if (timeLeft <= 0) return;
+  useEffect(() => {
+    if (isNative || !active || isPaused || timeLeft <= 0) return;
     const timer = setTimeout(() => setTimeLeft(t => t - 1), 1000);
     return () => clearTimeout(timer);
-  }, [timeLeft, active, isPaused, isNative, restEndsAt]);
+  }, [timeLeft, active, isPaused, isNative]);
 
   const progress = 1 - timeLeft / totalDuration;
   return { timeLeft, setTimeLeft, progress };
