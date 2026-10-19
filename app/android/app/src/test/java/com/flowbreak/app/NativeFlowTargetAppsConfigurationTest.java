@@ -167,11 +167,88 @@ public class NativeFlowTargetAppsConfigurationTest {
                 preferences.getBoolean("monitoringEnabled", true), "xiaomi", true));
     }
 
+    @Test public void ordinarySettingsSaveDoesNotGrantBootActivationEligibility() {
+        JSObject options = new JSObject();
+        options.put("limitMinutes", 30);
+
+        RecordingCall call = saveSettings(options);
+
+        assertResolved(call);
+        assertEquals(30, preferences.getInt("limitMinutes", 0));
+        assertFalse(preferences.contains("serviceConfigured"));
+        assertNull(Shadows.shadowOf(RuntimeEnvironment.getApplication()).getNextStartedService());
+    }
+
+    @Test public void explicitEnableStillFailsClosedBeforeSavingOrStartingService() {
+        preferences.edit()
+                .putStringSet(PreferenceUtils.PREF_TARGET_APPS, Collections.singleton(TARGET))
+                .putInt("limitMinutes", 25)
+                .commit();
+        JSObject options = new JSObject();
+        options.put("monitoringEnabled", true);
+        options.put("limitMinutes", 40);
+
+        RecordingCall call = saveSettings(options);
+
+        assertFalse(call.resolved);
+        assertNotNull(call.rejection);
+        assertEquals(25, preferences.getInt("limitMinutes", 0));
+        assertFalse(preferences.getBoolean("serviceConfigured", false));
+        assertNull(Shadows.shadowOf(RuntimeEnvironment.getApplication()).getNextStartedService());
+    }
+
+    @Test public void explicitDisablePersistsAndStopsExistingProtection() {
+        preferences.edit()
+                .putBoolean("serviceConfigured", true)
+                .putBoolean("monitoringEnabled", true)
+                .commit();
+        JSObject options = new JSObject();
+        options.put("monitoringEnabled", false);
+
+        RecordingCall call = saveSettings(options);
+
+        assertResolved(call);
+        assertTrue(preferences.getBoolean("serviceConfigured", false));
+        assertFalse(preferences.getBoolean("monitoringEnabled", true));
+        Intent stop = Shadows.shadowOf(RuntimeEnvironment.getApplication())
+                .getNextStartedService();
+        assertNotNull(stop);
+        assertEquals(FlowForegroundService.ACTION_STOP, stop.getAction());
+        assertNull(Shadows.shadowOf(RuntimeEnvironment.getApplication()).getNextStartedService());
+    }
+
+    @Test public void configuredSupportedDeviceReloadsOnlyExistingProtection() {
+        preferences.edit()
+                .putBoolean("serviceConfigured", true)
+                .putBoolean("monitoringEnabled", true)
+                .commit();
+        Shadows.shadowOf(appOps()).setMode(AppOpsManager.OPSTR_GET_USAGE_STATS,
+                Process.myUid(), context.getPackageName(), AppOpsManager.MODE_ALLOWED);
+        ShadowSettings.setCanDrawOverlays(true);
+        JSObject options = new JSObject();
+        options.put("limitMinutes", 30);
+
+        RecordingCall call = saveSettings(options);
+
+        assertResolved(call);
+        Intent reload = Shadows.shadowOf(RuntimeEnvironment.getApplication())
+                .getNextStartedService();
+        assertNotNull(reload);
+        assertEquals(FlowForegroundService.ACTION_RELOAD, reload.getAction());
+        assertNull(Shadows.shadowOf(RuntimeEnvironment.getApplication()).getNextStartedService());
+    }
+
     private RecordingCall saveTargets(String... packages) {
         JSObject options = new JSObject();
         options.put("packageNames", new JSArray(Arrays.asList(packages)));
         RecordingCall call = new RecordingCall("saveTargetApps", options);
         plugin.saveTargetApps(call);
+        return call;
+    }
+
+    private RecordingCall saveSettings(JSObject options) {
+        RecordingCall call = new RecordingCall("saveSettings", options);
+        plugin.saveSettings(call);
         return call;
     }
 

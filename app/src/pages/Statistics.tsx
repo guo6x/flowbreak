@@ -204,7 +204,7 @@ export default function Statistics() {
                 <defs><linearGradient id="statistics-usage-gradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#247353" stopOpacity={0.2} /><stop offset="100%" stopColor="#247353" stopOpacity={0.01} /></linearGradient></defs>
                 <XAxis dataKey="day" tick={{ fontSize: 10, fill: '#68776F' }} axisLine={false} tickLine={false} minTickGap={20} />
                 <YAxis hide />
-                <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={(value) => [`${value} 分钟`, '目标应用时间']} />
+                <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={(value: number | string | ReadonlyArray<number | string> | undefined) => [`${value} 分钟`, '目标应用时间']} />
                 <Area type="monotone" dataKey="screenTime" stroke="#247353" strokeWidth={2.5} fill="url(#statistics-usage-gradient)" isAnimationActive={false} />
               </AreaChart>
             </ResponsiveContainer>
@@ -248,7 +248,7 @@ export default function Statistics() {
                 <BarChart data={chartData} margin={{ top: 4, right: 5, left: 5, bottom: 0 }}>
                   <XAxis dataKey="day" tick={{ fontSize: 10, fill: '#68776F' }} axisLine={false} tickLine={false} minTickGap={20} />
                   <YAxis hide />
-                  <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={(value) => [`${value} 次`, '完成休息']} />
+                  <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={(value: number | string | ReadonlyArray<number | string> | undefined) => [`${value} 次`, '完成休息']} />
                   <Bar dataKey="rest" fill="#367C98" radius={[5, 5, 0, 0]} maxBarSize={20} isAnimationActive={false} />
                 </BarChart>
               </ResponsiveContainer>

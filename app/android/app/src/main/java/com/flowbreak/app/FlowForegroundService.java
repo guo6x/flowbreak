@@ -681,6 +681,13 @@ public class FlowForegroundService extends Service {
         if (usageAccumulator != null && stateStore != null && repository != null) {
             flushPendingUsage(forcePersistence);
         }
+        String foregroundBeforeIntegrityFailure = staticForegroundPackage == null
+                ? ""
+                : staticForegroundPackage;
+        boolean showBlockerAfterFailure = false;
+        String blockerPackageAfterFailure = "";
+        long blockerSessionAfterFailure = 0L;
+        boolean allowEmergencyAfterFailure = false;
         if (foregroundDetector != null) foregroundDetector.resetForIntegrityFailure();
         if (usageAccumulator != null) usageAccumulator.resetObservation(nowWallMs);
         if (restCheatTracker != null) restCheatTracker.reset();
@@ -697,6 +704,14 @@ public class FlowForegroundService extends Service {
                 clearActiveRestWindow();
                 lastAnnouncedState = machine.getState();
             }
+            showBlockerAfterFailure = machine.getState() == BlockStateMachine.State.BLOCKED
+                    && isRuntimeTargetPackage(foregroundBeforeIntegrityFailure, nowWallMs);
+            if (showBlockerAfterFailure) {
+                blockerPackageAfterFailure = foregroundBeforeIntegrityFailure;
+                blockerSessionAfterFailure = machine.getSessionMs();
+                allowEmergencyAfterFailure = stateStore != null
+                        && stateStore.allowEmergencyUnlock();
+            }
             machine.seedCheckpoint(nowWallMs, false);
         }
         if (usageAccumulator != null) {
@@ -708,8 +723,20 @@ public class FlowForegroundService extends Service {
                     && machine.getState() == BlockStateMachine.State.IDLE;
             persistState(forcePersistence);
         }
+        final boolean showBlocker = showBlockerAfterFailure;
+        final String blockerPackage = blockerPackageAfterFailure;
+        final long blockerSession = blockerSessionAfterFailure;
+        final boolean allowEmergency = allowEmergencyAfterFailure;
         postOverlayAction(() -> {
-            overlayController.dismissBlocker();
+            if (showBlocker) {
+                overlayController.showBlocker(
+                        blockerPackage,
+                        blockerSession,
+                        allowEmergency
+                );
+            } else {
+                overlayController.dismissBlocker();
+            }
             overlayController.dismissWarningBar();
             overlayController.dismissGraceCountdown();
         });
@@ -2084,6 +2111,32 @@ public class FlowForegroundService extends Service {
                         stateStore.wechatInVideoChannelAt(),
                         nowWallMs
                 );
+    }
+
+    /**
+     * Reconcile the blocker after a fail-closed reset using the last trusted
+     * foreground package. A failed UsageEvents read must not hide an already
+     * required blocker until the next monitor tick.
+     */
+    private boolean isRuntimeTargetPackage(String packageName, long nowWallMs) {
+        if (packageName == null || packageName.isEmpty()
+                || targetClassifier == null
+                || targetApps == null
+                || targetApps.isEmpty()
+                || stateStore == null) {
+            return false;
+        }
+        try {
+            return targetClassifier.isTarget(
+                    packageName,
+                    targetApps,
+                    stateStore.isWechatInVideoChannel(),
+                    stateStore.wechatInVideoChannelAt(),
+                    nowWallMs
+            );
+        } catch (Exception ignored) {
+            return targetApps.contains(packageName);
+        }
     }
 
     private void clearActiveRestWindow() {

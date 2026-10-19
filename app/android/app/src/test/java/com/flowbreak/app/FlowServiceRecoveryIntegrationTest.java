@@ -2,17 +2,22 @@ package com.flowbreak.app;
 
 import static org.junit.Assert.*;
 
+import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.SystemClock;
+import android.provider.Settings;
 import androidx.test.core.app.ApplicationProvider;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
+import org.robolectric.shadows.ShadowSystemClock;
 
 /**
  * 前台服务进程死亡恢复逻辑集成测试。
@@ -611,6 +616,65 @@ public class FlowServiceRecoveryIntegrationTest {
 
         assertEquals(BlockStateMachine.State.COGNITION.name(),
                 prefs.getString("blockState", ""));
+        assertEquals("begin-new", prefs.getString(
+                FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, ""
+        ));
+        assertFalse(prefs.contains(FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN));
+        assertFalse(prefs.contains(FlowForegroundService.PREF_REST_SESSION_ID));
+    }
+
+    @Test
+    public void automaticCompletionKeepsAQueuedNewBeginToken() {
+        Context context = ApplicationProvider.getApplicationContext();
+        int bootCount = 17;
+        Settings.Global.putInt(
+                context.getContentResolver(), Settings.Global.BOOT_COUNT, bootCount
+        );
+        ShadowSystemClock.advanceBy(2_000L, TimeUnit.MILLISECONDS);
+        long nowWall = System.currentTimeMillis();
+        long nowElapsed = SystemClock.elapsedRealtime();
+        long sessionId = 4_010L;
+        prefs.edit()
+                .putString("blockState", BlockStateMachine.State.RESTING.name())
+                .putLong(FlowForegroundService.PREF_REST_STARTED_AT, nowWall - 2_000L)
+                .putLong(FlowForegroundService.PREF_REST_STARTED_ELAPSED_AT,
+                        nowElapsed - 2_000L)
+                .putInt(FlowForegroundService.PREF_REST_STARTED_BOOT_COUNT, bootCount)
+                .putLong(FlowForegroundService.PREF_REST_REQUIRED_MS, 1L)
+                .putLong(FlowForegroundService.PREF_REST_SESSION_ID, sessionId)
+                .putString(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, "begin-new")
+                .putString(FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN,
+                        "begin-original")
+                .putStringSet(FlowForegroundService.PREF_REST_TARGET_APPS, setOf("target"))
+                .putLong(FlowForegroundService.PREF_REST_TARGET_SESSION_ID, sessionId)
+                .commit();
+
+        assertTrue(newStore().persistAutoCompletedRest(
+                nowWall + FlowServiceStateStore.GRACE_MS,
+                sessionId,
+                nowWall,
+                nowElapsed,
+                bootCount
+        ));
+        assertEquals(BlockStateMachine.State.GRACE.name(), prefs.getString("blockState", ""));
+        assertEquals("begin-new", prefs.getString(
+                FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, ""
+        ));
+        assertFalse(prefs.contains(FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN));
+    }
+
+    @Test
+    public void failClosedSessionCleanupKeepsAQueuedNewBeginToken() {
+        prefs.edit()
+                .putString("blockState", BlockStateMachine.State.RESTING.name())
+                .putLong(FlowForegroundService.PREF_REST_SESSION_ID, 4_011L)
+                .putString(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, "begin-new")
+                .putString(FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN,
+                        "begin-original")
+                .commit();
+
+        newStore().clearActiveRestSession();
+
         assertEquals("begin-new", prefs.getString(
                 FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, ""
         ));

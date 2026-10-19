@@ -423,6 +423,7 @@ public final class FlowServiceStateStore {
             int currentBootCount
     ) {
         synchronized (RestSessionClock.LOCK) {
+          synchronized (RestBeginRequestTokenStore.LOCK) {
             long startedAt = prefs.getLong(FlowForegroundService.PREF_REST_STARTED_AT, 0L);
             long startedAtElapsed = prefs.getLong(
                     FlowForegroundService.PREF_REST_STARTED_ELAPSED_AT, 0L
@@ -457,7 +458,13 @@ public final class FlowServiceStateStore {
                     )) {
                 return false;
             }
-            return prefs.edit()
+            String activeBeginRequestToken = prefs.getString(
+                    FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, ""
+            );
+            String sessionBeginRequestToken = prefs.getString(
+                    FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN, ""
+            );
+            SharedPreferences.Editor editor = prefs.edit()
                     .putString("blockState", BlockStateMachine.State.GRACE.name())
                     .putLong("sessionMs", 0L)
                     .putLong("graceUntil", graceUntil)
@@ -472,12 +479,14 @@ public final class FlowServiceStateStore {
                     .remove(FlowForegroundService.PREF_REST_START_INTERACTION_AVAILABLE)
                     .remove(FlowForegroundService.PREF_REST_START_FOREGROUND_PACKAGE)
                     .remove(FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN)
-                    .remove(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN)
                     .remove(FlowForegroundService.PREF_REST_TARGET_APPS)
                     .remove(FlowForegroundService.PREF_REST_TARGET_SESSION_ID)
                     .putLong(FlowForegroundService.PREF_COMPLETED_REST_SESSION_ID, restSessionId)
-                    .putLong(FlowForegroundService.PREF_COMPLETED_REST_GRACE_UNTIL, graceUntil)
-                    .commit();
+                    .putLong(FlowForegroundService.PREF_COMPLETED_REST_GRACE_UNTIL, graceUntil);
+            preserveQueuedBeginToken(editor, activeBeginRequestToken, sessionBeginRequestToken);
+            boolean committed = editor.commit();
+            return committed;
+          }
         }
     }
 
@@ -942,7 +951,14 @@ public final class FlowServiceStateStore {
     /** 移除 REST 会话和目标快照字段，使用 apply()。 */
     public void clearActiveRestSession() {
         synchronized (RestSessionClock.LOCK) {
-            prefs.edit()
+          synchronized (RestBeginRequestTokenStore.LOCK) {
+            String activeBeginRequestToken = prefs.getString(
+                    FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, ""
+            );
+            String sessionBeginRequestToken = prefs.getString(
+                    FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN, ""
+            );
+            SharedPreferences.Editor editor = prefs.edit()
                     .remove(FlowForegroundService.PREF_REST_STARTED_AT)
                     .remove(FlowForegroundService.PREF_REST_STARTED_ELAPSED_AT)
                     .remove(FlowForegroundService.PREF_REST_STARTED_BOOT_COUNT)
@@ -953,10 +969,30 @@ public final class FlowServiceStateStore {
                     .remove(FlowForegroundService.PREF_REST_START_INTERACTION_AVAILABLE)
                     .remove(FlowForegroundService.PREF_REST_START_FOREGROUND_PACKAGE)
                     .remove(FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN)
-                    .remove(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN)
                     .remove(FlowForegroundService.PREF_REST_TARGET_APPS)
-                    .remove(FlowForegroundService.PREF_REST_TARGET_SESSION_ID)
-                    .apply();
+                    .remove(FlowForegroundService.PREF_REST_TARGET_SESSION_ID);
+            preserveQueuedBeginToken(editor, activeBeginRequestToken, sessionBeginRequestToken);
+            editor.apply();
+          }
+        }
+    }
+
+    /**
+     * Keep a BEGIN token that arrived after the current REST session started.
+     * All callers invoke this while holding the canonical clock -> token locks,
+     * so a queued request cannot be deleted between the read and the commit.
+     */
+    private static void preserveQueuedBeginToken(
+            SharedPreferences.Editor editor,
+            String activeBeginRequestToken,
+            String sessionBeginRequestToken
+    ) {
+        String active = safeToken(activeBeginRequestToken);
+        String session = safeToken(sessionBeginRequestToken);
+        if (!active.isEmpty() && !active.equals(session)) {
+            editor.putString(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, active);
+        } else {
+            editor.remove(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN);
         }
     }
 
