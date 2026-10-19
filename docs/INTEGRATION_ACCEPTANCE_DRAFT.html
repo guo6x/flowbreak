@@ -175,7 +175,7 @@
         <div class="hero-meta">
           <span>复核日期 <strong>2026-10-20</strong></span>
           <span>候选身份 <strong>工程就绪 · 待设备验收</strong></span>
-          <span>冻结 HEAD <strong>5f03872</strong></span>
+          <span>冻结 HEAD <strong>f7abbad</strong></span>
         </div>
       </div>
     </section>
@@ -224,13 +224,13 @@
             <h3>候选已冻结，等待设备门禁</h3>
             <p>功能代码、文档/测试和发布流水线修补已冻结并通过 hosted verify。当前仍只能称为“工程候选”，不是签名发布包。</p>
             <div class="identity-lines">
-              <div class="identity-line"><span>候选冻结 HEAD</span><strong>5f03872789f7…</strong></div>
-              <div class="identity-line"><span>CI Run / unsigned</span><strong>39274263247 · 已核验</strong></div>
+              <div class="identity-line"><span>候选冻结 HEAD</span><strong>f7abbad7e900…</strong></div>
+              <div class="identity-line"><span>CI Run / unsigned</span><strong>39301143402 · 已核验</strong></div>
               <div class="identity-line"><span>发布决定</span><strong>STORE READY = NO</strong></div>
             </div>
           </article>
           <div class="evidence-stack" aria-label="证据核验清单">
-            <div class="evidence-item"><strong>源代码与测试必须同 SHA</strong><span>Run 39274263247 的 provenance、PR head 和 artifact manifest 均指向精确冻结 HEAD `5f038727…`。</span></div>
+            <div class="evidence-item"><strong>源代码与测试必须同 SHA</strong><span>Run 39301143402 的 provenance、PR head 和 artifact manifest 均指向精确冻结 HEAD `f7abbad7…`。</span></div>
             <div class="evidence-item"><strong>虚拟设备证据有清晰边界</strong><span>可覆盖页面、权限、状态和受控 REST 流程；不代表真实设备 OEM 行为。</span></div>
             <div class="evidence-item"><strong>REST 完成完整性 · 候选复审范围</strong><span>候选将绑定 restSessionId，在 monitor Handler 上回放完整 REST UsageEvents；查询/coverage 失败时 DEFER，完整目标历史 ≥5 秒才允许取消。BEGIN/CANCEL 采用 UUID token，并处理 BEGIN 未确认时页面卸载的取消竞态。精确冻结 HEAD 已完成独立差异复审。</span></div>
             <div class="evidence-item"><strong>不要编造产物或真人证据</strong><span>AVD 受控页面证据与 unsigned provenance 已记录；没有新的 Redmi/HyperOS 真机复测、24 小时稳定性或正式签名发布证据。</span></div>

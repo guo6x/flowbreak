@@ -4,8 +4,8 @@
 
 ## 本轮集成候选验证快照（2026-10-20）
 
-- 分支：`integration/experience-quality-20261019`；功能代码基线 `64d2e42d675b0f6ef757e1084d68d285c1ac4daa`；当前候选 HEAD `5f03872789f720ba50b0c8c0a6ecafe273c67d11`；`origin/master=695b11f0fe68e4260864c638fda51b949c3a04f8` 已重新核对。
-- Draft PR #42 的 hosted verify [Run `39274263247`](https://github.com/guo6x/flowbreak/actions/runs/39274263247) 对精确 HEAD **PASS**；目标状态仍为 **`INTEGRATION_ENGINEERING_READY / DEVICE_ACCEPTANCE_PENDING`**。模拟器、JVM、静态检查和 unsigned 产物都不能关闭真实设备 Gate F。
+- 分支：`integration/experience-quality-20261019`；功能代码基线 `64d2e42d675b0f6ef757e1084d68d285c1ac4daa`；当前候选 HEAD `f7abbad7e900b32db5291cf26754cbd492721948`；`origin/master=695b11f0fe68e4260864c638fda51b949c3a04f8` 已重新核对。
+- Draft PR #42 的 hosted verify [Run `39301143402`](https://github.com/guo6x/flowbreak/actions/runs/39301143402) 对精确 HEAD **PASS**；目标状态仍为 **`INTEGRATION_ENGINEERING_READY / DEVICE_ACCEPTANCE_PENDING`**。模拟器、JVM、静态检查和 unsigned 产物都不能关闭真实设备 Gate F。
 
 | 检查 | 结果与边界 |
 | ---- | ---- |
@@ -15,11 +15,11 @@
 | 品牌一致性 | **36 / 36 PASS**（`npm run test:brand`） |
 | Provenance / Release policy | **20 / 20 PASS**、**8 / 8 PASS** |
 | Privacy static | **15 / 15 PASS**；静态网络与 SDK 清单检查通过 |
-| Android JVM | Domestic **484 / 484 PASS**；Play **451 / 451 PASS**；当前工作树 JUnit XML 汇总为 0 failure / 0 error / 0 skipped（CI 同一命令双渠道执行并通过） |
+| Android JVM | Domestic **489 / 489 PASS**；Play **456 / 456 PASS**；当前候选 JUnit XML 汇总为 0 failure / 0 error / 0 skipped（hosted CI 同一命令双渠道执行并通过） |
 | 双渠道 Lint | **PASS**；0 error（warnings 仅为既有工具链提示） |
 | 双渠道 Debug / unsigned Release | **PASS**；Play AAB 与 Domestic unsigned Release APK 均成功生成，R8/Room/Manifest 检查通过 |
 | Web → Android 同步 | **49 / 49 PASS**；Capacitor Web 资产与 Android assets SHA-256 一致 |
-| unsigned 产物 provenance | hosted Run `39274263247` / source `5f038727…`：Play AAB `2a72d86c5b0c47876b728b4b5942bde3063172530f7035fcea00efb651fbb3ca`；Domestic unsigned Release APK `b052c8b02f7a084a92249520b6a165f9a42b1c45f04b3124a198acdac5694cdc`；`versionCode=1` / `versionName=ci-398796f332bb09dec0ea10642ac5bc9062cda78b`。本地 `1.1.0` unsigned 产物仅为功能基线/AVD 使用 |
+| unsigned 产物 provenance | hosted Run `39301143402` / source `f7abbad7…`：[artifact](https://github.com/guo6x/flowbreak/actions/runs/39301143402/artifacts/12211868639)；Play AAB `989af971a7683ba615fca335335c44b51acbf6e96c97fc8ef15aca995c0c796`；Domestic unsigned Release APK `cc8e9f01cb11d41ef58ff25751863496ab47bb36a82e74069216d361d488376e`；`versionCode=1` / `versionName=ci-2a7b01cceecf46031ec5ea04ac43b467fd280453`。本地 `1.1.0` unsigned 产物仅为功能基线/AVD 使用 |
 | npm audit（GitHub CI） | **PASS — 0 vulnerabilities**；生产依赖 high、全依赖 critical，以及 build 后回归重跑均返回 `found 0 vulnerabilities` |
 | npm audit（本地环境） | **BLOCKED / NOT_PASS**；当前配置的 `https://registry.npmmirror.com` 返回 404/`NOT_IMPLEMENTED`，不能把本地镜像阻塞写成安全审计通过；该状态不覆盖 hosted CI 结果 |
 | API 36 AVD 启动与页面 | **受控范围 PASS**：`Medium_Phone_API_36.0` / Android 16 / API 36 / `emulator-5554`；Domestic debug 安装后启动，Onboarding、权限页、个性化、目标应用、首页、统计、个人中心、阻断设置、诊断均已截图 |
