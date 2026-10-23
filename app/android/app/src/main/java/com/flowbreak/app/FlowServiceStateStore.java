@@ -481,6 +481,8 @@ public final class FlowServiceStateStore {
                     .remove(FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN)
                     .remove(FlowForegroundService.PREF_REST_TARGET_APPS)
                     .remove(FlowForegroundService.PREF_REST_TARGET_SESSION_ID)
+                    .remove(FlowForegroundService.PREF_REST_CHEAT_CANCELLATION_PENDING)
+                    .remove(FlowForegroundService.PREF_REST_CHEAT_CANCELLATION_SESSION_ID)
                     .putLong(FlowForegroundService.PREF_COMPLETED_REST_SESSION_ID, restSessionId)
                     .putLong(FlowForegroundService.PREF_COMPLETED_REST_GRACE_UNTIL, graceUntil);
             preserveQueuedBeginToken(editor, activeBeginRequestToken, sessionBeginRequestToken);
@@ -575,7 +577,9 @@ public final class FlowServiceStateStore {
                     .remove(FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN)
                     .remove(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN)
                     .remove(FlowForegroundService.PREF_REST_TARGET_APPS)
-                    .remove(FlowForegroundService.PREF_REST_TARGET_SESSION_ID);
+                    .remove(FlowForegroundService.PREF_REST_TARGET_SESSION_ID)
+                    .remove(FlowForegroundService.PREF_REST_CHEAT_CANCELLATION_PENDING)
+                    .remove(FlowForegroundService.PREF_REST_CHEAT_CANCELLATION_SESSION_ID);
             if (checkpoint != null) {
                 editor.putLong("checkpointWallMs", checkpoint.wallMs)
                         .putLong("checkpointElapsedMs", checkpoint.elapsedMs)
@@ -684,7 +688,9 @@ public final class FlowServiceStateStore {
                     .remove(FlowForegroundService.PREF_REST_START_FOREGROUND_PACKAGE)
                     .remove(FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN)
                     .remove(FlowForegroundService.PREF_REST_TARGET_APPS)
-                    .remove(FlowForegroundService.PREF_REST_TARGET_SESSION_ID);
+                    .remove(FlowForegroundService.PREF_REST_TARGET_SESSION_ID)
+                    .remove(FlowForegroundService.PREF_REST_CHEAT_CANCELLATION_PENDING)
+                    .remove(FlowForegroundService.PREF_REST_CHEAT_CANCELLATION_SESSION_ID);
             if (nextBeginRequestToken != null && !nextBeginRequestToken.isEmpty()) {
                 if (!nextBeginRequestToken.equals(activeBeginRequestToken)) return false;
                 editor.putString(
@@ -776,7 +782,9 @@ public final class FlowServiceStateStore {
                     .remove(FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN)
                     .remove(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN)
                     .remove(FlowForegroundService.PREF_REST_TARGET_APPS)
-                    .remove(FlowForegroundService.PREF_REST_TARGET_SESSION_ID);
+                    .remove(FlowForegroundService.PREF_REST_TARGET_SESSION_ID)
+                    .remove(FlowForegroundService.PREF_REST_CHEAT_CANCELLATION_PENDING)
+                    .remove(FlowForegroundService.PREF_REST_CHEAT_CANCELLATION_SESSION_ID);
             if (nextBeginRequestToken != null && !nextBeginRequestToken.isEmpty()) {
                 if (!nextBeginRequestToken.equals(activeBeginRequestToken)) return false;
                 editor.putString(
@@ -807,6 +815,43 @@ public final class FlowServiceStateStore {
                                 pullback.success);
             }
             return editor.commit();
+          }
+        }
+    }
+
+    /**
+     * Durably records that a verified REST-cheat cancellation is pending. The
+     * marker is intentionally written before the state transition so a process
+     * death between the two commits still recovers fail-closed.
+     */
+    public boolean markAutomaticRestCancellationPending(
+            long expectedRestSessionId,
+            String expectedActiveBeginRequestToken
+    ) {
+        synchronized (RestSessionClock.LOCK) {
+          synchronized (RestBeginRequestTokenStore.LOCK) {
+            long activeRestSessionId = prefs.getLong(
+                    FlowForegroundService.PREF_REST_SESSION_ID, 0L
+            );
+            String activeBeginRequestToken = prefs.getString(
+                    FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, ""
+            );
+            if (!BlockStateMachine.State.RESTING.name().equals(
+                            prefs.getString("blockState", BlockStateMachine.State.IDLE.name()))
+                    || expectedRestSessionId <= 0L
+                    || expectedRestSessionId != activeRestSessionId
+                    || !safeToken(expectedActiveBeginRequestToken).equals(
+                            activeBeginRequestToken
+                    )) {
+                return false;
+            }
+            return prefs.edit()
+                    .putBoolean(FlowForegroundService.PREF_REST_CHEAT_CANCELLATION_PENDING, true)
+                    .putLong(
+                            FlowForegroundService.PREF_REST_CHEAT_CANCELLATION_SESSION_ID,
+                            expectedRestSessionId
+                    )
+                    .commit();
           }
         }
     }
@@ -970,7 +1015,9 @@ public final class FlowServiceStateStore {
                     .remove(FlowForegroundService.PREF_REST_START_FOREGROUND_PACKAGE)
                     .remove(FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN)
                     .remove(FlowForegroundService.PREF_REST_TARGET_APPS)
-                    .remove(FlowForegroundService.PREF_REST_TARGET_SESSION_ID);
+                    .remove(FlowForegroundService.PREF_REST_TARGET_SESSION_ID)
+                    .remove(FlowForegroundService.PREF_REST_CHEAT_CANCELLATION_PENDING)
+                    .remove(FlowForegroundService.PREF_REST_CHEAT_CANCELLATION_SESSION_ID);
             preserveQueuedBeginToken(editor, activeBeginRequestToken, sessionBeginRequestToken);
             editor.apply();
           }

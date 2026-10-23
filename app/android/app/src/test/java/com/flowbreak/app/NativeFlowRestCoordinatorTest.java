@@ -84,6 +84,8 @@ public class NativeFlowRestCoordinatorTest {
                 .putStringSet(FlowForegroundService.PREF_REST_TARGET_APPS,
                         java.util.Collections.singleton("com.example.target"))
                 .putLong(FlowForegroundService.PREF_REST_TARGET_SESSION_ID, sessionId)
+                .putBoolean(FlowForegroundService.PREF_REST_CHEAT_CANCELLATION_PENDING, true)
+                .putLong(FlowForegroundService.PREF_REST_CHEAT_CANCELLATION_SESSION_ID, sessionId)
                 .commit();
 
         NativeFlowRestCoordinator.Result result = runOnWorker(
@@ -98,6 +100,10 @@ public class NativeFlowRestCoordinatorTest {
         assertFalse(prefs.contains(FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN));
         assertEquals(BlockStateMachine.State.GRACE.name(),
                 prefs.getString("blockState", ""));
+        assertFalse(prefs.contains(FlowForegroundService.PREF_REST_CHEAT_CANCELLATION_PENDING));
+        assertFalse(prefs.contains(
+                FlowForegroundService.PREF_REST_CHEAT_CANCELLATION_SESSION_ID
+        ));
     }
 
     @Test public void legacyRestWithoutTargetSnapshotCannotBeCompletedDirectly()

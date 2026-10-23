@@ -64,6 +64,12 @@ public class FlowForegroundService extends Service {
     /** Token that originally created the currently persisted REST session. */
     public static final String PREF_REST_SESSION_BEGIN_REQUEST_TOKEN =
             "restSessionBeginRequestToken";
+    /** Durable marker for a cheat cancellation whose state commit is pending. */
+    public static final String PREF_REST_CHEAT_CANCELLATION_PENDING =
+            "restCheatCancellationPending";
+    /** REST session bound to the pending cheat-cancellation marker. */
+    public static final String PREF_REST_CHEAT_CANCELLATION_SESSION_ID =
+            "restCheatCancellationSessionId";
     public static final String PREF_COMPLETED_REST_SESSION_ID = "completedRestSessionId";
     public static final String PREF_COMPLETED_REST_GRACE_UNTIL = "completedRestGraceUntil";
     public static final String PREF_PULLBACK_SESSION_ID = "pullbackSessionId";
@@ -81,6 +87,8 @@ public class FlowForegroundService extends Service {
     private static final long MAX_CLOCK_SKEW_MS = 60_000L;
     public static final long SERVICE_HEARTBEAT_STALE_MS =
             ProtectionRuntimeHealthEvaluator.SERVICE_HEARTBEAT_STALE_MS;
+    private static final String REST_CHEAT_CANCELLATION_PERSISTENCE_FAILURE =
+            "REST_CHEAT_CANCELLATION_PERSIST_FAILED";
 
     private static volatile BlockStateMachine.State staticState = BlockStateMachine.State.IDLE;
     private static volatile long staticSessionMs;
@@ -522,6 +530,7 @@ public class FlowForegroundService extends Service {
         lastCheckpointPersistElapsedMs = nowElapsedMs;
         monitoringLifecycleClean = !monitoringEnabled
                 && machine.getState() == BlockStateMachine.State.IDLE;
+        clearIntegrityFailureIfCurrent();
         publishState();
         return true;
     }
@@ -752,9 +761,53 @@ public class FlowForegroundService extends Service {
     private void clearIntegrityFailureIfCurrent() {
         synchronized (runtimeTracking) {
             if (runtimeTracking.isCurrentServiceGeneration(livenessServiceGeneration)) {
+                if (shouldRetainRestCheatCancellationFailure(
+                        staticProtectionIntegrityFailureReason,
+                        machine == null ? null : machine.getState()
+                )) {
+                    return;
+                }
                 staticProtectionIntegrityFailureReason = "";
             }
         }
+    }
+
+    /**
+     * A failed automatic REST-cheat commit leaves the durable session RESTING.
+     * Keep completion blocked until that session is explicitly resolved or a
+     * later retry commits the cancellation; a healthy UsageEvents read alone
+     * must not erase this persistence-integrity failure.
+     */
+    private void markRestCheatCancellationPersistenceFailure() {
+        synchronized (runtimeTracking) {
+            if (runtimeTracking.isCurrentServiceGeneration(livenessServiceGeneration)) {
+                staticProtectionIntegrityFailureReason =
+                        REST_CHEAT_CANCELLATION_PERSISTENCE_FAILURE;
+            }
+        }
+        postOverlayAction(() -> {
+            overlayController.dismissBlocker();
+            overlayController.dismissWarningBar();
+            overlayController.dismissGraceCountdown();
+        });
+    }
+
+    private void recoverAfterRestCheatPersistenceFailure(long expectedRestSessionId) {
+        load();
+        if (machine != null
+                && machine.getState() == BlockStateMachine.State.RESTING
+                && stateStore.preferences().getLong(PREF_REST_SESSION_ID, 0L)
+                        == expectedRestSessionId) {
+            markRestCheatCancellationPersistenceFailure();
+        }
+    }
+
+    static boolean shouldRetainRestCheatCancellationFailure(
+            String integrityFailureReason,
+            BlockStateMachine.State currentState
+    ) {
+        return REST_CHEAT_CANCELLATION_PERSISTENCE_FAILURE.equals(integrityFailureReason)
+                && currentState == BlockStateMachine.State.RESTING;
     }
 
     /**
@@ -823,6 +876,18 @@ public class FlowForegroundService extends Service {
         staticAllowEmergencyUnlock = result.config.allowEmergencyUnlock;
         machine = result.machine;
         FlowServiceStateStore.MachineSnapshot machineSnapshot = result.machineSnapshot;
+        if (machine.getState() == BlockStateMachine.State.RESTING
+                && stateStore.preferences().getBoolean(
+                        PREF_REST_CHEAT_CANCELLATION_PENDING, false
+                )) {
+            long pendingSessionId = stateStore.preferences().getLong(
+                    PREF_REST_CHEAT_CANCELLATION_SESSION_ID, 0L
+            );
+            if (pendingSessionId == machineSnapshot.restSessionId && pendingSessionId > 0L) {
+                staticProtectionIntegrityFailureReason =
+                        REST_CHEAT_CANCELLATION_PERSISTENCE_FAILURE;
+            }
+        }
         if (machineSnapshot.persistedState == BlockStateMachine.State.RESTING
                 && !result.restClockValid) {
             if (cancelInvalidRestOnMonitor(machineSnapshot.restSessionId)) {
@@ -2002,6 +2067,16 @@ public class FlowForegroundService extends Service {
                         foregroundPackage
                 )
                 : null;
+        boolean pendingMarkerCommitted = stateStore.markAutomaticRestCancellationPending(
+                restSessionId,
+                activeBeginToken
+        );
+        if (!pendingMarkerCommitted) {
+            Log.w("FlowForegroundService",
+                    "REST cheat cancellation pending marker was not committed");
+            recoverAfterRestCheatPersistenceFailure(restSessionId);
+            return;
+        }
         if (!stateStore.commitAutomaticRestCancellation(
                 restSessionId,
                 activeBeginToken,
@@ -2015,10 +2090,11 @@ public class FlowForegroundService extends Service {
                 checkpoint
         )) {
             Log.w("FlowForegroundService", "REST cheat cancellation persistence was not committed");
-            load();
+            recoverAfterRestCheatPersistenceFailure(restSessionId);
             return;
         }
         clearActiveRestWindow();
+        clearIntegrityFailureIfCurrent();
         restCheatEvidence.recordCancellation(cheatAccumulated, System.currentTimeMillis());
         repository.log(
                 "rest_cheat",

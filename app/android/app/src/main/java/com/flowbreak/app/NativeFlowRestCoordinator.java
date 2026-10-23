@@ -210,6 +210,8 @@ public final class NativeFlowRestCoordinator {
                 .remove(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN)
                 .remove(FlowForegroundService.PREF_REST_TARGET_APPS)
                 .remove(FlowForegroundService.PREF_REST_TARGET_SESSION_ID)
+                .remove(FlowForegroundService.PREF_REST_CHEAT_CANCELLATION_PENDING)
+                .remove(FlowForegroundService.PREF_REST_CHEAT_CANCELLATION_SESSION_ID)
                 .putLong(FlowForegroundService.PREF_COMPLETED_REST_SESSION_ID, sessionId)
                 .putLong(FlowForegroundService.PREF_COMPLETED_REST_GRACE_UNTIL, graceUntil)
                 .putLong(FlowForegroundService.PREF_PULLBACK_SESSION_ID, sessionId)

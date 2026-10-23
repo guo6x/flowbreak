@@ -597,6 +597,15 @@ public class FlowServiceRecoveryIntegrationTest {
                 TEST_BOOT_COUNT
         ));
         assertTrue(RestBeginRequestTokenStore.persistLatestRequest(prefs, "begin-new"));
+        assertFalse(store.markAutomaticRestCancellationPending(sessionId + 1L, "begin-new"));
+        assertFalse(store.markAutomaticRestCancellationPending(sessionId, "stale-token"));
+        assertTrue(store.markAutomaticRestCancellationPending(sessionId, "begin-new"));
+        assertTrue(prefs.getBoolean(
+                FlowForegroundService.PREF_REST_CHEAT_CANCELLATION_PENDING, false
+        ));
+        assertEquals(sessionId, prefs.getLong(
+                FlowForegroundService.PREF_REST_CHEAT_CANCELLATION_SESSION_ID, 0L
+        ));
 
         BlockStateMachine machine = new BlockStateMachine(
                 BlockStateMachine.State.COGNITION, 900_000L, 0L, 0L, ""
@@ -621,6 +630,10 @@ public class FlowServiceRecoveryIntegrationTest {
         ));
         assertFalse(prefs.contains(FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN));
         assertFalse(prefs.contains(FlowForegroundService.PREF_REST_SESSION_ID));
+        assertFalse(prefs.contains(FlowForegroundService.PREF_REST_CHEAT_CANCELLATION_PENDING));
+        assertFalse(prefs.contains(
+                FlowForegroundService.PREF_REST_CHEAT_CANCELLATION_SESSION_ID
+        ));
     }
 
     @Test
@@ -647,6 +660,8 @@ public class FlowServiceRecoveryIntegrationTest {
                         "begin-original")
                 .putStringSet(FlowForegroundService.PREF_REST_TARGET_APPS, setOf("target"))
                 .putLong(FlowForegroundService.PREF_REST_TARGET_SESSION_ID, sessionId)
+                .putBoolean(FlowForegroundService.PREF_REST_CHEAT_CANCELLATION_PENDING, true)
+                .putLong(FlowForegroundService.PREF_REST_CHEAT_CANCELLATION_SESSION_ID, sessionId)
                 .commit();
 
         assertTrue(newStore().persistAutoCompletedRest(
@@ -661,6 +676,10 @@ public class FlowServiceRecoveryIntegrationTest {
                 FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, ""
         ));
         assertFalse(prefs.contains(FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN));
+        assertFalse(prefs.contains(FlowForegroundService.PREF_REST_CHEAT_CANCELLATION_PENDING));
+        assertFalse(prefs.contains(
+                FlowForegroundService.PREF_REST_CHEAT_CANCELLATION_SESSION_ID
+        ));
     }
 
     @Test
