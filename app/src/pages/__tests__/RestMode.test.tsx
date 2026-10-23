@@ -19,6 +19,7 @@ vi.mock('../../backend/nativeFlow', () => ({
     beginRest: vi.fn(),
     getBlockState: vi.fn(),
     cancelRest: vi.fn(),
+    completeRestAndUnlock: vi.fn(),
   },
 }));
 
@@ -27,18 +28,27 @@ vi.mock('../rest-mode/ambientAudio', () => ({ playChime: vi.fn() }));
 vi.mock('../rest-mode/RestActivityView', () => ({
   default: ({
     operationError,
+    timeLeft,
+    restClockValid,
     confirmingEarlyExit,
     onClose,
+    onComplete,
     onConfirmEarlyExit,
   }: {
     operationError: string;
+    timeLeft: number;
+    restClockValid: boolean;
     confirmingEarlyExit: boolean;
     onClose: () => void;
+    onComplete: () => void;
     onConfirmEarlyExit: () => void;
   }) => (
     <div>
       <div>{operationError}</div>
+      <output aria-label="remaining seconds">{timeLeft}</output>
+      <output aria-label="native clock valid">{String(restClockValid)}</output>
       <button onClick={onClose}>request early exit</button>
+      <button onClick={onComplete}>complete rest</button>
       {confirmingEarlyExit && (
         <button onClick={onConfirmEarlyExit}>confirm early exit</button>
       )}
@@ -87,6 +97,7 @@ describe('RestMode native state reconciliation', () => {
     });
     vi.mocked(NativeFlow.getBlockState).mockReset();
     vi.mocked(NativeFlow.cancelRest).mockReset().mockResolvedValue(undefined);
+    vi.mocked(NativeFlow.completeRestAndUnlock).mockReset();
     useStore.setState({ blockState: 'RESTING', graceUntil: 0 });
   });
 
@@ -191,6 +202,80 @@ describe('RestMode native state reconciliation', () => {
     expect(useStore.getState().blockState).toBe('IDLE');
     cleanup();
     expect(NativeFlow.cancelRest).not.toHaveBeenCalled();
+  });
+
+  it.each(['IDLE', 'BLOCKED'] as const)(
+    'keeps polling after a valid REST clock becomes invalid and reconciles %s without an unmount cancel',
+    async (state) => {
+      const invalidRest = { ...resting, restClockValid: false, restRemainingMs: 0 };
+      vi.mocked(NativeFlow.getBlockState).mockResolvedValueOnce(resting).mockResolvedValue(invalidRest);
+      await mountRest();
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(2_100); });
+      expect(screen.getByLabelText('native clock valid')).toHaveTextContent('false');
+      expect(screen.getByLabelText('remaining seconds')).toHaveTextContent('0');
+      fireEvent.click(screen.getByRole('button', { name: 'complete rest' }));
+      expect(NativeFlow.completeRestAndUnlock).not.toHaveBeenCalled();
+
+      vi.mocked(NativeFlow.getBlockState).mockResolvedValue({ ...cancelled, state });
+      await act(async () => { await vi.advanceTimersByTimeAsync(2_100); });
+
+      expect(mockNavigate).toHaveBeenCalledWith('/dashboard', { replace: true });
+      expect(useStore.getState().blockState).toBe(state);
+      expect(NativeFlow.beginRest).toHaveBeenCalledTimes(1);
+      cleanup();
+      expect(NativeFlow.cancelRest).not.toHaveBeenCalled();
+    },
+  );
+
+  it('resumes the same REST session timer and clears the recovery error after a valid-invalid-valid clock sequence', async () => {
+    const invalidRest = { ...resting, restClockValid: false, restRemainingMs: 0 };
+    vi.mocked(NativeFlow.getBlockState).mockResolvedValueOnce(resting).mockResolvedValue(invalidRest);
+    await mountRest();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_100); });
+    expect(screen.getByText('休息计时暂时无法确认，正在恢复保护状态。')).toBeInTheDocument();
+    expect(screen.getByLabelText('native clock valid')).toHaveTextContent('false');
+    fireEvent.click(screen.getByRole('button', { name: 'complete rest' }));
+    expect(NativeFlow.completeRestAndUnlock).not.toHaveBeenCalled();
+
+    vi.mocked(NativeFlow.getBlockState).mockResolvedValue({ ...resting, restRemainingMs: 60_000 });
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(NativeFlow.getBlockState).toHaveBeenCalledTimes(3);
+    expect(screen.getByLabelText('native clock valid')).toHaveTextContent('true');
+    expect(screen.getByLabelText('remaining seconds')).toHaveTextContent('60');
+    expect(screen.queryByText(/休息计时暂时无法确认/)).toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    expect(screen.getByLabelText('remaining seconds')).toHaveTextContent('59');
+    expect(NativeFlow.beginRest).toHaveBeenCalledTimes(1);
+    expect(NativeFlow.completeRestAndUnlock).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('does not resume or settle a different native REST session after clock recovery', async () => {
+    const invalidRest = { ...resting, restClockValid: false, restRemainingMs: 0 };
+    vi.mocked(NativeFlow.getBlockState).mockResolvedValueOnce(resting).mockResolvedValue(invalidRest);
+    await mountRest();
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_100); });
+
+    vi.mocked(NativeFlow.getBlockState).mockResolvedValue({ ...resting, restSessionId: 202, restRemainingMs: 60_000 });
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(NativeFlow.getBlockState).toHaveBeenCalledTimes(3);
+    expect(screen.getByLabelText('native clock valid')).toHaveTextContent('false');
+    expect(screen.getByLabelText('remaining seconds')).toHaveTextContent('0');
+    fireEvent.click(screen.getByRole('button', { name: 'complete rest' }));
+    expect(NativeFlow.completeRestAndUnlock).not.toHaveBeenCalled();
+    expect(NativeFlow.beginRest).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the REST page open when native cancellation cannot be confirmed', async () => {

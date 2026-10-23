@@ -42,6 +42,7 @@ export default function RestMode() {
   const [nativeRemainingMs, setNativeRemainingMs] = useState<number | null>(null);
   const [restClockValid, setRestClockValid] = useState(!isNative);
   const [restReady, setRestReady] = useState(!isNative);
+  const [nativeRestConfirmed, setNativeRestConfirmed] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [stepIdx, setStepIdx] = useState(0);
@@ -151,6 +152,7 @@ export default function RestMode() {
             setTimeLeft(Math.max(0, Math.ceil(remainingMs / 1000)));
             setOperationError('');
             setRestReady(true);
+            setNativeRestConfirmed(true);
             return;
           }
           if (state.state === 'GRACE') {
@@ -190,8 +192,10 @@ export default function RestMode() {
   // The native service can cancel REST while the WebView is backgrounded.
   // Reconcile on resume and periodically while visible; the displayed timer
   // follows native monotonic remaining-time samples, never Date.now().
+  // Keep observing the confirmed session even when an invalid sample stops
+  // its timer. `restReady` must not control this recovery effect's lifetime.
   useEffect(() => {
-    if (!isNative || !restReady || showReward) return;
+    if (!isNative || !nativeRestConfirmed || showReward) return;
     let active = true;
     let checking = false;
     const reconcileNativeRest = async () => {
@@ -203,7 +207,8 @@ export default function RestMode() {
         const nativeState = await NativeFlow.getBlockState();
         if (!active) return;
         if (nativeState.state === 'RESTING'
-            && (nativeState.restClockValid !== true
+            && (nativeState.restSessionId !== restSessionIdRef.current
+                || nativeState.restClockValid !== true
                 || typeof nativeState.restRemainingMs !== 'number'
                 || !Number.isFinite(nativeState.restRemainingMs))) {
           setRestClockValid(false);
@@ -224,6 +229,8 @@ export default function RestMode() {
           setRestClockValid(true);
           setNativeRemainingMs(remainingMs);
           setTimeLeft(Math.max(0, Math.ceil(remainingMs / 1000)));
+          setRestReady(true);
+          setOperationError('');
         }
       } catch {
         if (active) setOperationError('暂时无法确认休息状态，请返回后重试。');
@@ -244,7 +251,7 @@ export default function RestMode() {
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('focus', onFocus);
     };
-  }, [isNative, restReady, showReward, navigate, setBlockState]);
+  }, [isNative, nativeRestConfirmed, showReward, navigate, setBlockState]);
 
   // ===== Static activity & derived visuals =====
   const activity = getActivityByIndex(activityIdx);
