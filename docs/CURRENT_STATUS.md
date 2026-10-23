@@ -5,17 +5,19 @@
 
 ## 当前合并基线与验证来源（2026-10-24）
 
-PR #42 已于 2026-10-23 合并到 `master`，merge SHA = `67d1b7c3ee82ef4f6dd275299d51969869d7db4d`。仍开放的 Protection Integrity P1 是 PR #29（分支 `fix/fb-p1-08-protection-integrity`，HEAD `b00b9cc75073e77759e28ba5b71f960033cbf1d5`）；它与 PR #42 的合并身份分开记录，不能把其失败 CI 或历史取证倒灌为 master、真机或 24 小时验收结果。本轮 `integration/flowbreak-closeout-20261024` 只承载状态文档收口，不改变运行时代码。已知 GitHub Actions [Run `39928579175`](https://github.com/guo6x/flowbreak/actions/runs/39928579175) 的 `verify` 成功；该证据只覆盖 hosted 工程验证，不扩大为生产签名、真机或 24 小时稳定性通过。旧产物和旧 Run 仍只归属原始 source SHA。
+PR #42 已于 2026-10-23 合并到 `master`，merge SHA = `67d1b7c3ee82ef4f6dd275299d51969869d7db4d`。仍开放的 Protection Integrity P1 是 PR #29（分支 `fix/fb-p1-08-protection-integrity`，HEAD `b00b9cc75073e77759e28ba5b71f960033cbf1d5`）；它与 PR #42 的合并身份分开记录，不能把其失败 CI 或历史取证倒灌为 master、真机或 24 小时验收结果。本轮 `integration/flowbreak-closeout-20261024` 在该 master 基线上补入 Android REST 作弊取消的 fail-closed 持久化修复（代码 SHA `8cf1d653fe34d01096130322199ed4f4d6623039`）并同步更新本状态文档；对应 Draft PR #43 仍未合并。候选 GitHub Actions [Run `40033048741`](https://github.com/guo6x/flowbreak/actions/runs/40033048741) 的 `verify` 成功、`release` 按策略跳过；master 的 [Run `39928579175`](https://github.com/guo6x/flowbreak/actions/runs/39928579175) 保留为合并基线。上述证据只覆盖 hosted 工程验证，不扩大为生产签名、真机或 24 小时稳定性通过。旧产物和旧 Run 仍只归属原始 source SHA。
 
 | 项 | 当前可核验状态 |
 | ---- | ---- |
 | 当前 master HEAD | `67d1b7c3ee82ef4f6dd275299d51969869d7db4d`（PR #42 merge commit） |
 | 未合并 P1 取证分支 HEAD | `b00b9cc75073e77759e28ba5b71f960033cbf1d5`（PR #29 OPEN；最近一次 verify FAILURE，不能并入当前候选） |
-| 本轮收口分支 | `integration/flowbreak-closeout-20261024`（仅文档变更；代码基线仍为 master `67d1b7c3…`） |
-| 最新合并后 CI | [Run `39928579175`](https://github.com/guo6x/flowbreak/actions/runs/39928579175) `verify` **PASS**；`release` 未执行/未签名 |
-| 工程集成身份 | **INTEGRATION_ENGINEERING_READY / DEVICE_ACCEPTANCE_PENDING**；PR #42 当前已 MERGED；不创建正式 tag |
+| 本轮候选 HEAD | `8cf1d653fe34d01096130322199ed4f4d6623039`（Android REST 作弊持久化失败时 fail closed；含回归测试） |
+| 本轮收口分支 | `integration/flowbreak-closeout-20261024`（PR #43，Draft/Open；基于 master `67d1b7c3…`，代码与文档均已推送） |
+| 最新候选 CI | [Run `40033048741`](https://github.com/guo6x/flowbreak/actions/runs/40033048741) `verify` **PASS**；双渠道 JVM/Lint/Debug/unsigned Release、R8、Room、Manifest、Provenance 与审计均通过；`release` **SKIPPED** |
+| 工程集成身份 | **INTEGRATION_ENGINEERING_READY / DEVICE_ACCEPTANCE_PENDING**；PR #42 已 MERGED，PR #43 仍 Draft/Open；不创建正式 tag |
 | 历史 unsigned 产物 | hosted verify [Run `39301143402`](https://github.com/guo6x/flowbreak/actions/runs/39301143402)（source `f7abbad7…`）：[artifact `flowbreak-unsigned-f7abbad…`](https://github.com/guo6x/flowbreak/actions/runs/39301143402/artifacts/12211868639)；Play AAB SHA-256 `989af971a7683ba615fca335335c44b51acbf6e96c97fc8ef15aca995c0c796`；Domestic unsigned Release APK SHA-256 `cc8e9f01cb11d41ef58ff25751863496ab47bb36a82e74069216d361d488376e`；`versionCode=1`、`versionName=ci-2a7b01cceecf46031ec5ea04ac43b467fd280453`，只归属该旧 SHA；本地 `1.1.0` unsigned 包仅为功能基线/AVD 使用 |
-| 当前工程验证快照 | Vitest **296/296 PASS**；UI smoke **44/44**；Brand **36/36**；Privacy static **15/15**；Provenance **20/20**；Release policy **8/8**；Web asset sync **50/50**；同源 JUnit Play **456/456**、Domestic **489/489**，0 failure/error/skip；双渠道 JVM/Lint/Debug/unsigned Release、R8、Room、Manifest 与包内 provenance 检查均 PASS（详见 [TESTING.md](TESTING.md)） |
+| 当前工程验证快照 | source `8cf1d653…`：Vitest **296/296 PASS**；UI smoke **44/44**；Brand **36/36**；Privacy static **15/15**；Provenance **20/20**；Release policy **8/8**；Web asset sync **50/50**；同源 JUnit Play **456/456**、Domestic **489/489**，0 failure/error/skip；双渠道 JVM/Lint/Debug/unsigned Release、R8、Room、Manifest 与包内 provenance 检查均 PASS（详见 [TESTING.md](TESTING.md)） |
+| 当前 unsigned provenance artifact | [Run `40033048741`](https://github.com/guo6x/flowbreak/actions/runs/40033048741) 的 [artifact `flowbreak-unsigned-8cf1d653…`](https://github.com/guo6x/flowbreak/actions/runs/40033048741/artifacts/12537025213)；Play AAB SHA-256 `75b0c0bbbe044540acc4076a5f59c4749e26cf389655aa08c4dbee6e9a50c0ee`；Domestic unsigned Release APK SHA-256 `aedf9c9eeddb64769dfe5353b1023190e17f7e05d24ad62fb8bd9e5eedbe61a3`；均为 `UNSIGNED / TEST ONLY` |
 | npm audit（GitHub CI，生产依赖 high） | **PASS — 0 vulnerabilities** |
 | npm audit（GitHub CI，全依赖 critical） | **PASS**；开发依赖仍有 Vite high advisory，不能写成“全依赖零漏洞” |
 | npm audit（本地镜像） | **BLOCKED / NOT_PASS**：`https://registry.npmmirror.com` 返回 404/`NOT_IMPLEMENTED`；不覆盖 hosted CI 结论 |
@@ -26,7 +28,7 @@ PR #42 已于 2026-10-23 合并到 `master`，merge SHA = `67d1b7c3ee82ef4f6dd27
 | Gate G | **PENDING_CROSS_MACHINE_RECOVERY** — 跨机器签名恢复与真实版本升级仍未完成；当前无签名发布包 |
 | Gate H | **PENDING** — 发行主体、公开政策 URL/联系方式、备案与商店材料/提交均未完成；当前候选仅有无手机合规准备 |
 | Gate I | **PENDING / NOT_STARTED** — 尚无真实小规模 Beta |
-| 独立复审 | PR #42 全部合并差异已复核；未发现新的 P0/P1/P2 代码阻断；PR #29 的 Protection Integrity 与 24 小时稳定性仍按 Gate F 保持未关闭。运行时网络、真机与 24 小时稳定性仍未完成 |
+| 独立复审 | PR #42 全部合并差异与 PR #43 最新 Android 修复已复核；saveSettings/saveTargetApps 的原生状态对账、REST marker 写入/提交失败 fail-closed 与清理路径均有回归覆盖；未发现新的 P0/P1/P2 代码阻断。PR #29 的 Protection Integrity 与 24 小时稳定性仍按 Gate F 保持未关闭。运行时网络、真机与 24 小时稳定性仍未完成 |
 | 合并与发布边界 | 2026-10-23 用户授权在最新 checks 通过后执行常规工程合并及冗余分支清理；合并不关闭设备/发布门禁。`STORE_READY=NO`；`PRODUCTION_RELEASE_APPROVED=NO`；不得 force-push、读取生产签名材料或创建正式 release |
 
 本工作允许使用 Android 虚拟设备开展受控功能与界面验证，但 AVD 不模拟 Redmi/HyperOS 的后台调度，也不能替代 Gate F 的真实设备与 24 小时稳定性门禁。每次修补后的 HEAD、hosted CI 与合并决定单独记录在 PR；仍需真实设备、运行时网络与其它发布门禁。

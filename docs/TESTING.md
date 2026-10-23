@@ -4,8 +4,8 @@
 
 ## 当前集成验证来源（2026-10-24 核对，历史计数与产物不转移）
 
-- 当前 master HEAD：`67d1b7c3ee82ef4f6dd275299d51969869d7db4d`（PR #42 merge）；仍开放的 PR #29 保护完整性分支快照为 `b00b9cc75073e77759e28ba5b71f960033cbf1d5`，两者证据不互相转移。本轮 `integration/flowbreak-closeout-20261024` 仅更新文档。
-- 已知 master hosted verify [Run `39928579175`](https://github.com/guo6x/flowbreak/actions/runs/39928579175) **PASS**，release 按策略 **SKIPPED**；旧 Run/产物仍只归属原始 SHA。
+- 当前 master 基线：`67d1b7c3ee82ef4f6dd275299d51969869d7db4d`（PR #42 merge）；本轮候选 source：`8cf1d653fe34d01096130322199ed4f4d6623039`（PR #43，Android REST 作弊取消持久化失败时 fail closed，并补齐回归测试）。仍开放的 PR #29 保护完整性分支快照为 `b00b9cc75073e77759e28ba5b71f960033cbf1d5`，三者证据不互相转移。
+- 当前候选 hosted verify [Run `40033048741`](https://github.com/guo6x/flowbreak/actions/runs/40033048741) **PASS**，release 按策略 **SKIPPED**；master 基线 [Run `39928579175`](https://github.com/guo6x/flowbreak/actions/runs/39928579175) 仍单独保留。旧 Run/产物仍只归属原始 SHA。
 - 目标状态仍为 **`INTEGRATION_ENGINEERING_READY / DEVICE_ACCEPTANCE_PENDING`**。常规工程合并不代表正式发布；模拟器、JVM、静态检查和 unsigned 产物都不能关闭真实设备 Gate F。
 
 | 检查 | 结果与边界 |
@@ -20,7 +20,7 @@
 | 双渠道 Lint | **PASS**；0 error（warnings 仅为既有工具链提示） |
 | 双渠道 Debug / unsigned Release | **PASS**；Play AAB 与 Domestic unsigned Release APK 均成功生成，R8/Room/Manifest 检查通过 |
 | Web → Android 同步 | **50 / 50 PASS**；Capacitor Web 资产与 Android assets SHA-256 一致 |
-| unsigned 产物 provenance | 当前 master Run `39928579175` 的 unsigned provenance 检查 **PASS**；现有本地 APK/AAB 若显示 `versionCode=2/versionName=1.1.0` 且 provenance 属旧源 SHA，只能作为旧产物，不能归属 `67d1b7c3…` |
+| unsigned 产物 provenance | 当前候选 Run `40033048741` 的 unsigned provenance 检查 **PASS**，sourceGitSha = `8cf1d653…`；artifact `flowbreak-unsigned-8cf1d653…`（ID `12537025213`）仅为 TEST ONLY。现有本地 APK/AAB 若显示 `versionCode=2/versionName=1.1.0` 且 provenance 属旧源 SHA，只能作为旧产物 |
 | npm audit（GitHub CI，生产依赖 high） | **PASS — 0 vulnerabilities** |
 | npm audit（GitHub CI，全依赖 critical） | **PASS**；开发依赖仍有 Vite high advisory，不能写成全依赖零漏洞 |
 | npm audit（本地镜像） | **BLOCKED / NOT_PASS**；当前配置的 `https://registry.npmmirror.com` 返回 404/`NOT_IMPLEMENTED`，不覆盖 hosted CI 结果 |
