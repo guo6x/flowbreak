@@ -4,11 +4,11 @@
 
 ## 当前集成验证来源（2026-10-24 核对，历史计数与产物不转移）
 
-- 当前 master 基线：`67d1b7c3ee82ef4f6dd275299d51969869d7db4d`（PR #42 merge）；运行时代码 SHA：`8cf1d653fe34d01096130322199ed4f4d6623039`（Android REST 作弊取消持久化失败时 fail closed，并补齐回归测试）；PR #43 的完整候选 HEAD：`403c3c4991c36d8edfb2170475ee14bd33d5ff8e`（其上仅有三份状态文档收口）。仍开放的 PR #29 保护完整性分支快照为 `b00b9cc75073e77759e28ba5b71f960033cbf1d5`，各 SHA 证据不互相转移。
-- 最新完整候选 hosted verify [Run `40036721814`](https://github.com/guo6x/flowbreak/actions/runs/40036721814) **PASS**，release 按策略 **SKIPPED**；运行时代码 SHA 的上一轮 [Run `40033048741`](https://github.com/guo6x/flowbreak/actions/runs/40033048741) 仍单独保留；master 基线 [Run `39928579175`](https://github.com/guo6x/flowbreak/actions/runs/39928579175) 仍单独保留。旧 Run/产物仍只归属原始 SHA。
+- 当前 master 基线：`67d1b7c3ee82ef4f6dd275299d51969869d7db4d`（PR #42 merge）；运行时代码 SHA：`8cf1d653fe34d01096130322199ed4f4d6623039`（Android REST 作弊取消持久化失败时 fail closed，并补齐回归测试）；PR #43 的完整候选验证 HEAD：`c378b842f6acbde791f47a762dc61ae05d55d014`（其上仅有三份状态文档收口）。仍开放的 PR #29 保护完整性分支快照为 `b00b9cc75073e77759e28ba5b71f960033cbf1d5`，各 SHA 证据不互相转移。
+- 最新完整候选 hosted verify [Run `40038753797`](https://github.com/guo6x/flowbreak/actions/runs/40038753797) **PASS**，release 按策略 **SKIPPED**；运行时代码 SHA 的上一轮 [Run `40033048741`](https://github.com/guo6x/flowbreak/actions/runs/40033048741) 与 master 基线 [Run `39928579175`](https://github.com/guo6x/flowbreak/actions/runs/39928579175) 仍单独保留。旧 Run/产物仍只归属原始 SHA。
 - 目标状态为 **`INTEGRATION_ENGINEERING_READY / DEVICE_ACCEPTANCE_PENDING`**；常规工程合并不代表正式发布；模拟器、JVM、静态检查和 unsigned 产物都不能关闭真实设备 Gate F。
 
-> 下表中的自动化数字与审计结论均来自完整候选 HEAD `403c3c4…` / Run `40036721814`；运行时代码 SHA `8cf1d653…` / Run `40033048741` 作为前一阶段代码验证历史保留。
+> 下表中的自动化数字与审计结论均来自完整候选验证 HEAD `c378b842…` / Run `40038753797`；运行时代码 SHA `8cf1d653…` / Run `40033048741` 作为前一阶段代码验证历史保留。
 
 | 检查 | 结果与边界 |
 | ---- | ---- |
@@ -22,9 +22,9 @@
 | 双渠道 Lint | **PASS**；0 error（warnings 仅为既有工具链提示） |
 | 双渠道 Debug / unsigned Release | **PASS**；Play AAB 与 Domestic unsigned Release APK 均成功生成，R8/Room/Manifest 检查通过 |
 | Web → Android 同步 | **50 / 50 PASS**；Capacitor Web 资产与 Android assets SHA-256 一致 |
-| unsigned 产物 provenance | 完整候选 Run `40036721814` 的 unsigned provenance **PASS**，sourceGitSha = `403c3c4…`；artifact `flowbreak-unsigned-403c3c4…`（ID `12537078240`）仅为 TEST ONLY。运行时代码 SHA `8cf1d653…` 的 artifact 仍保留在 Run `40033048741` |
-| npm audit（GitHub CI，生产依赖 high） | **PASS — 0 vulnerabilities**（完整候选 Run `40036721814`） |
-| npm audit（GitHub CI，全依赖 critical） | **PASS**（完整候选 Run `40036721814`）；开发依赖仍有 Vite high advisory，不能写成全依赖零漏洞 |
+| unsigned 产物 provenance | 完整候选 Run `40038753797` 的 unsigned provenance **PASS**，sourceGitSha = `c378b842…`；artifact `flowbreak-unsigned-c378b842…`（ID `12538800501`）仅为 TEST ONLY。运行时代码 SHA `8cf1d653…` 的 artifact 仍保留在 Run `40033048741` |
+| npm audit（GitHub CI，生产依赖 high） | **PASS — 0 vulnerabilities**（完整候选 Run `40038753797`） |
+| npm audit（GitHub CI，全依赖 critical） | **PASS**（完整候选 Run `40038753797`）；开发依赖仍有 Vite high advisory，不能写成全依赖零漏洞 |
 | npm audit（本地镜像） | **BLOCKED / NOT_PASS**；当前配置的 `https://registry.npmmirror.com` 返回 404/`NOT_IMPLEMENTED`，不覆盖 hosted CI 结果 |
 | API 36 AVD 启动与页面 | **受控范围 PASS**：`Medium_Phone_API_36.0` / Android 16 / API 36 / `emulator-5554`；Domestic debug 安装后启动，Onboarding、权限页、个性化、目标应用、首页、统计、个人中心、阻断设置、诊断均已截图 |
 | AVD 权限往返 | 初始权限页 **0/2**；Usage Access 与 Display over other apps 系统页可打开并返回，随后仅在模拟器上通过 app-op 受控授予进行后续页面 smoke；未触碰真实手机、未读取签名材料 |
