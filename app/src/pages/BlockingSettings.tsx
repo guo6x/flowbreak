@@ -186,7 +186,7 @@ export default function BlockingSettings() {
             </button>
             <div className="mt-4 p-4 rounded-xl bg-gray-50 text-[13px] text-gray-600 leading-relaxed space-y-2">
               <p>· 仅监听「窗口切换」事件，用于判断前台应用是否为已阻断的目标。</p>
-              <p>· 不读取屏幕内容、不记录输入、不收集任何个人信息。</p>
+              <p>· 不读取页面文字、聊天或输入内容；窗口包名、必要类名及视频号判断值和最近检测时间只在设备内用于识别，不自动上传。</p>
               <p>· 仅在「连续使用达到限额并进入阻断状态」时执行返回桌面动作。</p>
               <p>· 可随时在系统设置中关闭，关闭后仅回退到悬浮窗阻断。</p>
             </div>

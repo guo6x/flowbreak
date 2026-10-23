@@ -101,6 +101,18 @@ describe("BlockingSettings", () => {
     expect(NativeFlow.requestAccessibilityPermission).not.toHaveBeenCalled();
   });
 
+  it("国内版无障碍说明披露本机识别元数据，不作不处理个人信息的绝对承诺", async () => {
+    mockPermissions(true, true);
+    const { container } = renderBlockingSettings();
+    await waitFor(() => expect(screen.getByRole("slider")).not.toBeDisabled());
+
+    expect(screen.getByText(/不读取页面文字、聊天或输入内容/)).toHaveTextContent(
+      "窗口包名、必要类名及视频号判断值和最近检测时间只在设备内用于识别，不自动上传",
+    );
+    expect(container).not.toHaveTextContent(/不读取屏幕内容|不记录输入|不收集任何个人信息/);
+    expect(NativeFlow.requestAccessibilityPermission).not.toHaveBeenCalled();
+  });
+
   it("关闭、Escape 或返回告知时都不打开系统权限", () => {
     mockPermissions(true, true);
     renderBlockingSettings();
