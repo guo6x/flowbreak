@@ -7,9 +7,9 @@
 
 **RELEASE PREPARATION · NOT APPROVED**（当前状态快照见 [CURRENT_STATUS.md](CURRENT_STATUS.md)；测试和候选来源事实见 [TESTING.md](TESTING.md)）。
 
-- 功能修复源为 `f7abbad7e900b32db5291cf26754cbd492721948`；对应 hosted verify [Run `39301143402`](https://github.com/guo6x/flowbreak/actions/runs/39301143402) 与 [unsigned artifact](https://github.com/guo6x/flowbreak/actions/runs/39301143402/artifacts/12211868639) 只归属这个 SHA。其后仅文档变化的 `afe404fe094bb3968f8ef16a372cb09131b8a3f7` 已通过精确 HEAD [Run `39303124166`](https://github.com/guo6x/flowbreak/actions/runs/39303124166)。2026-10-23 审查跟进后的最新 HEAD、checks 与合并状态见 [PR #42](https://github.com/guo6x/flowbreak/pull/42)；不把任一旧 SHA 称为后续当前 HEAD，也不重新归属旧二进制哈希。unsigned APK/AAB 不能冒充最终签名发布包。Gate A–E 的既有 PASS 是已记录的历史/支持范围决策；它们不是本轮候选的真实设备发布验收。
-- **GATE F = FAIL**：Issue #28 / `FB-P1-08` 仍 OPEN。真实设备摘要报告 Bilibili 前台约 33 秒时 REST 页面仍倒计时；摘要未含足够原生诊断，根因未定。**24 小时稳定性运行 NOT_EXECUTED**。见 [设备验收交接](FB-P1-08-FINAL-DEVICE-HANDOFF.md)。
-- **GATE G = PENDING**：`CROSS_MACHINE_SIGNING_RECOVERY=NOT_YET_TESTED`，`TRUE_VERSION_UPGRADE=NOT_TESTED`。本地恢复、已有安装/同签名覆盖安装与 off-machine backup 记录不能替代这两个独立验证，也不等于本轮集成候选有签名发布包。
+- 当前 master HEAD 为 `67d1b7c3ee82ef4f6dd275299d51969869d7db4d`（PR #42 已合并）；仍开放的 PR #29 保护完整性分支快照为 `b00b9cc75073e77759e28ba5b71f960033cbf1d5`，两者证据不互相转移。本轮 `integration/flowbreak-closeout-20261024` 仅更新文档，不改变运行时代码。master hosted verify [Run `39928579175`](https://github.com/guo6x/flowbreak/actions/runs/39928579175) **PASS**，release 按策略 SKIPPED；旧 SHA/产物仍只归属原始来源。unsigned APK/AAB 不能冒充最终签名发布包。Gate A–E 的既有 PASS 是已记录的历史/支持范围决策；它们不是本轮候选的真实设备发布验收。
+- **GATE F = FAIL / NOT_CLOSED**：Issue #28 / `FB-P1-08` 仍 OPEN。真实设备摘要报告 Bilibili 前台约 33 秒时 REST 页面仍倒计时；摘要未含足够原生诊断，根因未定。**24 小时稳定性运行 NOT_EXECUTED**。见 [设备验收交接](FB-P1-08-FINAL-DEVICE-HANDOFF.md)。
+- **GATE G = PENDING_CROSS_MACHINE_RECOVERY**：`CROSS_MACHINE_SIGNING_RECOVERY=NOT_YET_TESTED`，`TRUE_VERSION_UPGRADE=NOT_TESTED`。本地恢复、已有安装/同签名覆盖安装与 off-machine backup 记录不能替代这两个独立验证，也不等于本轮集成候选有签名发布包。
 - **GATE H = PENDING**：PR #33 的无手机准备及国内无障碍独立告知已合并；发行主体、公开支持联系方式、隐私政策 URL、最终包网络/依赖审查、平台申报与审核资质仍未完成。网络审计来源 [PR #39](https://github.com/guo6x/flowbreak/pull/39) 与工程集成 PR #42 的生命周期以云端记录为准；合并或清理旧分支不证明运行时没有网络流量。
 - **GATE I = PENDING / NOT_STARTED**：真实小规模 Beta 未开始。
 - **绝对门禁**：`STORE_READY=NO`；`PRODUCTION_RELEASE_APPROVED=NO`；不得创建正式发布 tag、使用生产密钥进行未授权发布或将现有失败门禁标为通过。
@@ -19,13 +19,13 @@
 
 | Gate | 内容 | 状态 |
 | ---- | ---- | ---- |
-| GATE A | Core automated validation | **已记录 PASS — functional source Run `39301143402`；docs-only `afe404fe…` Run `39303124166`；新修补须独立 CI** |
+| GATE A | Core automated validation | **PASS — master `67d1b7c3…` hosted Run `39928579175` verify SUCCESS；release SKIPPED** |
 | GATE B | Redmi targeted P1/P2 revalidation | **PASS — historical R1–R4 evidence; not a new-build smoke** |
-| GATE C | Artifact Provenance / Controlled Release Build | **PASS — source `f7abbad7…` unsigned provenance Run `39301143402`; not a later HEAD or signed release** |
+| GATE C | Artifact Provenance / Controlled Release Build | **PASS — master `67d1b7c3…` unsigned provenance checks PASS；仍为 TEST ONLY / unsigned** |
 | GATE D | Supported OEM scope + fail-closed boundary | **PASS_SUPPORTED_SCOPE — prior supported-scope evidence** |
 | GATE E | Usage accounting accuracy / blocking latency + documented Android execution boundary | **PASS_SUPPORTED_SCOPE_WITH_DOCUMENTED_PLATFORM_LIMITATION — prior evidence only** |
-| GATE F | 24h stability + Protection Integrity | **FAIL — Issue #28 / FB-P1-08 remains OPEN; 24h run NOT_EXECUTED** |
-| GATE G | Signing / Versioning / Publishable Build | **PENDING — cross-machine recovery and true version upgrade not tested** |
+| GATE F | 24h stability + Protection Integrity | **FAIL / NOT_CLOSED — Issue #28 / FB-P1-08 remains OPEN; 24h run NOT_EXECUTED** |
+| GATE G | Signing / Versioning / Publishable Build | **PENDING_CROSS_MACHINE_RECOVERY — cross-machine recovery and true version upgrade not tested** |
 | GATE H | Store / Compliance Readiness | **PENDING** |
 | GATE I | Small-scale Beta | **PENDING** |
 
@@ -34,6 +34,10 @@
 表中的 A/C 是所列精确来源的自动化/unsigned 产物证据，B/D/E 是既有 v1.1.0 的历史设备/支持范围裁定；均不可自动转移到后续提交。Gate F 的 FAIL 是保留的设备失败状态；虚拟设备、自动化、静态审计或旧签名 APK 均不能替代其未完成的候选验收和稳定性要求。
 
 ### GATE A — Core automated validation：PASS
+
+- 当前 master hosted verify [Run `39928579175`](https://github.com/guo6x/flowbreak/actions/runs/39928579175) 对 source `67d1b7c3ee82ef4f6dd275299d51969869d7db4d` **SUCCESS**；release job 按 unsigned 策略 **SKIPPED**。
+- 当前无设备快照：Vitest 296/296、UI 44/44、Brand 36/36、Privacy 15/15、Provenance 20/20、Release 8/8、Web asset sync 50/50；Play JUnit 456、Domestic JUnit 489，双渠道 lint/debug/unsigned release、R8、Room、Manifest 与包内 provenance 检查均 PASS。
+- 审计分层：GitHub CI 生产依赖 high = **0 vulnerabilities**；全依赖 critical gate = **PASS**；开发依赖仍有 Vite high advisory；本地 `registry.npmmirror.com` audit = **BLOCKED (404/NOT_IMPLEMENTED)**。
 
 - 历史 CI Run `31900444404`（PR #1，verify Job `95050260127`）**SUCCESS**，HEAD = `ea53a22136dd58663291581763eb3614c4b10ba6`（不是当前最新全矩阵验证）。
 - 基线运行 `31577669420`（verify Job `94053353542`）SUCCESS，HEAD = `99fdcc2f6f357e78fb70dd127adedfa31a098a71`。
@@ -71,7 +75,7 @@
 
 GATE C PASS 的范围（重要）：
 
-- **历史功能修复源已验证**：PR #42 hosted verify Run `39301143402`，source `f7abbad7e900b32db5291cf26754cbd492721948`；Play AAB SHA-256 `989af971a7683ba615fca335335c44b51acbf6e96c97fc8ef15aca995c0c796`，Domestic unsigned APK SHA-256 `cc8e9f01cb11d41ef58ff25751863496ab47bb36a82e74069216d361d488376e`；artifact manifest 与 `SHA256SUMS.txt` 已上传并可复核，`signed=false`，版本为 CI test-only `versionCode=1` / `versionName=ci-2a7b01cceecf46031ec5ea04ac43b467fd280453`。这些哈希不代表后续 HEAD 的二进制。
+- **历史功能修复源已验证**：PR #42 早期 Run `39301143402` 与其 APK/AAB 哈希仍只归属 `f7abbad7…`；不得重新归属当前 master。当前 master `67d1b7c3…` 的包内 provenance 检查在 Run `39928579175` 通过，但 release 仍 unsigned/test-only。
 - **unsigned CI artifact provenance pipeline 已验证**：PR #1 CI Run `31900444404` verify SUCCESS；artifact 可下载、SHA256SUMS 复核一致、manifest sourceGitSha = PR head SHA、APK/AAB 内部 provenance 一致、版本信息与二进制独立读取一致。
 - **signed publishable build 仍属于 GATE G**；STORE READY 仍为 NO。
 

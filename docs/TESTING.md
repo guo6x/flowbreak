@@ -2,16 +2,15 @@
 
 > 定义自动化测试层级、CI 范围、真机测试矩阵与证据标准。易变的数字只出现在下方「验证快照」；历史验证记录在 `docs/archive/progress/`（含 `VERIFICATION.md` 的 Beta 1.1 记录）。
 
-## 本轮集成验证来源（2026-10-23 核对，历史计数与产物不转移）
+## 当前集成验证来源（2026-10-24 核对，历史计数与产物不转移）
 
-- 集成来源：`integration/experience-quality-20261019`；功能修复源 `f7abbad7e900b32db5291cf26754cbd492721948`（更早功能基线 `64d2e42d675b0f6ef757e1084d68d285c1ac4daa`）；合并审查起点为 `origin/master=695b11f0fe68e4260864c638fda51b949c3a04f8`。
-- 本次审查修补前最后已验证 HEAD 为 `afe404fe094bb3968f8ef16a372cb09131b8a3f7`，仅文档有变化；hosted verify [Run `39303124166`](https://github.com/guo6x/flowbreak/actions/runs/39303124166) **PASS**，release 按策略 **SKIPPED**。它才是当时的 PR HEAD，不能继续把 `f7abbad7…` 称为当前 HEAD。
-- 下表测试与二进制哈希保留为历史功能修复源 `f7abbad7…` / [Run `39301143402`](https://github.com/guo6x/flowbreak/actions/runs/39301143402) 的固定快照。2026-10-23 的审查/REST 恢复逻辑跟进不能复用旧 Run 冒充新验证；新 HEAD 和精确 CI、合并状态以 [PR #42 checks](https://github.com/guo6x/flowbreak/pull/42/checks) 及 [master Actions](https://github.com/guo6x/flowbreak/actions/workflows/android.yml?query=branch%3Amaster) 为准。
+- 当前 master HEAD：`67d1b7c3ee82ef4f6dd275299d51969869d7db4d`（PR #42 merge）；仍开放的 PR #29 保护完整性分支快照为 `b00b9cc75073e77759e28ba5b71f960033cbf1d5`，两者证据不互相转移。本轮 `integration/flowbreak-closeout-20261024` 仅更新文档。
+- 已知 master hosted verify [Run `39928579175`](https://github.com/guo6x/flowbreak/actions/runs/39928579175) **PASS**，release 按策略 **SKIPPED**；旧 Run/产物仍只归属原始 SHA。
 - 目标状态仍为 **`INTEGRATION_ENGINEERING_READY / DEVICE_ACCEPTANCE_PENDING`**。常规工程合并不代表正式发布；模拟器、JVM、静态检查和 unsigned 产物都不能关闭真实设备 Gate F。
 
 | 检查 | 结果与边界 |
 | ---- | ---- |
-| Frontend (Vitest) | **291 / 291 PASS**，27 个测试文件；覆盖设置/受限应用保存后服务动作失败的真实状态对账；Windows 复核使用单 worker，避免并行 fork 启动超时 |
+| Frontend (Vitest) | **296 / 296 PASS**，27 个测试文件；覆盖设置/受限应用保存后服务动作失败的真实状态对账；Windows 复核使用单 worker，避免并行 fork 启动超时 |
 | TypeScript / Vite | **PASS**（`npm run build`） |
 | 网页逐页 / 交互 | **44 / 44 PASS**；涵盖窄屏、导航、统计图、Web 休息控制和完成态 |
 | 品牌一致性 | **36 / 36 PASS**（`npm run test:brand`） |
@@ -20,10 +19,11 @@
 | Android JVM | Domestic **489 / 489 PASS**；Play **456 / 456 PASS**；当前候选 JUnit XML 汇总为 0 failure / 0 error / 0 skipped（hosted CI 同一命令双渠道执行并通过） |
 | 双渠道 Lint | **PASS**；0 error（warnings 仅为既有工具链提示） |
 | 双渠道 Debug / unsigned Release | **PASS**；Play AAB 与 Domestic unsigned Release APK 均成功生成，R8/Room/Manifest 检查通过 |
-| Web → Android 同步 | **49 / 49 PASS**；Capacitor Web 资产与 Android assets SHA-256 一致 |
-| unsigned 产物 provenance | hosted Run `39301143402` / source `f7abbad7…`：[artifact](https://github.com/guo6x/flowbreak/actions/runs/39301143402/artifacts/12211868639)；Play AAB `989af971a7683ba615fca335335c44b51acbf6e96c97fc8ef15aca995c0c796`；Domestic unsigned Release APK `cc8e9f01cb11d41ef58ff25751863496ab47bb36a82e74069216d361d488376e`；`versionCode=1` / `versionName=ci-2a7b01cceecf46031ec5ea04ac43b467fd280453`。本地 `1.1.0` unsigned 产物仅为功能基线/AVD 使用 |
-| npm audit（GitHub CI） | **PASS — 0 vulnerabilities**；生产依赖 high、全依赖 critical，以及 build 后回归重跑均返回 `found 0 vulnerabilities` |
-| npm audit（本地环境） | **BLOCKED / NOT_PASS**；当前配置的 `https://registry.npmmirror.com` 返回 404/`NOT_IMPLEMENTED`，不能把本地镜像阻塞写成安全审计通过；该状态不覆盖 hosted CI 结果 |
+| Web → Android 同步 | **50 / 50 PASS**；Capacitor Web 资产与 Android assets SHA-256 一致 |
+| unsigned 产物 provenance | 当前 master Run `39928579175` 的 unsigned provenance 检查 **PASS**；现有本地 APK/AAB 若显示 `versionCode=2/versionName=1.1.0` 且 provenance 属旧源 SHA，只能作为旧产物，不能归属 `67d1b7c3…` |
+| npm audit（GitHub CI，生产依赖 high） | **PASS — 0 vulnerabilities** |
+| npm audit（GitHub CI，全依赖 critical） | **PASS**；开发依赖仍有 Vite high advisory，不能写成全依赖零漏洞 |
+| npm audit（本地镜像） | **BLOCKED / NOT_PASS**；当前配置的 `https://registry.npmmirror.com` 返回 404/`NOT_IMPLEMENTED`，不覆盖 hosted CI 结果 |
 | API 36 AVD 启动与页面 | **受控范围 PASS**：`Medium_Phone_API_36.0` / Android 16 / API 36 / `emulator-5554`；Domestic debug 安装后启动，Onboarding、权限页、个性化、目标应用、首页、统计、个人中心、阻断设置、诊断均已截图 |
 | AVD 权限往返 | 初始权限页 **0/2**；Usage Access 与 Display over other apps 系统页可打开并返回，随后仅在模拟器上通过 app-op 受控授予进行后续页面 smoke；未触碰真实手机、未读取签名材料 |
 | AVD 诊断与服务 | 诊断页显示服务心跳、监控线程、设备支持、已配置、关键权限、Room v3 和 1 个目标应用；服务 `isForeground=true`。这是模拟器证据，不是 Redmi/HyperOS 或 24h 稳定性证据 |

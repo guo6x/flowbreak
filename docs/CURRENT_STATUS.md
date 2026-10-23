@@ -3,28 +3,30 @@
 > 这是「项目现在在哪」的唯一当前视图。易变事实（HEAD、测试数、Run ID、APK SHA）只出现在本文档与 `TESTING.md` 的验证快照中。
 > 2026-08-12 的「真机验收 FAILED / RELEASE BLOCKED」快照已降级为历史记录（见下方「历史状态」），不再代表当前状态。
 
-## 当前工程集成与验证来源（2026-10-23）
+## 当前合并基线与验证来源（2026-10-24）
 
-本节区分已验证的固定来源与会继续变化的分支身份。历史功能修复源为 `f7abbad7…`；本次审查修补前最后已验证的文档快照为 `afe404fe…`，两者不是同一个 HEAD。本轮另含原生计时失效后的 REST 页面持续对账修复与回归。最新 HEAD、合并状态与对应 checks 以 [PR #42](https://github.com/guo6x/flowbreak/pull/42) 及 [master](https://github.com/guo6x/flowbreak/tree/master) 为准，不把旧产物或旧 Run 重新归属给后续提交。工程状态仍为 **`INTEGRATION_ENGINEERING_READY / DEVICE_ACCEPTANCE_PENDING`**，不是正式发布批准。
+PR #42 已于 2026-10-23 合并到 `master`，merge SHA = `67d1b7c3ee82ef4f6dd275299d51969869d7db4d`。仍开放的 Protection Integrity P1 是 PR #29（分支 `fix/fb-p1-08-protection-integrity`，HEAD `b00b9cc75073e77759e28ba5b71f960033cbf1d5`）；它与 PR #42 的合并身份分开记录，不能把其失败 CI 或历史取证倒灌为 master、真机或 24 小时验收结果。本轮 `integration/flowbreak-closeout-20261024` 只承载状态文档收口，不改变运行时代码。已知 GitHub Actions [Run `39928579175`](https://github.com/guo6x/flowbreak/actions/runs/39928579175) 的 `verify` 成功；该证据只覆盖 hosted 工程验证，不扩大为生产签名、真机或 24 小时稳定性通过。旧产物和旧 Run 仍只归属原始 source SHA。
 
 | 项 | 当前可核验状态 |
 | ---- | ---- |
-| 合并审查起点 | `origin/master=695b11f0fe68e4260864c638fda51b949c3a04f8`；这是审查起点，不是后续合并后 master HEAD 的声明 |
-| 集成来源 | `integration/experience-quality-20261019`；功能修复基线 `f7abbad7e900b32db5291cf26754cbd492721948`（更早的功能基线为 `64d2e42d675b0f6ef757e1084d68d285c1ac4daa`） |
-| 本次修补前已验证 HEAD | `afe404fe094bb3968f8ef16a372cb09131b8a3f7`；[Run `39303124166`](https://github.com/guo6x/flowbreak/actions/runs/39303124166) **verify PASS / release SKIPPED**；该提交仅更新文档。2026-10-23 跟进修补须另跑精确 HEAD 的 CI，结果见 PR checks |
-| 工程集成身份 | **INTEGRATION_ENGINEERING_READY / DEVICE_ACCEPTANCE_PENDING**；PR #42 的 Draft/Open/Merged 状态及合并 SHA 以 PR 记录为准；不创建正式 tag |
-| unsigned 产物 | hosted verify [Run `39301143402`](https://github.com/guo6x/flowbreak/actions/runs/39301143402)（source `f7abbad7…`）：[artifact `flowbreak-unsigned-f7abbad…`](https://github.com/guo6x/flowbreak/actions/runs/39301143402/artifacts/12211868639)；Play AAB SHA-256 `989af971a7683ba615fca335335c44b51acbf6e96c97fc8ef15aca995c0c796`；Domestic unsigned Release APK SHA-256 `cc8e9f01cb11d41ef58ff25751863496ab47bb36a82e74069216d361d488376e`；`versionCode=1`、`versionName=ci-2a7b01cceecf46031ec5ea04ac43b467fd280453`，provenance 与版本一致；本地 `1.1.0` unsigned 包仅为功能基线/AVD 使用 |
-| 自动化快照 | hosted verify [Run `39301143402`](https://github.com/guo6x/flowbreak/actions/runs/39301143402) **PASS**；Vitest **291/291 PASS**（27 files）；UI smoke 44/44；品牌 36/36；Provenance 20/20；Release policy 8/8；Privacy static 15/15；本地 JUnit XML 汇总 Android Domestic **489/489**、Play **456/456**，0 failure/error/skip；hosted 双渠道 JVM/Lint/Debug/unsigned Release、Room/Manifest/资产同步均 PASS（详见 [TESTING.md](TESTING.md)） |
-| npm audit（GitHub CI） | **PASS — 0 vulnerabilities**：hosted verify 对生产依赖 high 门槛、全依赖 critical 门槛及回归后重跑均返回 `found 0 vulnerabilities` |
-| npm audit（本地环境） | **BLOCKED / NOT_PASS** — 当前配置的 `https://registry.npmmirror.com` 对审计请求返回 404/`NOT_IMPLEMENTED`；该环境阻塞不覆盖 GitHub CI 结果，也不能记为本地审计通过 |
+| 当前 master HEAD | `67d1b7c3ee82ef4f6dd275299d51969869d7db4d`（PR #42 merge commit） |
+| 未合并 P1 取证分支 HEAD | `b00b9cc75073e77759e28ba5b71f960033cbf1d5`（PR #29 OPEN；最近一次 verify FAILURE，不能并入当前候选） |
+| 本轮收口分支 | `integration/flowbreak-closeout-20261024`（仅文档变更；代码基线仍为 master `67d1b7c3…`） |
+| 最新合并后 CI | [Run `39928579175`](https://github.com/guo6x/flowbreak/actions/runs/39928579175) `verify` **PASS**；`release` 未执行/未签名 |
+| 工程集成身份 | **INTEGRATION_ENGINEERING_READY / DEVICE_ACCEPTANCE_PENDING**；PR #42 当前已 MERGED；不创建正式 tag |
+| 历史 unsigned 产物 | hosted verify [Run `39301143402`](https://github.com/guo6x/flowbreak/actions/runs/39301143402)（source `f7abbad7…`）：[artifact `flowbreak-unsigned-f7abbad…`](https://github.com/guo6x/flowbreak/actions/runs/39301143402/artifacts/12211868639)；Play AAB SHA-256 `989af971a7683ba615fca335335c44b51acbf6e96c97fc8ef15aca995c0c796`；Domestic unsigned Release APK SHA-256 `cc8e9f01cb11d41ef58ff25751863496ab47bb36a82e74069216d361d488376e`；`versionCode=1`、`versionName=ci-2a7b01cceecf46031ec5ea04ac43b467fd280453`，只归属该旧 SHA；本地 `1.1.0` unsigned 包仅为功能基线/AVD 使用 |
+| 当前工程验证快照 | Vitest **296/296 PASS**；UI smoke **44/44**；Brand **36/36**；Privacy static **15/15**；Provenance **20/20**；Release policy **8/8**；Web asset sync **50/50**；同源 JUnit Play **456/456**、Domestic **489/489**，0 failure/error/skip；双渠道 JVM/Lint/Debug/unsigned Release、R8、Room、Manifest 与包内 provenance 检查均 PASS（详见 [TESTING.md](TESTING.md)） |
+| npm audit（GitHub CI，生产依赖 high） | **PASS — 0 vulnerabilities** |
+| npm audit（GitHub CI，全依赖 critical） | **PASS**；开发依赖仍有 Vite high advisory，不能写成“全依赖零漏洞” |
+| npm audit（本地镜像） | **BLOCKED / NOT_PASS**：`https://registry.npmmirror.com` 返回 404/`NOT_IMPLEMENTED`；不覆盖 hosted CI 结论 |
 | API 36 AVD | **受控范围 PASS**：`Medium_Phone_API_36.0` / `emulator-5554`；启动、权限页 0/2、系统 Usage Access/Overlay 页面往返、个性化、目标应用选择、首页、统计、个人中心、阻断设置和运行诊断均已截图；证据目录 `D:\temp\flowbreak-avd-evidence-20261019` |
 | AVD 诊断边界 | 诊断页显示服务心跳、监控线程、设备支持、监控配置、关键权限、Room v3 和 1 个目标应用；这是模拟器受控证据，不是 Redmi/HyperOS 后台稳定性或真实用户证据 |
 | Gate A–E | 既有发布基线的历史/支持范围证据保留；不转移为本候选的真实设备验收 |
-| Gate F | **FAIL** — Issue #28 / `FB-P1-08` 仍为 OPEN；Bilibili 前台约 33 秒历史失败与 24 小时稳定性 `NOT_EXECUTED` 保持不变，AVD 不关闭该门禁 |
-| Gate G | **PENDING** — 跨机器签名恢复 `NOT_YET_TESTED`；真实 lower-version → current-version 签名升级 `NOT_TESTED`；本候选没有签名发布包 |
+| Gate F | **FAIL / NOT_CLOSED** — Issue #28 / `FB-P1-08` 仍开放；24 小时稳定性 `NOT_EXECUTED`，AVD/JVM/CI 不关闭此门禁 |
+| Gate G | **PENDING_CROSS_MACHINE_RECOVERY** — 跨机器签名恢复与真实版本升级仍未完成；当前无签名发布包 |
 | Gate H | **PENDING** — 发行主体、公开政策 URL/联系方式、备案与商店材料/提交均未完成；当前候选仅有无手机合规准备 |
 | Gate I | **PENDING / NOT_STARTED** — 尚无真实小规模 Beta |
-| 独立复审 | 基线完整差异已完成代码范围复核；2026-10-23 审查新增的来源身份与无障碍隐私文案两项 P2 在本轮跟进，须独立检查修补差异并通过新 HEAD 的 CI；运行时网络、真机与 24 小时稳定性仍按 Gate F/H 保持未完成 |
+| 独立复审 | PR #42 全部合并差异已复核；未发现新的 P0/P1/P2 代码阻断；PR #29 的 Protection Integrity 与 24 小时稳定性仍按 Gate F 保持未关闭。运行时网络、真机与 24 小时稳定性仍未完成 |
 | 合并与发布边界 | 2026-10-23 用户授权在最新 checks 通过后执行常规工程合并及冗余分支清理；合并不关闭设备/发布门禁。`STORE_READY=NO`；`PRODUCTION_RELEASE_APPROVED=NO`；不得 force-push、读取生产签名材料或创建正式 release |
 
 本工作允许使用 Android 虚拟设备开展受控功能与界面验证，但 AVD 不模拟 Redmi/HyperOS 的后台调度，也不能替代 Gate F 的真实设备与 24 小时稳定性门禁。每次修补后的 HEAD、hosted CI 与合并决定单独记录在 PR；仍需真实设备、运行时网络与其它发布门禁。
