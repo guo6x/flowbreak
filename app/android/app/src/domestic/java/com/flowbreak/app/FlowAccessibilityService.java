@@ -12,6 +12,7 @@ import android.view.accessibility.AccessibilityEvent;
 import androidx.core.content.ContextCompat;
 import java.util.Locale;
 import java.util.Set;
+import java.util.UUID;
 
 public class FlowAccessibilityService extends AccessibilityService {
 
@@ -34,11 +35,13 @@ public class FlowAccessibilityService extends AccessibilityService {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private BlockedTargetBanner blockBanner;
+    private long accessibilityRuntimeGeneration;
 
     private final Runnable blockPoll = new Runnable() {
         @Override public void run() {
             if (blockBanner == null || !blockBanner.isShowing()) return;
-            if (!protectionRuntimeAvailable() || !isBlocked(prefs())) {
+            SharedPreferences prefs = prefs();
+            if (!canEnforce(prefs) || !isBlocked(prefs)) {
                 cleanupBanner();
                 return;
             }
@@ -48,6 +51,7 @@ public class FlowAccessibilityService extends AccessibilityService {
 
     @Override protected void onServiceConnected() {
         super.onServiceConnected();
+        accessibilityRuntimeGeneration = AccessibilityRuntimeState.connect();
         blockBanner = new BlockedTargetBanner(
                 this,
                 (WindowManager) getSystemService(WINDOW_SERVICE),
@@ -57,7 +61,8 @@ public class FlowAccessibilityService extends AccessibilityService {
     }
 
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
-        if (!protectionRuntimeAvailable()) {
+        SharedPreferences prefs = prefs();
+        if (!canEnforce(prefs)) {
             cleanupBanner();
             return;
         }
@@ -68,9 +73,6 @@ public class FlowAccessibilityService extends AccessibilityService {
         String packageName = packageNameValue.toString();
         if (packageName.equals(getPackageName())) return;
 
-        SharedPreferences prefs = prefs();
-        boolean strongDefault = "domestic".equals(BuildConfig.CHANNEL);
-        if (!prefs.getBoolean("strongBlockingEnabled", strongDefault)) return;
         Set<String> targets = PreferenceUtils.getMigratedTargetApps(prefs);
 
         // 微信场景细化：检测当前是否在视频号页面，并记录时间戳供 FlowForegroundService 判断时效性
@@ -100,6 +102,10 @@ public class FlowAccessibilityService extends AccessibilityService {
      * BlockActivity 在 HyperOS 可能被后台弹出限制拒绝，横幅不依赖它。
      */
     private void kickBlockedTarget(String packageName) {
+        if (!canEnforce(prefs())) {
+            cleanupBanner();
+            return;
+        }
         performGlobalAction(GLOBAL_ACTION_HOME);
         blockBanner.show(packageName);
         tryStartBlockActivity(packageName);
@@ -123,12 +129,25 @@ public class FlowAccessibilityService extends AccessibilityService {
 
     /** 横幅"开始休息"：进入休息会话并尝试打开休息页。 */
     private void onStartRestClicked() {
-        if (!protectionRuntimeAvailable()) {
+        SharedPreferences prefs = prefs();
+        if (!canEnforce(prefs) || !isBlocked(prefs)) {
             cleanupBanner();
+            return;
+        }
+        // Match the plugin BEGIN protocol: only the latest durably stored
+        // request may create a rest session on the monitor-owned service path.
+        String beginRequestToken = UUID.randomUUID().toString();
+        boolean persisted = RestBeginRequestTokenStore.persistLatestRequest(
+                prefs,
+                beginRequestToken
+        );
+        if (!persisted) {
+            Log.w(TAG, "BEGIN_REST request token could not be persisted");
             return;
         }
         Intent service = new Intent(this, FlowForegroundService.class);
         service.setAction(FlowForegroundService.ACTION_BEGIN_REST);
+        service.putExtra(FlowForegroundService.EXTRA_REST_BEGIN_REQUEST_TOKEN, beginRequestToken);
         try {
             ContextCompat.startForegroundService(this, service);
         } catch (Exception e) {
@@ -145,13 +164,21 @@ public class FlowAccessibilityService extends AccessibilityService {
     }
 
     @Override public boolean onUnbind(Intent intent) {
+        disconnectAccessibilityRuntime();
         cleanupBanner();
         return super.onUnbind(intent);
     }
 
     @Override public void onDestroy() {
+        disconnectAccessibilityRuntime();
         cleanupBanner();
         super.onDestroy();
+    }
+
+    private void disconnectAccessibilityRuntime() {
+        long generation = accessibilityRuntimeGeneration;
+        accessibilityRuntimeGeneration = 0L;
+        AccessibilityRuntimeState.disconnect(generation);
     }
 
     private void cleanupBanner() {
@@ -172,10 +199,44 @@ public class FlowAccessibilityService extends AccessibilityService {
         return NativeFlowPermissionManager.isProtectionRuntimeAvailable(Build.MANUFACTURER);
     }
 
+    boolean hasUsageStats() {
+        return new NativeFlowPermissionManager(this).hasUsageStats();
+    }
+
+    boolean hasOverlay() {
+        return new NativeFlowPermissionManager(this).hasOverlay();
+    }
+
+    boolean accessibilityEnabledInSettings() {
+        return new NativeFlowPermissionManager(this).hasAccessibility();
+    }
+
+    ProtectionRuntimeHealthEvaluator.Result currentCoreRuntimeHealth() {
+        return FlowForegroundService.getCurrentProtectionRuntimeHealth();
+    }
+
     private boolean isBlocked(SharedPreferences prefs) {
         return BlockStateMachine.State.BLOCKED.name().equals(
                 prefs.getString("blockState", BlockStateMachine.State.IDLE.name())
         );
+    }
+
+    private boolean canEnforce(SharedPreferences prefs) {
+        boolean monitoringEnabled = prefs.getBoolean("monitoringEnabled", true);
+        boolean strongBlockingEnabled = PreferenceUtils.isStrongBlockingEnabled(prefs, true);
+        Set<String> targets = PreferenceUtils.getMigratedTargetApps(prefs);
+        ProtectionPrerequisiteGate.Result prerequisites = ProtectionPrerequisiteGate.evaluate(
+                protectionRuntimeAvailable(),
+                monitoringEnabled,
+                !targets.isEmpty(),
+                hasUsageStats(),
+                hasOverlay()
+        );
+        return prerequisites.isAllowed()
+                && strongBlockingEnabled
+                && accessibilityEnabledInSettings()
+                && AccessibilityRuntimeState.isConnected()
+                && currentCoreRuntimeHealth().isHealthy();
     }
 
     /**

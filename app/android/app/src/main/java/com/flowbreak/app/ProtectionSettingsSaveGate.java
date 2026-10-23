@@ -18,9 +18,13 @@ final class ProtectionSettingsSaveGate {
 
     static boolean mayReload(
             boolean wasConfigured,
+            boolean monitoringEnabled,
             boolean protectionRuntimeAvailable,
             boolean backgroundStabilitySatisfied
     ) {
-        return wasConfigured && protectionRuntimeAvailable && backgroundStabilitySatisfied;
+        return wasConfigured
+                && monitoringEnabled
+                && protectionRuntimeAvailable
+                && backgroundStabilitySatisfied;
     }
 }

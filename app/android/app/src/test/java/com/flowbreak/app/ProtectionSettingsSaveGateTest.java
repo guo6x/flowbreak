@@ -24,9 +24,10 @@ public class ProtectionSettingsSaveGateTest {
     }
 
     @Test public void neverReloadWhenOemUnsupportedOrStabilityUnsatisfied() {
-        assertFalse(ProtectionSettingsSaveGate.mayReload(true, false, true));
-        assertFalse(ProtectionSettingsSaveGate.mayReload(true, true, false));
-        assertFalse(ProtectionSettingsSaveGate.mayReload(false, true, true));
-        assertTrue(ProtectionSettingsSaveGate.mayReload(true, true, true));
+        assertFalse(ProtectionSettingsSaveGate.mayReload(true, false, true, true));
+        assertFalse(ProtectionSettingsSaveGate.mayReload(true, true, false, true));
+        assertFalse(ProtectionSettingsSaveGate.mayReload(true, true, true, false));
+        assertFalse(ProtectionSettingsSaveGate.mayReload(false, true, true, true));
+        assertTrue(ProtectionSettingsSaveGate.mayReload(true, true, true, true));
     }
 }

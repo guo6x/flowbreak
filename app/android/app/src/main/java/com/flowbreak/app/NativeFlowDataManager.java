@@ -33,6 +33,28 @@ import org.json.JSONObject;
  * 不持有 Activity。分享 Intent 由调用方在 UI 线程启动。
  */
 public final class NativeFlowDataManager {
+    private static final String[] SHAREABLE_DIAGNOSTICS_KEYS = {
+            "versionName",
+            "versionCode",
+            "channel",
+            "packageName",
+            "databaseVersion",
+            "serviceAlive",
+            "coreRuntimeHealthy",
+            "coreRuntimeHealthReason",
+            "heartbeatFresh",
+            "monitoringConfigured",
+            "monitoringEnabled",
+            "protectionRuntimeAvailable",
+            "targetCount",
+            "eventCount",
+            "usageRowCount",
+            "protectionIntegrityFailureReason",
+            "liveUsageQueryFailureCount",
+            "lastLiveUsageQueryFailureClass",
+            "lastLiveUsageQuerySucceeded"
+    };
+
     private final Context context;
 
     public NativeFlowDataManager(Context context) {
@@ -41,22 +63,32 @@ public final class NativeFlowDataManager {
 
     /** 诊断 JSON 对象，包含 formatVersion=1 和所有运行状态字段。 */
     public JSObject diagnostics(SharedPreferences prefs) {
-        long now = System.currentTimeMillis();
         FlowDao dao = FlowDatabase.get(context).flowDao();
-        long heartbeat = Math.max(
-                FlowForegroundService.getLastTickAt(),
-                prefs.getLong("serviceHeartbeatAt", 0L)
-        );
+        ProtectionRuntimeHealthEvaluator.Result runtimeHealth =
+                FlowForegroundService.getCurrentProtectionRuntimeHealth();
+        long currentHeartbeat = FlowForegroundService.getLastCompletedMonitorTickWallMs();
+        boolean serviceAlive = runtimeHealth.isHealthy();
         JSObject result = new JSObject();
         result.put("versionName", BuildConfig.VERSION_NAME);
         result.put("versionCode", BuildConfig.VERSION_CODE);
         result.put("channel", BuildConfig.CHANNEL);
         result.put("packageName", context.getPackageName());
         result.put("databaseVersion", 3);
-        result.put("serviceAlive", heartbeat > 0L && now - heartbeat < 45_000L);
-        result.put("serviceHeartbeatAt", heartbeat);
+        result.put("serviceAlive", serviceAlive);
+        result.put("serviceHeartbeatAt", currentHeartbeat);
+        result.put("persistedServiceHeartbeatAt", prefs.getLong("serviceHeartbeatAt", 0L));
+        result.put("coreRuntimeHealthy", runtimeHealth.isHealthy());
+        result.put("coreRuntimeHealthReason", runtimeHealth.reason);
+        result.put("coreRuntimeHealthCheckedAtElapsedMs", runtimeHealth.nowElapsedMs);
+        result.put("heartbeatFresh", runtimeHealth.heartbeatFresh);
         result.put("lastUsageEventAt", FlowForegroundService.getLastUsageEventAt());
         result.put("state", FlowForegroundService.getState().name());
+        // The current in-memory state and the persisted REST state are both
+        // needed to distinguish a native cancellation from stale WebView UI.
+        result.put("persistedBlockState", prefs.getString("blockState", "IDLE"));
+        result.put("persistedRestSessionPresent",
+                prefs.getLong(FlowForegroundService.PREF_REST_STARTED_AT, 0L) > 0L
+                && prefs.getLong(FlowForegroundService.PREF_REST_REQUIRED_MS, 0L) > 0L);
         result.put("sessionSeconds", FlowForegroundService.getSessionSeconds());
         result.put("graceUntil", FlowForegroundService.getGraceUntil());
         result.put("monitoringConfigured", prefs.getBoolean("serviceConfigured", false));
@@ -67,17 +99,40 @@ public final class NativeFlowDataManager {
         result.put("eventCount", dao.eventCount());
         result.put("usageRowCount", dao.usageRowCount());
         result.put("latestEventAt", dao.latestEventAt());
+        result.put("protectionIntegrityFailureReason",
+                FlowForegroundService.getProtectionIntegrityFailureReason());
+        result.put("liveUsageQueryFailureCount",
+                FlowForegroundService.getLiveUsageQueryFailureCount());
+        result.put("lastLiveUsageQueryFailureClass",
+                FlowForegroundService.getLastLiveUsageQueryFailureClass());
+        result.put("lastLiveUsageQuerySucceeded",
+                FlowForegroundService.wasLastLiveUsageQuerySuccessful());
         result.put("runtimeTracking", FlowForegroundService.getRuntimeTrackingDiagnostics(prefs));
         return result;
     }
 
     /** 诊断 JSON 字符串（含 permissions 字段）。 */
     public String diagnosticsJson(NativeFlowPermissionManager permissions, SharedPreferences prefs) {
-        JSObject root = diagnostics(prefs);
+        JSObject root = shareableDiagnostics(diagnostics(prefs));
         root.put("formatVersion", 1);
         root.put("exportedAt", new Date().toString());
         root.put("permissions", permissions.permissionState());
         return root.toString();
+    }
+
+    /**
+     * Whitelist fields suitable for sharing. Detailed runtime tracking remains
+     * available in the on-device diagnostics screen but is not included in
+     * user-shared reports because its timings can reveal usage patterns.
+     */
+    static JSObject shareableDiagnostics(JSObject source) {
+        JSObject result = new JSObject();
+        for (String key : SHAREABLE_DIAGNOSTICS_KEYS) {
+            if (!source.has(key)) continue;
+            Object value = source.opt(key);
+            if (value != null) result.put(key, value);
+        }
+        return result;
     }
 
     /**

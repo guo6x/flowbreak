@@ -9,14 +9,21 @@ examples only.  A recovery machine may use any working directory and drive.
 
 ## 0. Safety boundary for this phase
 
-The phone, ADB, and a real device are currently unavailable.  Do **not** run
-`adb`, `scrcpy`, or any other device command, and do not run connected
-instrumentation tests.  Gate D (OEM/device matrix), Gate E (usage/latency),
-and Gate F (24-hour/protection integrity) cannot be completed in this phase.
-Building an AndroidTest APK is not executing a device test.
+No physical phone is available. A task-scoped exception was authorized on
+2026-10-18 for the preconfigured `Medium_Phone_API_36.0` Android Virtual Device
+only. This exception applies to that isolated product-validation task; it does
+not authorize connecting or operating a physical device. Before each ADB
+operation, require an `emulator-*` serial, verify `ro.boot.qemu=1` and
+`sys.boot_completed=1`, and pass the selected serial explicitly with `-s`.
+Do not use `-wipe-data`, `pm clear`, uninstall, or any operation that discards
+existing AVD data. Do not run `scrcpy`. The repository still has no product
+instrumentation smoke suite; building an AndroidTest APK is not executing a
+device test. AVD evidence cannot close the OEM/device matrix, real-device
+usage/latency acceptance, or a complete 24-hour Protection Integrity gate.
 
-The current checkout contains known dirty generated files.  Preserve them and
-inspect their diff; never discard them as part of recovery:
+The original migration-prep checkout recorded changes to the following
+generated files. In any checkout, inspect `git status` first; preserve local
+changes to these paths, but do not assume they are currently dirty:
 
 ```text
 app/android/app/capacitor.build.gradle
@@ -38,8 +45,10 @@ secret values.
 | Item | Value |
 | --- | --- |
 | Repository | `https://github.com/guo6x/flowbreak.git` |
-| Remote branch model | `master` only |
-| Expected baseline `master` SHA (this handoff) | `0cae8b2ffbf24c6869f842efce646b5e29c85d0e` |
+| Remote branch model at this handoff snapshot | `master` only |
+| Expected baseline `master` SHA at this handoff snapshot (2026-08-25) | `0cae8b2ffbf24c6869f842efce646b5e29c85d0e` |
+
+> This is a historical workstation-migration handoff, not the live branch or release status. For current product validation and gate state, see [CURRENT_STATUS.md](CURRENT_STATUS.md) and [RELEASE.md](RELEASE.md). The baseline and gate table below describe the handoff snapshot only.
 
 Verify identity without changing the working tree beyond the requested fetch:
 
@@ -198,7 +207,10 @@ instrumentation APK may be assembled for packaging checks:
 ```
 
 That task only assembles an APK; it does not run a connected test.  Do not use
-`connected...AndroidTest`, `adb`, or `scrcpy` while the phone is unavailable.
+`connected...AndroidTest` without an authorized device test plan. Do not connect
+or operate a physical device while none is available. ADB is permitted only for
+the exact AVD authorized in section 0, with the serial and properties checked
+there; do not use `scrcpy`.
 Do not set local `FLOWBREAK_*` signing variables or point a local build at a
 keystore during workstation recovery.
 
@@ -233,8 +245,8 @@ files.
 ## 7. Known generated/dirty-file behavior
 
 `npx cap sync android` regenerates Capacitor Android settings and web assets.
-It may change these generated files, which are currently known dirty and must
-be preserved during migration:
+It may change these generated files. Inspect their status and diff before and
+after sync; preserve any pre-existing local changes during migration:
 
 ```text
 app/android/app/capacitor.build.gradle
@@ -270,7 +282,9 @@ dirty generated files out of unrelated commits and preserve their provenance.
 
 ## 9. Gate status at this handoff
 
-This phase carries the following frozen status from the migration request:
+This phase carries the following frozen status from the migration request, as
+recorded against baseline `0cae8b2` on 2026-08-25. It is historical and is
+superseded by the live gate status in `CURRENT_STATUS.md` and `RELEASE.md`:
 
 | Gate | Status |
 | --- | --- |
@@ -284,34 +298,37 @@ This phase carries the following frozen status from the migration request:
 | H — Store/compliance readiness | PENDING |
 | I — Small-scale beta | PENDING |
 
-Gate G is intentionally frozen.  The current temporary workstation must not
-generate final Play/Domestic identities, create a portable vault, create a
-release tag, or run the portable signing scripts with production inputs.
-`SEC-PORTABILITY-001` is closed at the code level: keytool passwords use
-short-lived child environment references, and no recovery/JKS password is
-placed in a child command line or normal output.  No mature portable
-encryption/archive backend is currently approved or installed, so both
-portable signing scripts fail closed before reading secrets and reject
-arbitrary archive executables.  A safe backend must be selected and verified
-before Gate G vault work resumes.
+In the 2026-08-25 handoff snapshot, Gate G was intentionally frozen. At that
+time, the temporary workstation was not authorized to generate final
+Play/Domestic identities, create a portable vault, create a release tag, or
+run the portable signing scripts with production inputs. `SEC-PORTABILITY-001`
+had been closed at the code level: keytool passwords used short-lived child
+environment references, and no recovery/JKS password was placed in a child
+command line or normal output. No portable encryption/archive backend had yet
+been approved, so both portable signing scripts failed closed before reading
+secrets and rejected arbitrary archive executables. These are historical
+handoff facts; current signing custody and recovery status is in `RELEASE.md`.
 
-## 10. What cannot be completed without a phone
+## 10. What remains after the authorized API 36 AVD smoke
 
 No-device work can cover frontend tests, provenance tooling tests, JVM tests,
-lint, debug/release assembly, and static artifact checks.  It cannot establish
-real-device evidence for:
+lint, debug/release assembly, and static artifact checks. The authorized AVD
+also covered a narrow Domestic onboarding/permission-return smoke. It cannot
+establish real-device/OEM evidence for:
 
 - Gate D OEM permissions, background limits, restart recovery, or compatibility;
 - Gate E UsageStats accuracy against system wellbeing and measured blocking
   latency;
 - Gate F 24-hour stability, service/protection integrity, or failure-injection
   behavior;
-- signed install/upgrade and any connected instrumentation behavior.
+- true signed version upgrade and any connected instrumentation behavior.
 
-Keep these gates `PENDING`; do not infer a device `PASS` from a successful
-Gradle build or from an assembled AndroidTest APK.  If an authorized future
-device attempt cannot see the specified handset, record `DEVICE_UNAVAILABLE`
-and stop before build/install/trials; do not substitute another device.
+Keep the applicable release gates `PENDING`; do not infer a device `PASS` from
+a successful Gradle build, AVD smoke, or assembled AndroidTest APK. If an
+authorized future real-device attempt cannot see the specified handset, record
+`DEVICE_UNAVAILABLE` and stop before build/install/trials; do not substitute
+another device. For a separately authorized AVD task, use only the exact AVD
+and explicit serial recorded in section 0.
 
 ## 11. Resume point on the primary laptop
 
@@ -322,7 +339,8 @@ and stop before build/install/trials; do not substitute another device.
    workstation example is `D:\ai_code\flowbreak-migration\`; another machine
    may choose a different location); verify its `SHA256SUMS.txt` before using
    any evidence.
-5. Reconfirm the Git SHA and review the two known generated dirty files.
+5. Reconfirm the Git SHA and check whether the two generated files have local
+   changes; preserve them if present.
 6. When a phone is available, resume the authorized Gate D/E/F device plan.
 7. Resume Gate G final identity generation **only on the primary laptop**, then
    follow the separate signing-custody and cross-machine recovery procedure.

@@ -15,7 +15,7 @@ export const activities: RestActivity[] = [
       '向左转动眼球完成一圈',
       '看向窗外最远的绿色物体',
     ],
-    color: '#4CAF50',
+    color: '#8AC5A8',
   },
   {
     id: 'stretch',
@@ -30,7 +30,7 @@ export const activities: RestActivity[] = [
       '双手向上举起伸展',
       '缓缓放下，转动肩膀',
     ],
-    color: '#2196F3',
+    color: '#91C5D5',
   },
   {
     id: 'breathe',
@@ -45,7 +45,7 @@ export const activities: RestActivity[] = [
       '重复 3 次',
       '感受身体的放松',
     ],
-    color: '#FF9800',
+    color: '#DBC394',
   },
 ];
 

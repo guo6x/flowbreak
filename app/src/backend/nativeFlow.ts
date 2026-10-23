@@ -21,6 +21,34 @@ export interface PermissionState {
   protectionRuntimeAvailable: boolean;
 }
 
+export type NativeProtectionStatusName =
+  | 'PAUSED'
+  | 'UNCONFIGURED'
+  | 'UNSUPPORTED'
+  | 'STARTING_OR_UNCONFIRMED'
+  | 'ACTIVE'
+  | 'DEGRADED';
+
+export interface NativeProtectionStatus {
+  status: NativeProtectionStatusName;
+  reason: string;
+  coreProtectionOperational: boolean;
+  strongBlockingRequested: boolean;
+  strongBlockingOperational: boolean;
+  strongBlockingDegradedReason: string;
+  monitoringConfigured: boolean;
+  monitoringEnabled: boolean;
+  targetCount: number;
+  serviceRuntimeActive: boolean;
+  monitorThreadAlive: boolean;
+  heartbeatFresh: boolean;
+  currentServiceHeartbeatAt: number;
+  accessibilityEnabledInSettings: boolean;
+  accessibilityRuntimeConnected: boolean;
+  protectionRuntimeAvailable: boolean;
+  permissions: PermissionState;
+}
+
 export interface NativeSettings {
   limitMinutes: number;
   restDuration: number;
@@ -70,6 +98,12 @@ export interface RuntimeTrackingDiagnostics {
   runtimeTargetsMatchPersisted: boolean;
   monitorThreadAlive: boolean;
   monitorLooperIsMain: boolean;
+  lastCompletedMonitorTickElapsedMs?: number;
+  lastCompletedMonitorTickWallMs?: number;
+  protectionIntegrityFailureReason?: string;
+  liveUsageQueryFailureCount?: number;
+  lastLiveUsageQueryFailureClass?: string;
+  lastLiveUsageQuerySucceeded?: boolean;
   timing: {
     lastTickExecutionMs: number;
     maxTickExecutionMs: number;
@@ -109,10 +143,11 @@ export interface NativeFlowPlugin {
     monitoringEnabled?: boolean;
   }): Promise<void>;
   stopService(): Promise<void>;
-  beginRest(): Promise<void>;
-  cancelRest(): Promise<void>;
+  beginRest(): Promise<{ beginRequestToken: string }>;
+  cancelRest(options: { beginRequestToken: string }): Promise<void>;
   getCurrentApp(): Promise<{ packageName: string }>;
   getCurrentFatigueLevel(): Promise<{ level: number; minutes: number }>;
+  getProtectionStatus(): Promise<NativeProtectionStatus>;
   getBlockState(): Promise<{
     state: BlockState;
     sessionSeconds: number;
@@ -120,10 +155,15 @@ export interface NativeFlowPlugin {
     blockedPackage: string;
     restStartedAt: number;
     restRequiredSeconds: number;
+    restSessionId?: number;
+    restClockValid?: boolean;
+    restRemainingMs?: number;
+    restRemainingSeconds?: number;
   }>;
   completeRestAndUnlock(options: {
     activity: 'eye' | 'stretch' | 'breathe';
     duration: number;
+    restSessionId: number;
   }): Promise<{ graceUntil: number; points: number; streak: number; achievement: string }>;
   requestEmergencyUnlock(): Promise<{
     allowed: boolean;
@@ -192,6 +232,7 @@ export interface NativeFlowPlugin {
     databaseVersion: number;
     serviceAlive: boolean;
     serviceHeartbeatAt: number;
+    persistedServiceHeartbeatAt?: number;
     lastUsageEventAt: number;
     state: BlockState;
     sessionSeconds: number;
@@ -205,6 +246,10 @@ export interface NativeFlowPlugin {
     latestEventAt: number;
     permissions: PermissionState;
     runtimeTracking: RuntimeTrackingDiagnostics;
+    protectionIntegrityFailureReason?: string;
+    liveUsageQueryFailureCount?: number;
+    lastLiveUsageQueryFailureClass?: string;
+    lastLiveUsageQuerySucceeded?: boolean;
   }>;
   exportDiagnostics(): Promise<{ json: string }>;
   shareDiagnostics(): Promise<void>;

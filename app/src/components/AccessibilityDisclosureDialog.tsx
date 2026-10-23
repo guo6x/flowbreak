@@ -1,3 +1,6 @@
+import { useEffect, useRef } from "react";
+import { X } from "lucide-react";
+
 /**
  * Prominent, separate notice before entering Android's Accessibility settings.
  * A click on a settings entry point MUST NOT directly request this privilege.
@@ -14,13 +17,63 @@ type Props = {
 export default function AccessibilityDisclosureDialog({
   open, busy, onDecline, onConfirm, error,
 }: Props) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const onDeclineRef = useRef(onDecline);
+  const busyRef = useRef(busy);
+  onDeclineRef.current = onDecline;
+  busyRef.current = busy;
+
+  useEffect(() => {
+    if (!open) return;
+
+    const previousFocus = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    dialogRef.current?.querySelector<HTMLButtonElement>("button:not([disabled])")?.focus();
+
+    const declineIfIdle = () => {
+      if (!busyRef.current) onDeclineRef.current();
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        declineIfIdle();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("popstate", declineIfIdle);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("popstate", declineIfIdle);
+      previousFocus?.focus();
+    };
+  }, [open]);
+
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-5" role="presentation">
-      <div role="dialog" aria-modal="true" aria-labelledby="accessibility-disclosure-title" className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
-        <h2 id="accessibility-disclosure-title" className="text-[17px] font-bold text-gray-900 mb-3">
-          开启无障碍强阻断前，请了解用途
-        </h2>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-5"
+      role="presentation"
+      onClick={(event) => {
+        if (event.target === event.currentTarget && !busy) onDecline();
+      }}
+    >
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="accessibility-disclosure-title" className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <h2 id="accessibility-disclosure-title" className="text-[17px] font-bold text-gray-900">
+            开启无障碍强阻断前，请了解用途
+          </h2>
+          <button
+            type="button"
+            aria-label="关闭告知"
+            onClick={onDecline}
+            disabled={busy}
+            className="w-9 h-9 shrink-0 rounded-full bg-gray-100 text-gray-700 flex items-center justify-center disabled:opacity-50"
+          >
+            <X size={18} aria-hidden="true" />
+          </button>
+        </div>
         <p className="text-[13px] leading-relaxed text-gray-700">
           这是国内版的可选辅助阻断功能。启用后，FlowBreak 通过 Android 无障碍服务监听窗口切换事件中的应用包名，以及必要时用于识别特定页面的窗口类名，
           遇到微信窗口时，FlowBreak 会根据窗口类名在本机保存“是否为视频号页面”的判断值及最近检测时间，用于短时间内的目标识别；不保存页面文字。

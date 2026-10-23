@@ -21,17 +21,19 @@ export function useNativePermissions(poll = false) {
   const [checking, setChecking] = useState(isNative);
   const [error, setError] = useState('');
   const checkingRef = useRef(false);
+  const hasCompletedInitialCheckRef = useRef(false);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (showLoading = true) => {
     if (!isNative || checkingRef.current) return;
     checkingRef.current = true;
-    setChecking(true);
+    if (showLoading || !hasCompletedInitialCheckRef.current) setChecking(true);
     try {
       setPermissions(await NativeFlow.checkPermissions());
       setError('');
     } catch {
       setError('无法读取系统权限状态，请重试。');
     } finally {
+      hasCompletedInitialCheckRef.current = true;
       checkingRef.current = false;
       setChecking(false);
     }
@@ -39,13 +41,13 @@ export function useNativePermissions(poll = false) {
 
   useEffect(() => {
     if (!isNative) return;
-    refresh();
+    void refresh(false);
 
-    const onResume = () => refresh();
+    const onResume = () => { void refresh(false); };
     const onVisible = () => {
-      if (document.visibilityState === 'visible') refresh();
+      if (document.visibilityState === 'visible') void refresh(false);
     };
-    const interval = poll ? window.setInterval(refresh, 1000) : undefined;
+    const interval = poll ? window.setInterval(() => { void refresh(false); }, 1000) : undefined;
     window.addEventListener('focus', onResume);
     window.addEventListener('pageshow', onResume);
     window.addEventListener('flow-permissions-changed', onResume);

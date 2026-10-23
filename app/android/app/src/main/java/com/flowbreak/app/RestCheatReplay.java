@@ -9,6 +9,37 @@ package com.flowbreak.app;
 public final class RestCheatReplay {
     private RestCheatReplay() { }
 
+    /**
+     * Returns independently verified target time intersecting a REST window.
+     * A negative result means that the supplied timeline was not complete or
+     * the requested window was invalid.
+     */
+    public static long verifiedTargetMsDuring(
+            TargetSessionGapReconciler.Result result,
+            long restStartWallMs,
+            long restEndWallMs
+    ) {
+        if (result == null
+                || result.status != TargetSessionGapReconciler.Status.SUCCESS
+                || restStartWallMs < 0L
+                || restEndWallMs <= restStartWallMs) {
+            return -1L;
+        }
+        long targetMs = 0L;
+        for (TargetSessionGapReconciler.TimelineSegment segment : result.segments) {
+            if (!segment.targetActive || !segment.interactionAvailable) continue;
+            long start = Math.max(restStartWallMs, segment.startWallMs);
+            long end = Math.min(restEndWallMs, segment.endWallMs);
+            if (end > start) {
+                long duration = end - start;
+                targetMs = Long.MAX_VALUE - targetMs < duration
+                        ? Long.MAX_VALUE
+                        : targetMs + duration;
+            }
+        }
+        return targetMs;
+    }
+
     public static Decision applyVerifiedTargetMs(
             BlockStateMachine machine,
             RestCheatTracker tracker,

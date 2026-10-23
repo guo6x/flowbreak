@@ -1,10 +1,10 @@
 # KNOWN_ISSUES — 已知问题与缺陷
 
-> 所有未解决问题统一登记在这里。缺陷只能通过「真实修复 + 设备复测」从 OPEN 转为 RESOLVED；文档整理不得改变缺陷状态。平台边界可以使用单独的 `MITIGATED_ACCEPTED_PLATFORM_LIMITATION` 语义，但不等同于 RESOLVED。
+> 所有未解决问题统一登记在这里。缺陷只有在修复合入且相关验证通过后才能从 OPEN 转为 RESOLVED；OEM/运行时行为须提供对应真机证据，偏好默认值等可隔离验证的逻辑可由 JVM 回归与定向 AVD 证据覆盖。文档整理不得改变缺陷状态。平台边界可以使用单独的 `MITIGATED_ACCEPTED_PLATFORM_LIMITATION` 语义，但不等同于 RESOLVED。
 > 
 > - **Bug ID 唯一性**：一个 ID 在整个项目生命周期只能代表一个缺陷，禁止复用。已解决项保留原 ID 与完整历史，不删除。
 > - **证据存储**：设备原始证据不入 Git 仓库，由测试工作区外部保存；下文 Evidence 中的 External device evidence: 路径为测试工作区报告名。
-> - **状态语义**：RESOLVED 的判定标准 = 修复已合入 + 相关验证通过（附复测日期与真机证据）。`MITIGATED_ACCEPTED_PLATFORM_LIMITATION` 表示原始失败与严重性仍然有效、根因未必消除、已实现的缓解措施可降低或恢复影响、残余行为明确排除在当前支持保证之外，且是否阻塞发布由修订后的支持范围决定；它不重新定义 RESOLVED。`OPEN_NON_BLOCKING_V1_1_0` 表示问题仍保持 OPEN、未声称已解决，但当前证据与支持范围不使其成为 v1.1.0 release blocker。非阻塞的兼容性观察使用 `COMPAT-xxx` 编号，状态为 OPEN OBSERVATION，不得在无真实用户可见失败证据时升级为 P1/P2。
+> - **状态语义**：RESOLVED 的判定标准 = 修复已合入 + 相关验证通过（附复测日期与适配该行为类型的证据）。`MITIGATED_ACCEPTED_PLATFORM_LIMITATION` 表示原始失败与严重性仍然有效、根因未必消除、已实现的缓解措施可降低或恢复影响、残余行为明确排除在当前支持保证之外，且是否阻塞发布由修订后的支持范围决定；它不重新定义 RESOLVED。`OPEN_NON_BLOCKING_V1_1_0` 表示问题仍保持 OPEN、未声称已解决，但当前证据与支持范围不使其成为 v1.1.0 release blocker。非阻塞的兼容性观察使用 `COMPAT-xxx` 编号，状态为 OPEN OBSERVATION，不得在无真实用户可见失败证据时升级为 P1/P2。
 > 历史 Bug 不删除；已解决项保留在下方「Resolved」区。
 
 ## 缺陷格式
@@ -24,7 +24,19 @@
 
 ## Open
 
-> Redmi R1–R4 复测后，原 `FB-P1-01/02/03`、`FB-P2-01` 全部 RESOLVED；`FB-P1-05` 仍开放，并在 v1.1.0 被明确纳入 vivo/iQOO fail-closed 支持边界。
+> Redmi R1–R4 复测后，原 `FB-P1-01/02/03`、`FB-P2-01` 全部 RESOLVED；`FB-P1-05` 仍开放，并在 v1.1.0 被明确纳入 vivo/iQOO fail-closed 支持边界。Issue #28 / `FB-P1-08` 也仍为 OPEN，阻塞 Gate F。
+
+### FB-P1-08 Protection Integrity can report active while required runtime capability is absent
+
+- Severity：**P1（supported-scope 核心保护完整性）**
+- Status：**OPEN_SUPPORTED_SCOPE_RELEASE_BLOCKER**；GitHub [Issue #28](https://github.com/guo6x/flowbreak/issues/28) 当前仍 OPEN，`GATE_F=FAIL`。
+- Affected version/SHA：真实设备摘要没有记录可核验的 APK 来源版本/SHA。Issue 正文中的 master 发现基线属于代码审计背景，**不等同于设备复现包的来源 SHA**；本集成工作区也还没有最终候选 SHA。
+- Environment：历史真实设备记录描述在 REST 期间前台使用 Bilibili 约 33 秒。该摘要未包含可核验的设备型号、系统版本、渠道、签名证书或已安装 APK provenance；这些信息保持 **NOT_RECORDED / NOT_VERIFIED**，不得按相邻测试猜测。
+- Observed（设备摘要）：Bilibili 前台约 33 秒后，REST 界面仍显示倒计时。摘要中没有同时保存的原生持久状态、服务 tick、前台分类器或取消判定证据，因此无法判定当时是原生休息状态未取消，还是原生状态已变化而 Web 页面显示过期。此观察保留为真实设备失败，不将其解释成已确定的 native `cancelRest` 失败。
+- Additional code-audit findings in Issue #28（仍须在最终候选验证，不代表设备根因已定位）：必要的 Usage Access / Overlay 缺失时，保护状态 UI 与实际运行能力可能不一致；实时 UsageEvents 查询失败可能继续沿用旧前台包名；Domestic 无障碍在监控关闭后可能依赖过期的持久 `BLOCKED` 状态继续执行。无障碍是可选能力，缺失时应如实降级，不能因它缺失而禁用所有保护。通知、电池优化豁免与 OEM 自启动不是新增硬性前置条件。
+- Expected：遵守 **UI promise ≤ actual protection capability**。缺少硬性权限或当前原生运行能力时，不显示“保护有效”，不沿用过期前台状态累计使用；停止监控后 Domestic 无障碍不得继续依靠旧状态执行强阻断。恢复能力时只能按可验证、无虚构时长的路径恢复。
+- Evidence： [Issue #28](https://github.com/guo6x/flowbreak/issues/28)，特别是其 2026-10-10 设备失败摘要与取证说明。当前没有新的真实设备复测，也没有证据关闭该问题。
+- Next action：在最终候选 SHA 上完成确定性回归和独立代码复审；将虚拟设备用于可控权限、状态与界面场景，但不把 AVD/模拟 UsageEvents 记为 Gate F 通过。若未来有合规授权的真实设备条件，按 [FB-P1-08 设备验收交接](FB-P1-08-FINAL-DEVICE-HANDOFF.md) 收集最小化的 native 状态对照材料，并另行执行 24 小时稳定性观察。当前无设备的限制下，保留 OPEN / FAIL。
 
 ### FB-P1-05 vivo/iQOO native tick path may fail to accumulate foreground usage
 
@@ -49,6 +61,16 @@
 - Impact（无用户可见失败）：强阻断核心行为已 PASS——Accessibility 立即执行 HOME、`TYPE_ACCESSIBILITY_OVERLAY` 顶部横幅可见且含「开始休息」入口、横幅单实例不堆叠、非目标应用正常使用、无全手机锁死、连续三次重进目标应用均继续阻断；核心强阻断**不依赖** BlockActivity 成功启动（修复 `3600d97`）。
 - Next action：多 OEM 矩阵中决定：删除 `tryStartBlockActivity` / OEM 条件化 / 继续作为 best-effort compatibility path。**不要**在无真实用户可见失败证据时升级为新的 P1/P2。
 - Evidence：External device evidence: `reports/R1-R4-retest-2026-08-14.md`（R3）、`reports/T38-strong-blocking.md`（§3 历史）
+
+### FB-P2-03 Domestic strong-blocking default differs from the documented opt-in UI
+
+- Severity：**P2（默认设置与产品规范一致性）**
+- Status：**OPEN IN MASTER — FIXED ON `product/experience-polish-20261018`; API 36 AVD VERIFIED; MERGE PENDING**。模拟器完成了本项针对性验证；按本仓库关闭规则，分支修复尚未合入 master，故不标记为 RESOLVED。
+- Affected scope：Domestic 原生偏好读取、保护状态展示、设置加载和无障碍执行门禁。未保存时按关闭处理；显式保存的用户选择不因读取缺省值而改变。
+- Observed before fix：`NativeFlowPlugin.loadSettings()` 在未存储该选项时按 Domestic 渠道返回 `strongBlockingEnabled=true`；`BlockingSettings` 成功读取后显示为开启。系统无障碍授权仍独立、可选，不能由这个布尔值推断已授权或正在执行强阻断。
+- Expected：`PRODUCT.md` 的默认 UI 关闭目标，与实际初始值和可选授权表述应一致，且不得覆盖用户已有选择。
+- Evidence：修复点为 `PreferenceUtils.isStrongBlockingEnabled()`；设置读取、`getProtectionStatus()` 与 Domestic `FlowAccessibilityService.canEnforce()` 共用关闭缺省。源码提交 `154a7cfab7da1c7924ae1acb53acd63a931c2626`；Domestic/Play JVM 分别 412/382 项通过，覆盖缺失值不写入、显式开/关保留、Play 不启用及 Accessibility 缺失值不执行。2026-10-18 在 `Medium_Phone_API_36.0`（Android 16 / API 36）以 `install -r` 覆盖安装后，`FlowBreakPrefs.xml` 仍无 `strongBlockingEnabled` 键；权限页为 0/2，系统“使用情况访问”设置返回后仍为 0/2。APK SHA-256：`41de12d1eecbcd3778d72bafca3d0824d5d8fb720d17638e5e180464ffd4c64a`。截图：`D:\temp\flowbreak-avd-evidence-20261018\flowbreak-final-154a7cf-settings-return.png`。AVD 结果不代表 Redmi/OEM 真机验收。
+- Next action：将体验分支经常规 review/merge 纳入 master 后，再按本仓库状态规则更新缺陷；更广泛的受支持手机/OEM smoke、Gate F 稳定性及既有 Gate D/E 证据继续按各自范围执行。
 
 ## Platform limitations
 
@@ -86,7 +108,7 @@
 
 ## Resolved（2026-08-14 Redmi R1–R4 复测关闭）
 
-> 判定标准：修复已合入 master + Redmi 真机复测 PASS。每条保留完整历史：原现象、root cause、fix SHA、automated regression coverage、Redmi evidence。
+> 以下历史项均已合入 master 并有 Redmi 真机复测证据。新问题按文首状态规则逐项选择适配的验证证据；不要将本段历史设备范围机械套用到偏好默认值等非 OEM 行为。
 
 ### FB-P1-04 vivo/iQOO 后台冻结导致连续使用计时停止
 

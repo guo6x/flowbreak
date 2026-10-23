@@ -62,6 +62,21 @@ describe("Onboarding", () => {
     fireEvent.click(screen.getByText("开始使用"));
     expect(mockNavigate).toHaveBeenCalledWith("/permissions");
   });
+
+  it("进度支持键盘可达按钮并标记当前步骤", () => {
+    renderOnboarding();
+    expect(screen.getByRole("button", { name: "跳转到第 1 页" })).toHaveAttribute("aria-current", "step");
+    fireEvent.click(screen.getByRole("button", { name: "跳转到第 3 页" }));
+    expect(screen.getByText("从上头里拉回来")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "跳转到第 3 页" })).toHaveAttribute("aria-current", "step");
+    expect(screen.getByText(/仅支持 Android/)).toBeInTheDocument();
+  });
+
+  it("渐进说明明确达到120%时阻断而非承诺永不打断", () => {
+    renderOnboarding();
+    fireEvent.click(screen.getByRole("button", { name: "跳转到第 2 页" }));
+    expect(screen.getByText(/120% 时阻断目标应用/)).toBeInTheDocument();
+  });
 });
 
 describe("Login路由重定向-使用生产AppRouter", () => {
