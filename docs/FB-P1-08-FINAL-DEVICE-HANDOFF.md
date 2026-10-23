@@ -2,7 +2,15 @@
 
 **Scope:** Redmi Note 13 Pro 5G / Android 16 / HyperOS, Domestic channel, v1.1.0 supported-scope only. This document is a test recipe, **not** evidence of success.
 
-## 0. No-phone work already prepared (2026-10-10)
+## Current applicability — 2026-10-23
+
+**HISTORICAL_RECIPE / CURRENT_DIAGNOSTIC_CONTRACT_NOT_READY.** Sections 0–4 below preserve the 2026-10-10 PR #29 recipe; they are not an executable acceptance protocol for the PR #42 integration candidate. PR #31 has since merged. The integration candidate's sanitized `shareDiagnostics()` output is built from an explicit allowlist and **excludes `runtimeTracking`**; its current native diagnostics output does not expose a `restCheatEvidence` JSON object. The counter implementation and deterministic tests are not proof that these fields can be exported from the current app.
+
+Do not run the historical recipe expecting `runtimeTracking.restCheatEvidence` in a shared export, interpret absent fields as zero observations, or widen the diagnostic sharing allowlist to satisfy the recipe. A future separately authorized device run first needs a source-bound, privacy-reviewed diagnostic contract that is actually available in that build. Use only verified current fields and report missing evidence as `INCONCLUSIVE` / `NOT_EXECUTED`. Full local data export is broader and is not a substitute for sanitized diagnostics.
+
+This cleanup changes no native collection or sharing behavior, authorizes no phone or production-signing operation, and does not close Issue #28 / Gate F. Ordinary engineering merge status is tracked in PR #42 and does not certify device behavior or the 24-hour run.
+
+## 0. Historical no-phone work prepared (2026-10-10)
 
 - PR #29: native REST UI reconciliation; asynchronous BEGIN_REST acknowledgment; passive, package-free native anti-cheat diagnostic counters and persisted REST status; deterministic Robolectric UsageEvents integration tests for approximately 33 seconds of Bilibili foreground usage.
 - PR #31: patched Capacitor 8.4.3 security upgrade, separate PR with successful complete CI, still unmerged.
@@ -10,7 +18,7 @@
 - Existing UI: Profile → 效果验证与运行诊断 → 导出脱敏诊断. Plugin API: `shareDiagnostics()`. This exports the new fields; there is no need to create or permission an additional data-collection application.
 - **Never treat** `assemblePlayDebugAndroidTest` as executed instrumentation tests; it only assembles an APK.
 
-## 1. Preconditions for an eventual true-device run
+## 1. Historical preconditions for an eventual true-device run
 
 Do **not** consume the user's phone yet. Before booking a short test slot:
 
@@ -21,7 +29,7 @@ Do **not** consume the user's phone yet. Before booking a short test slot:
 
 If any precondition fails, result = `NOT_EXECUTED`, not PASS.
 
-## 2. Short, user-authorized device session
+## 2. Historical short, user-authorized device session
 
 Record the device time and APK SHA/certificate. Note the existing list of selected target apps, particularly whether `tv.danmaku.bili` is present. Confirm Usage Access, overlay permissions and service/runtime health without changing them.
 
@@ -33,7 +41,7 @@ Record the device time and APK SHA/certificate. Note the existing list of select
 
 The run may be split into separately documented device sessions rather than monopolizing the user's phone. Stop immediately if the user needs the device or any installation/permission check cannot be satisfied.
 
-## 3. How to interpret evidence
+## 3. Historical evidence interpretation (not the current export schema)
 
 The root JSON includes `state`, `persistedBlockState`, `persistedRestSessionPresent`, `serviceAlive`, `monitoringEnabled`, `targetCount` and `runtimeTracking`.
 
@@ -56,8 +64,8 @@ Use **changes relative to the baseline** to avoid accidentally attributing an ol
 | Native cancellation advances and persisted state leaves RESTING, but old countdown is visible | WebView REST UI and resume reconciliation |
 | Data unavailable, test not signed with approved key, or results ambiguous | `INCONCLUSIVE`; collect a second short run, **never PASS by inference** |
 
-## 4. Release decision
+## 4. Historical release decision
 
 After actual device revalidation, attach a signed-source SHA, exact installed binary SHA-256 and certificate comparison, minimized diagnostic deltas, short timeline and scenario-by-scenario PASS/FAIL/NOT_EXECUTED table to Issue #28. **Only with real accepted evidence** may the release commander reconsider `FB-P1-08` and GATE F. Do not merge PR #29, publish to a store, or declare GATE F complete based on this handoff or Android JVM/CI tests.
 
-The official current decision is `GATE_F=FAIL`, `PR29_MERGE=WAIT_FOR_COMMANDER`, `PRODUCTION_RELEASE=NOT_APPROVED`.
+The decision recorded on 2026-10-10 was `GATE_F=FAIL`, `PR29_MERGE=WAIT_FOR_COMMANDER`, `PRODUCTION_RELEASE=NOT_APPROVED`. Current engineering branch/PR lifecycle is separate; Gate F remains FAIL until actual accepted device evidence and the required stability run exist.

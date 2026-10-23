@@ -3,15 +3,16 @@
 > 这是「项目现在在哪」的唯一当前视图。易变事实（HEAD、测试数、Run ID、APK SHA）只出现在本文档与 `TESTING.md` 的验证快照中。
 > 2026-08-12 的「真机验收 FAILED / RELEASE BLOCKED」快照已降级为历史记录（见下方「历史状态」），不再代表当前状态。
 
-## 当前集成候选状态（2026-10-20）
+## 当前工程集成与验证来源（2026-10-23）
 
-这是本轮候选冻结后的集成快照。功能代码、文档/测试修补和发布流水线修复已提交；Draft PR #42 的精确 HEAD 已通过 hosted verify，但最终交付仍保持 **`INTEGRATION_ENGINEERING_READY / DEVICE_ACCEPTANCE_PENDING`**，不是正式发布批准。
+本节区分已验证的固定来源与会继续变化的分支身份。历史功能修复源为 `f7abbad7…`；本次审查修补前最后已验证的文档快照为 `afe404fe…`，两者不是同一个 HEAD。本轮另含原生计时失效后的 REST 页面持续对账修复与回归。最新 HEAD、合并状态与对应 checks 以 [PR #42](https://github.com/guo6x/flowbreak/pull/42) 及 [master](https://github.com/guo6x/flowbreak/tree/master) 为准，不把旧产物或旧 Run 重新归属给后续提交。工程状态仍为 **`INTEGRATION_ENGINEERING_READY / DEVICE_ACCEPTANCE_PENDING`**，不是正式发布批准。
 
 | 项 | 当前可核验状态 |
 | ---- | ---- |
-| master | `695b11f0fe68e4260864c638fda51b949c3a04f8`（已重新 `fetch origin`；候选分支以该基线为祖先） |
-| 集成分支 | `integration/experience-quality-20261019`；功能代码基线 `64d2e42d675b0f6ef757e1084d68d285c1ac4daa`；当前候选 HEAD `f7abbad7e900b32db5291cf26754cbd492721948` |
-| 候选身份 | **INTEGRATION_ENGINEERING_READY / DEVICE_ACCEPTANCE_PENDING**；Draft PR #42；未合并到 `master`，未创建正式 tag |
+| 合并审查起点 | `origin/master=695b11f0fe68e4260864c638fda51b949c3a04f8`；这是审查起点，不是后续合并后 master HEAD 的声明 |
+| 集成来源 | `integration/experience-quality-20261019`；功能修复基线 `f7abbad7e900b32db5291cf26754cbd492721948`（更早的功能基线为 `64d2e42d675b0f6ef757e1084d68d285c1ac4daa`） |
+| 本次修补前已验证 HEAD | `afe404fe094bb3968f8ef16a372cb09131b8a3f7`；[Run `39303124166`](https://github.com/guo6x/flowbreak/actions/runs/39303124166) **verify PASS / release SKIPPED**；该提交仅更新文档。2026-10-23 跟进修补须另跑精确 HEAD 的 CI，结果见 PR checks |
+| 工程集成身份 | **INTEGRATION_ENGINEERING_READY / DEVICE_ACCEPTANCE_PENDING**；PR #42 的 Draft/Open/Merged 状态及合并 SHA 以 PR 记录为准；不创建正式 tag |
 | unsigned 产物 | hosted verify [Run `39301143402`](https://github.com/guo6x/flowbreak/actions/runs/39301143402)（source `f7abbad7…`）：[artifact `flowbreak-unsigned-f7abbad…`](https://github.com/guo6x/flowbreak/actions/runs/39301143402/artifacts/12211868639)；Play AAB SHA-256 `989af971a7683ba615fca335335c44b51acbf6e96c97fc8ef15aca995c0c796`；Domestic unsigned Release APK SHA-256 `cc8e9f01cb11d41ef58ff25751863496ab47bb36a82e74069216d361d488376e`；`versionCode=1`、`versionName=ci-2a7b01cceecf46031ec5ea04ac43b467fd280453`，provenance 与版本一致；本地 `1.1.0` unsigned 包仅为功能基线/AVD 使用 |
 | 自动化快照 | hosted verify [Run `39301143402`](https://github.com/guo6x/flowbreak/actions/runs/39301143402) **PASS**；Vitest **291/291 PASS**（27 files）；UI smoke 44/44；品牌 36/36；Provenance 20/20；Release policy 8/8；Privacy static 15/15；本地 JUnit XML 汇总 Android Domestic **489/489**、Play **456/456**，0 failure/error/skip；hosted 双渠道 JVM/Lint/Debug/unsigned Release、Room/Manifest/资产同步均 PASS（详见 [TESTING.md](TESTING.md)） |
 | npm audit（GitHub CI） | **PASS — 0 vulnerabilities**：hosted verify 对生产依赖 high 门槛、全依赖 critical 门槛及回归后重跑均返回 `found 0 vulnerabilities` |
@@ -23,10 +24,10 @@
 | Gate G | **PENDING** — 跨机器签名恢复 `NOT_YET_TESTED`；真实 lower-version → current-version 签名升级 `NOT_TESTED`；本候选没有签名发布包 |
 | Gate H | **PENDING** — 发行主体、公开政策 URL/联系方式、备案与商店材料/提交均未完成；当前候选仅有无手机合规准备 |
 | Gate I | **PENDING / NOT_STARTED** — 尚无真实小规模 Beta |
-| 独立复审 | **PASS（代码范围）** — PR #42 当前候选的完整差异已独立复核，未发现新增 P0/P1/P2；运行时网络、真机与 24 小时稳定性仍按 Gate F/H 保持未完成 |
-| 发布 | `STORE_READY=NO`；`PRODUCTION_RELEASE_APPROVED=NO`；不得合并、force-push、读取生产签名材料或创建正式 release |
+| 独立复审 | 基线完整差异已完成代码范围复核；2026-10-23 审查新增的来源身份与无障碍隐私文案两项 P2 在本轮跟进，须独立检查修补差异并通过新 HEAD 的 CI；运行时网络、真机与 24 小时稳定性仍按 Gate F/H 保持未完成 |
+| 合并与发布边界 | 2026-10-23 用户授权在最新 checks 通过后执行常规工程合并及冗余分支清理；合并不关闭设备/发布门禁。`STORE_READY=NO`；`PRODUCTION_RELEASE_APPROVED=NO`；不得 force-push、读取生产签名材料或创建正式 release |
 
-本工作允许使用 Android 虚拟设备开展受控功能与界面验证，但 AVD 不模拟 Redmi/HyperOS 的后台调度，也不能替代 Gate F 的真实设备与 24 小时稳定性门禁。精确 HEAD、hosted CI、Draft PR 与代码差异复审已记录；仍需真实设备、运行时网络与其它发布门禁。
+本工作允许使用 Android 虚拟设备开展受控功能与界面验证，但 AVD 不模拟 Redmi/HyperOS 的后台调度，也不能替代 Gate F 的真实设备与 24 小时稳定性门禁。每次修补后的 HEAD、hosted CI 与合并决定单独记录在 PR；仍需真实设备、运行时网络与其它发布门禁。
 
 ## 体验分支历史快照（非当前候选）
 
@@ -49,7 +50,7 @@
 
 ## 2026-10-12 历史发布快照（仅供时间线参考）
 
-以下是当日的发布状态记录；其中 PR #33 的“审查/CI 中”等状态已过时。当前 Issue/PR 与集成候选状态以本文开头的 2026-10-18 快照为准。
+以下是当日的发布状态记录；其中 PR #33 的“审查/CI 中”等状态已过时。当前 Issue/PR 与工程集成来源以本文开头及所链接的云端记录为准。
 
 | 项 | 当前可验证状态 |
 | --- | --- |
@@ -147,7 +148,7 @@
 - `FB-P1-03`（候选）BlockActivity 后台启动被 HyperOS 拒绝 → **RESOLVED**（R3 ×3，修复 `3600d97`）
 - `FB-P2-01` 系统返回键不拦截未保存修改 → **RESOLVED**（R4，修复 `99fdcc2`）
 
-`FB-P2-03` 已在体验分支修复并通过针对性 JVM + API 36 AVD 验证，仍未合并；详见本节顶部与 [KNOWN_ISSUES.md](KNOWN_ISSUES.md)。合并后按缺陷台账规则更新状态。
+`FB-P2-03` 已在体验分支修复并通过针对性 JVM + API 36 AVD 验证，本轮工程集成包含该修复；合入主线与缺陷关闭记录分别见 PR #42 和 [KNOWN_ISSUES.md](KNOWN_ISSUES.md)。不把分支上的 AVD 结果升级为真机/OEM 验收。
 
 完整历史（原现象、root cause、fix SHA、自动化回归覆盖、设备证据）保留在 `KNOWN_ISSUES.md` 的 Resolved 区。
 

@@ -2,10 +2,12 @@
 
 > 定义自动化测试层级、CI 范围、真机测试矩阵与证据标准。易变的数字只出现在下方「验证快照」；历史验证记录在 `docs/archive/progress/`（含 `VERIFICATION.md` 的 Beta 1.1 记录）。
 
-## 本轮集成候选验证快照（2026-10-20）
+## 本轮集成验证来源（2026-10-23 核对，历史计数与产物不转移）
 
-- 分支：`integration/experience-quality-20261019`；功能代码基线 `64d2e42d675b0f6ef757e1084d68d285c1ac4daa`；当前候选 HEAD `f7abbad7e900b32db5291cf26754cbd492721948`；`origin/master=695b11f0fe68e4260864c638fda51b949c3a04f8` 已重新核对。
-- Draft PR #42 的 hosted verify [Run `39301143402`](https://github.com/guo6x/flowbreak/actions/runs/39301143402) 对精确 HEAD **PASS**；目标状态仍为 **`INTEGRATION_ENGINEERING_READY / DEVICE_ACCEPTANCE_PENDING`**。模拟器、JVM、静态检查和 unsigned 产物都不能关闭真实设备 Gate F。
+- 集成来源：`integration/experience-quality-20261019`；功能修复源 `f7abbad7e900b32db5291cf26754cbd492721948`（更早功能基线 `64d2e42d675b0f6ef757e1084d68d285c1ac4daa`）；合并审查起点为 `origin/master=695b11f0fe68e4260864c638fda51b949c3a04f8`。
+- 本次审查修补前最后已验证 HEAD 为 `afe404fe094bb3968f8ef16a372cb09131b8a3f7`，仅文档有变化；hosted verify [Run `39303124166`](https://github.com/guo6x/flowbreak/actions/runs/39303124166) **PASS**，release 按策略 **SKIPPED**。它才是当时的 PR HEAD，不能继续把 `f7abbad7…` 称为当前 HEAD。
+- 下表测试与二进制哈希保留为历史功能修复源 `f7abbad7…` / [Run `39301143402`](https://github.com/guo6x/flowbreak/actions/runs/39301143402) 的固定快照。2026-10-23 的审查/REST 恢复逻辑跟进不能复用旧 Run 冒充新验证；新 HEAD 和精确 CI、合并状态以 [PR #42 checks](https://github.com/guo6x/flowbreak/pull/42/checks) 及 [master Actions](https://github.com/guo6x/flowbreak/actions/workflows/android.yml?query=branch%3Amaster) 为准。
+- 目标状态仍为 **`INTEGRATION_ENGINEERING_READY / DEVICE_ACCEPTANCE_PENDING`**。常规工程合并不代表正式发布；模拟器、JVM、静态检查和 unsigned 产物都不能关闭真实设备 Gate F。
 
 | 检查 | 结果与边界 |
 | ---- | ---- |
