@@ -306,6 +306,21 @@ public class FlowForegroundServiceRuntimeTrackingTest {
         ));
     }
 
+    @Test public void failedRestCheatCancellationStaysFailClosedWhileResting() {
+        assertTrue(FlowForegroundService.shouldRetainRestCheatCancellationFailure(
+                "REST_CHEAT_CANCELLATION_PERSIST_FAILED",
+                BlockStateMachine.State.RESTING
+        ));
+        assertFalse(FlowForegroundService.shouldRetainRestCheatCancellationFailure(
+                "REST_CHEAT_CANCELLATION_PERSIST_FAILED",
+                BlockStateMachine.State.BLOCKED
+        ));
+        assertFalse(FlowForegroundService.shouldRetainRestCheatCancellationFailure(
+                "LIVE_USAGE_QUERY_FAILED",
+                BlockStateMachine.State.RESTING
+        ));
+    }
+
     @Test public void unavailableRuntimeTickPreservesAnActiveRestSession() {
         assertFalse(FlowForegroundService.shouldResetMonitoringLifecycleForUnavailableTick(
                 BlockStateMachine.State.RESTING
