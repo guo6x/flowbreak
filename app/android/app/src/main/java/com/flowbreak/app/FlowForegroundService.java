@@ -1093,7 +1093,7 @@ public class FlowForegroundService extends Service {
                             preferences,
                             token,
                             pendingRestBeginRequestToken,
-                            nowWallMs,
+                            nowElapsedMs,
                             validPersistedRestSession,
                             "SERVICE_RESTARTED_BEFORE_REST_START"
                     );
@@ -4817,15 +4817,16 @@ public class FlowForegroundService extends Service {
         if (token == null || token.isEmpty() || stateStore == null) return;
         SharedPreferences preferences = stateStore.preferences();
         long nowWallMs = System.currentTimeMillis();
+        long nowElapsedMs = SystemClock.elapsedRealtime();
         boolean validPersistedRestSession = isPersistedRestSessionValid(
-                preferences, nowWallMs, SystemClock.elapsedRealtime()
+                preferences, nowWallMs, nowElapsedMs
         );
         RestBeginRequestTokenStore.PendingRecoveryResult result =
                 RestBeginRequestTokenStore.reconcilePendingRequest(
                         preferences,
                         token,
                         "",
-                        nowWallMs + RestBeginRequestTokenStore.PENDING_RECOVERY_TIMEOUT_MS,
+                        nowElapsedMs + RestBeginRequestTokenStore.PENDING_RECOVERY_TIMEOUT_MS,
                         validPersistedRestSession,
                         "SERVICE_STOPPED_BEFORE_REST_START"
                 );

@@ -1,11 +1,13 @@
 package com.flowbreak.app;
 
 import android.content.SharedPreferences;
+import android.os.SystemClock;
 
 /** Serializes the latest BEGIN token with monitor-owned REST session writes. */
 final class RestBeginRequestTokenStore {
     static final Object LOCK = new Object();
     static final String PREF_REQUESTED_AT = "restBeginRequestRequestedAt";
+    static final String PREF_REQUESTED_ELAPSED_AT = "restBeginRequestRequestedElapsedAt";
     static final String PREF_STATUS = "restBeginRequestStatus";
     static final String PREF_STATUS_TOKEN = "restBeginRequestStatusToken";
     static final String PREF_ERROR_CODE = "restBeginRequestErrorCode";
@@ -25,13 +27,24 @@ final class RestBeginRequestTokenStore {
     private RestBeginRequestTokenStore() { }
 
     static boolean persistLatestRequest(SharedPreferences preferences, String token) {
-        return persistLatestRequest(preferences, token, System.currentTimeMillis());
+        return persistLatestRequest(
+                preferences, token, System.currentTimeMillis(), SystemClock.elapsedRealtime()
+        );
     }
 
     static boolean persistLatestRequest(
             SharedPreferences preferences,
             String token,
             long requestedAt
+    ) {
+        return persistLatestRequest(preferences, token, requestedAt, requestedAt);
+    }
+
+    static boolean persistLatestRequest(
+            SharedPreferences preferences,
+            String token,
+            long requestedAt,
+            long requestedElapsedAt
     ) {
         if (preferences == null || token == null || token.isEmpty()) return false;
         synchronized (LOCK) {
@@ -40,6 +53,7 @@ final class RestBeginRequestTokenStore {
                     .putString(PREF_STATUS_TOKEN, token)
                     .putString(PREF_STATUS, STATUS_PENDING)
                     .putLong(PREF_REQUESTED_AT, Math.max(0L, requestedAt))
+                    .putLong(PREF_REQUESTED_ELAPSED_AT, Math.max(0L, requestedElapsedAt))
                     .remove(PREF_ERROR_CODE)
                     .commit();
         }
@@ -58,13 +72,16 @@ final class RestBeginRequestTokenStore {
      * Resolve a PENDING request only after its owning service command has had
      * time to run. A live in-memory owner is never failed by startup recovery;
      * after the recovery window, a valid persisted REST session is accepted
-     * and an orphaned request is rejected with an explicit reason.
+     * and an orphaned request is rejected with an explicit reason. Recovery
+     * uses elapsed realtime so wall-clock changes cannot extend the wait. If
+     * elapsed realtime moved backwards across a reboot, the persisted age is
+     * invalid, so the orphan is rejected instead of remaining PENDING.
      */
     static PendingRecoveryResult reconcilePendingRequest(
             SharedPreferences preferences,
             String token,
             String inFlightToken,
-            long now,
+            long nowElapsed,
             boolean validPersistedRestSession,
             String rejectionCode
     ) {
@@ -78,10 +95,10 @@ final class RestBeginRequestTokenStore {
                 return PendingRecoveryResult.NOT_PENDING;
             }
             if (token.equals(inFlightToken)) return PendingRecoveryResult.DEFERRED;
-            long requestedAt = preferences.getLong(PREF_REQUESTED_AT, 0L);
-            if (requestedAt > 0L
-                    && (now < requestedAt
-                            || now - requestedAt < PENDING_RECOVERY_TIMEOUT_MS)) {
+            long requestedElapsedAt = preferences.getLong(PREF_REQUESTED_ELAPSED_AT, 0L);
+            if (requestedElapsedAt > 0L
+                    && nowElapsed >= requestedElapsedAt
+                    && nowElapsed - requestedElapsedAt < PENDING_RECOVERY_TIMEOUT_MS) {
                 return PendingRecoveryResult.DEFERRED;
             }
             String status = validPersistedRestSession ? STATUS_ACCEPTED : STATUS_REJECTED;
@@ -122,12 +139,23 @@ final class RestBeginRequestTokenStore {
     ) {
         if (preferences == null || token == null || token.isEmpty()) return false;
         synchronized (LOCK) {
-            if (!isCurrentRequest(preferences, token)) return false;
+            if (!isCurrentRequestUnlocked(preferences, token)
+                    || !token.equals(preferences.getString(PREF_STATUS_TOKEN, ""))) {
+                return false;
+            }
+            String existingStatus = preferences.getString(PREF_STATUS, "");
+            String normalizedErrorCode = errorCode == null ? "" : errorCode;
+            if (!STATUS_PENDING.equals(existingStatus)) {
+                return status.equals(existingStatus)
+                        && normalizedErrorCode.equals(
+                                preferences.getString(PREF_ERROR_CODE, "")
+                        );
+            }
             SharedPreferences.Editor editor = preferences.edit()
                     .putString(PREF_STATUS_TOKEN, token)
                     .putString(PREF_STATUS, status);
-            if (errorCode == null || errorCode.isEmpty()) editor.remove(PREF_ERROR_CODE);
-            else editor.putString(PREF_ERROR_CODE, errorCode);
+            if (normalizedErrorCode.isEmpty()) editor.remove(PREF_ERROR_CODE);
+            else editor.putString(PREF_ERROR_CODE, normalizedErrorCode);
             return editor.commit();
         }
     }

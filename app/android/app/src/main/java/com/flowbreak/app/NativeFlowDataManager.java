@@ -126,7 +126,8 @@ public final class NativeFlowDataManager {
 
     /**
      * Whitelist fields suitable for sharing. Detailed runtime tracking remains
-     * available in the on-device diagnostics screen but is not included in
+     * available to the in-app diagnostics bridge; the current screen shows
+     * only selected health summaries. Detailed tracking is not included in
      * user-shared reports because its timings can reveal usage patterns.
      */
     static JSObject shareableDiagnostics(JSObject source) {

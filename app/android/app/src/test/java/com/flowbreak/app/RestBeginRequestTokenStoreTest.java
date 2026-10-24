@@ -143,6 +143,87 @@ public class RestBeginRequestTokenStoreTest {
     }
 
     @Test
+    public void clockRollbackDoesNotKeepOrphanedRequestPendingIndefinitely() {
+        long requestedAt = 90_000L;
+        long requestedElapsedAt = 40_000L;
+        assertTrue(RestBeginRequestTokenStore.persistLatestRequest(
+                preferences, "begin-clock-rollback", requestedAt, requestedElapsedAt
+        ));
+
+        assertEquals(RestBeginRequestTokenStore.PendingRecoveryResult.DEFERRED,
+                RestBeginRequestTokenStore.reconcilePendingRequest(
+                        preferences, "begin-clock-rollback", "", requestedElapsedAt + 1,
+                        false, "CLOCK_CHANGED_BEFORE_REST_START"
+                ));
+        assertEquals(RestBeginRequestTokenStore.PendingRecoveryResult.REJECTED,
+                RestBeginRequestTokenStore.reconcilePendingRequest(
+                        preferences, "begin-clock-rollback", "",
+                        requestedElapsedAt + RestBeginRequestTokenStore.PENDING_RECOVERY_TIMEOUT_MS,
+                        false, "CLOCK_CHANGED_BEFORE_REST_START"
+                ));
+        assertEquals(RestBeginRequestTokenStore.STATUS_REJECTED, preferences.getString(
+                RestBeginRequestTokenStore.PREF_STATUS, ""
+        ));
+        assertEquals("CLOCK_CHANGED_BEFORE_REST_START", preferences.getString(
+                RestBeginRequestTokenStore.PREF_ERROR_CODE, ""
+        ));
+    }
+
+    @Test
+    public void elapsedRealtimeResetAfterRebootDoesNotKeepOrphanPending() {
+        long requestedAt = 90_000L;
+        long requestedElapsedAt = 40_000L;
+        assertTrue(RestBeginRequestTokenStore.persistLatestRequest(
+                preferences, "begin-after-reboot", requestedAt, requestedElapsedAt
+        ));
+
+        assertEquals(RestBeginRequestTokenStore.PendingRecoveryResult.REJECTED,
+                RestBeginRequestTokenStore.reconcilePendingRequest(
+                        preferences, "begin-after-reboot", "", 1_000L,
+                        false, "SERVICE_RESTARTED_BEFORE_REST_START"
+                ));
+        assertEquals(RestBeginRequestTokenStore.STATUS_REJECTED, preferences.getString(
+                RestBeginRequestTokenStore.PREF_STATUS, ""
+        ));
+    }
+
+    @Test
+    public void terminalReceiptCannotBeRewrittenByLateSameTokenStatus() {
+        assertTrue(RestBeginRequestTokenStore.persistLatestRequest(preferences, "begin-terminal"));
+        assertTrue(RestBeginRequestTokenStore.recordRejectedIfCurrent(
+                preferences, "begin-terminal", "SERVICE_COMMAND_NOT_QUEUED"
+        ));
+
+        assertFalse(RestBeginRequestTokenStore.recordAcceptedIfCurrent(
+                preferences, "begin-terminal"
+        ));
+        assertFalse(RestBeginRequestTokenStore.recordRejectedIfCurrent(
+                preferences, "begin-terminal", "LATE_SERVICE_START_FAILURE"
+        ));
+        assertTrue(RestBeginRequestTokenStore.recordRejectedIfCurrent(
+                preferences, "begin-terminal", "SERVICE_COMMAND_NOT_QUEUED"
+        ));
+        assertEquals(RestBeginRequestTokenStore.STATUS_REJECTED, preferences.getString(
+                RestBeginRequestTokenStore.PREF_STATUS, ""
+        ));
+        assertEquals("SERVICE_COMMAND_NOT_QUEUED", preferences.getString(
+                RestBeginRequestTokenStore.PREF_ERROR_CODE, ""
+        ));
+
+        assertTrue(RestBeginRequestTokenStore.persistLatestRequest(preferences, "begin-accepted"));
+        assertTrue(RestBeginRequestTokenStore.recordAcceptedIfCurrent(
+                preferences, "begin-accepted"
+        ));
+        assertFalse(RestBeginRequestTokenStore.recordRejectedIfCurrent(
+                preferences, "begin-accepted", "LATE_FAILURE"
+        ));
+        assertEquals(RestBeginRequestTokenStore.STATUS_ACCEPTED, preferences.getString(
+                RestBeginRequestTokenStore.PREF_STATUS, ""
+        ));
+        assertEquals("", preferences.getString(RestBeginRequestTokenStore.PREF_ERROR_CODE, ""));
+    }
+
+    @Test
     public void recoveryCannotOverwriteANewerRequestReceipt() {
         long requestedAt = 30_000L;
         assertTrue(RestBeginRequestTokenStore.persistLatestRequest(
