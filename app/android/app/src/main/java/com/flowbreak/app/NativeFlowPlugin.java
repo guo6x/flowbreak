@@ -253,6 +253,7 @@ public class NativeFlowPlugin extends Plugin {
     }
 
     @PluginMethod public void beginRest(PluginCall call) {
+        String beginRequestToken = null;
         try {
             String persistedState = prefs().getString(
                     "blockState",
@@ -262,7 +263,7 @@ public class NativeFlowPlugin extends Plugin {
                 call.reject("PROTECTION_RUNTIME_UNHEALTHY");
                 return;
             }
-            String beginRequestToken = UUID.randomUUID().toString();
+            beginRequestToken = UUID.randomUUID().toString();
             boolean persisted = RestBeginRequestTokenStore.persistLatestRequest(
                     prefs(),
                     beginRequestToken
@@ -280,6 +281,15 @@ public class NativeFlowPlugin extends Plugin {
             result.put("beginRequestToken", beginRequestToken);
             call.resolve(result);
         } catch (Exception error) {
+            if (beginRequestToken != null) {
+                try {
+                    RestBeginRequestTokenStore.recordRejectedIfCurrent(
+                            prefs(), beginRequestToken, "SERVICE_COMMAND_FAILED"
+                    );
+                } catch (Exception statusError) {
+                    Log.w("NativeFlowPlugin", "Could not persist REST begin rejection", statusError);
+                }
+            }
             call.reject("休息模式启动失败", error);
         }
     }

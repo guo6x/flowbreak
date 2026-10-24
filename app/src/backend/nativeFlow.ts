@@ -159,6 +159,10 @@ export interface NativeFlowPlugin {
     restClockValid?: boolean;
     restRemainingMs?: number;
     restRemainingSeconds?: number;
+    restBeginRequestToken?: string;
+    restBeginRequestStatusToken?: string;
+    restBeginRequestStatus?: 'PENDING' | 'ACCEPTED' | 'REJECTED' | '';
+    restBeginRequestErrorCode?: string;
   }>;
   completeRestAndUnlock(options: {
     activity: 'eye' | 'stretch' | 'breathe';

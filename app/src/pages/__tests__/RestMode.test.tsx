@@ -119,6 +119,107 @@ describe('RestMode native state reconciliation', () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
+  it('shows the native rejection reason instead of waiting forever', async () => {
+    vi.mocked(NativeFlow.getBlockState).mockResolvedValue({
+      ...cancelled,
+      state: 'BLOCKED',
+      blockedPackage: 'tv.danmaku.bili',
+      restBeginRequestToken: 'begin-request-101',
+      restBeginRequestStatusToken: 'begin-request-101',
+      restBeginRequestStatus: 'REJECTED',
+      restBeginRequestErrorCode: 'PROTECTION_RUNTIME_UNHEALTHY',
+    });
+    await mountRest();
+
+    expect(screen.getByText('保护服务状态已变化，休息没有启动。请返回面板检查后重试。'))
+      .toBeInTheDocument();
+    expect(NativeFlow.getBlockState).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'request early exit' }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'confirm early exit' }));
+      await Promise.resolve();
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/dashboard');
+    expect(NativeFlow.cancelRest).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      'service dispatch failure',
+      'SERVICE_COMMAND_FAILED',
+      '原生服务未接受休息请求，本次休息没有启动。请返回面板检查或重试。',
+    ],
+    [
+      'request persistence failure',
+      'PREF_COMMIT_FAILED',
+      '原生服务未接受休息请求，本次休息没有启动。请返回面板检查或重试。',
+    ],
+    [
+      'protection runtime rejection',
+      'PROTECTION_RUNTIME_UNHEALTHY',
+      '保护服务状态已变化，休息没有启动。请返回面板检查后重试。',
+    ],
+  ])('allows returning to the dashboard after an immediate %s', async (_label, reason, expectedMessage) => {
+    vi.mocked(NativeFlow.beginRest).mockRejectedValue(new Error(reason));
+    await mountRest();
+
+    expect(screen.getByText(expectedMessage)).toBeInTheDocument();
+    expect(NativeFlow.getBlockState).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'request early exit' }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'confirm early exit' }));
+      await Promise.resolve();
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/dashboard');
+    expect(NativeFlow.cancelRest).not.toHaveBeenCalled();
+  });
+
+  it('keeps waiting for authoritative RESTING after a matching ACCEPTED receipt', async () => {
+    vi.mocked(NativeFlow.getBlockState)
+      .mockResolvedValueOnce({
+        ...cancelled,
+        state: 'BLOCKED',
+        restBeginRequestToken: 'begin-request-101',
+        restBeginRequestStatusToken: 'begin-request-101',
+        restBeginRequestStatus: 'ACCEPTED',
+      })
+      .mockResolvedValue({
+        ...resting,
+        restBeginRequestToken: 'begin-request-101',
+        restBeginRequestStatusToken: 'begin-request-101',
+        restBeginRequestStatus: 'ACCEPTED',
+      });
+    await mountRest();
+
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(screen.queryByText(/休息模式启动失败|保护服务状态已变化/)).toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+
+    expect(NativeFlow.getBlockState).toHaveBeenCalledTimes(2);
+    expect(screen.getByLabelText('remaining seconds')).toHaveTextContent('180');
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('does not trust a rejection receipt for a superseded begin token', async () => {
+    vi.mocked(NativeFlow.getBlockState).mockResolvedValue({
+      ...cancelled,
+      restBeginRequestToken: 'begin-request-new',
+      restBeginRequestStatusToken: 'begin-request-old',
+      restBeginRequestStatus: 'REJECTED',
+      restBeginRequestErrorCode: 'PROTECTION_RUNTIME_UNHEALTHY',
+    });
+    await mountRest();
+
+    expect(screen.getByText('当前休息请求已被新的页面请求接管，请返回面板确认最新状态。'))
+      .toBeInTheDocument();
+    expect(NativeFlow.cancelRest).not.toHaveBeenCalled();
+  });
+
   it('does not accept RESTING without a committed start time', async () => {
     vi.mocked(NativeFlow.getBlockState)
       .mockResolvedValueOnce({ ...resting, restStartedAt: 0 })
@@ -256,6 +357,39 @@ describe('RestMode native state reconciliation', () => {
     expect(NativeFlow.completeRestAndUnlock).not.toHaveBeenCalled();
     expect(mockNavigate).not.toHaveBeenCalled();
   });
+
+  it.each(['IDLE', 'BLOCKED'] as const)(
+    'stops waiting when a matching ACCEPTED receipt is followed by stable %s state',
+    async (state) => {
+      const endedState = {
+        ...cancelled,
+        state,
+        restBeginRequestToken: '',
+        restBeginRequestStatusToken: 'begin-request-101',
+        restBeginRequestStatus: 'ACCEPTED' as const,
+      };
+      vi.mocked(NativeFlow.getBlockState)
+        .mockResolvedValueOnce(endedState)
+        .mockResolvedValue(endedState);
+      await mountRest();
+
+      expect(NativeFlow.getBlockState).toHaveBeenCalledTimes(2);
+      expect(useStore.getState().blockState).toBe(state);
+      expect(screen.getByText(
+        '原生服务已接受休息请求，但当前休息状态随后结束或发生变化。请返回面板确认保护状态。',
+      )).toBeInTheDocument();
+      expect(mockNavigate).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByRole('button', { name: 'request early exit' }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'confirm early exit' }));
+        await Promise.resolve();
+      });
+      expect(mockNavigate).toHaveBeenCalledWith('/dashboard');
+      cleanup();
+      expect(NativeFlow.cancelRest).not.toHaveBeenCalled();
+    },
+  );
 
   it('does not resume or settle a different native REST session after clock recovery', async () => {
     const invalidRest = { ...resting, restClockValid: false, restRemainingMs: 0 };

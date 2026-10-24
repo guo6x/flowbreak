@@ -337,6 +337,12 @@ public class FlowForegroundService extends Service {
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent == null ? ACTION_START : intent.getAction();
+        long expectedRestSessionId = intent == null
+                ? 0L
+                : intent.getLongExtra(EXTRA_EXPECTED_REST_SESSION_ID, 0L);
+        String beginRequestToken = intent == null
+                ? ""
+                : intent.getStringExtra(EXTRA_REST_BEGIN_REQUEST_TOKEN);
         runtimeTracking.recordServiceStartCommand(
                 livenessServiceGeneration,
                 toSafeStartAction(action),
@@ -351,28 +357,81 @@ public class FlowForegroundService extends Service {
         if (NativeFlowPermissionManager.requiresUnsupportedOemFailClosed(Build.MANUFACTURER)) {
             Log.w("FlowForegroundService",
                     NativeFlowPermissionManager.UNSUPPORTED_DEVICE_FOR_RELIABLE_MONITORING);
+            if (ACTION_BEGIN_REST.equals(action)) {
+                RestBeginRequestTokenStore.recordRejectedIfCurrent(
+                        getSharedPreferences(FlowServiceStateStore.PREFS, MODE_PRIVATE),
+                        beginRequestToken,
+                        "UNSUPPORTED_DEVICE"
+                );
+            }
             rejectUnsupportedRuntime(startId);
             return START_NOT_STICKY;
         }
 
         // Foreground promotion stays on the Service/main entry path. The
         // engine command and the monitor loop are serialized on the worker.
-        promoteToForeground();
-        long expectedRestSessionId = intent == null
-                ? 0L
-                : intent.getLongExtra(EXTRA_EXPECTED_REST_SESSION_ID, 0L);
-        String beginRequestToken = intent == null
-                ? ""
-                : intent.getStringExtra(EXTRA_REST_BEGIN_REQUEST_TOKEN);
+        try {
+            promoteToForeground();
+        } catch (RuntimeException error) {
+            Log.e("FlowForegroundService", "Unable to promote service before engine command", error);
+            if (ACTION_BEGIN_REST.equals(action)) {
+                recordBeginRequestFailure(beginRequestToken, "SERVICE_START_FAILED");
+                clearPendingBeginRequestTokenIfMatches(beginRequestToken);
+            }
+            stopForeground(STOP_FOREGROUND_REMOVE);
+            stopSelfResult(startId);
+            return START_NOT_STICKY;
+        }
         if (ACTION_BEGIN_REST.equals(action) && beginRequestToken != null) {
             pendingRestBeginRequestToken = beginRequestToken;
         }
-        postMonitorCommand(() -> handleEngineCommand(
-                action,
-                expectedRestSessionId,
-                beginRequestToken
-        ));
+        boolean commandQueued = postMonitorCommand(() -> {
+            try {
+                handleEngineCommand(action, expectedRestSessionId, beginRequestToken);
+            } catch (RuntimeException error) {
+                if (!ACTION_BEGIN_REST.equals(action)) throw error;
+                Log.e("FlowForegroundService", "BEGIN_REST engine command failed", error);
+                recordBeginRequestFailure(beginRequestToken, "SERVICE_COMMAND_FAILED");
+                clearPendingBeginRequestTokenIfMatches(beginRequestToken);
+                if (notificationController != null) {
+                    notificationController.updateServiceNotification(snapshot());
+                }
+                startMonitorLoop(MonitorLivenessDiagnostics.LOOP_REASON_ENGINE_COMMAND_START);
+            }
+        });
+        if (ACTION_BEGIN_REST.equals(action) && !commandQueued) {
+            recordBeginRequestFailure(beginRequestToken, "SERVICE_COMMAND_NOT_QUEUED");
+            clearPendingBeginRequestTokenIfMatches(beginRequestToken);
+            stopForeground(STOP_FOREGROUND_REMOVE);
+            stopSelfResult(startId);
+            return START_NOT_STICKY;
+        }
         return START_STICKY;
+    }
+
+    private void recordBeginRequestFailure(String beginRequestToken, String errorCode) {
+        SharedPreferences preferences = stateStore == null
+                ? getSharedPreferences(FlowServiceStateStore.PREFS, MODE_PRIVATE)
+                : stateStore.preferences();
+        boolean validActiveRest = stateStore != null
+                && BlockStateMachine.State.RESTING.name().equals(
+                        preferences.getString(
+                                "blockState",
+                                BlockStateMachine.State.IDLE.name()
+                        )
+                )
+                && preferences.getLong(PREF_REST_STARTED_AT, 0L) > 0L
+                && preferences.getLong(PREF_REST_REQUIRED_MS, 0L) > 0L
+                && isPersistedRestClockValid(
+                        System.currentTimeMillis(), SystemClock.elapsedRealtime()
+                );
+        if (validActiveRest) {
+            RestBeginRequestTokenStore.recordAcceptedIfCurrent(preferences, beginRequestToken);
+        } else {
+            RestBeginRequestTokenStore.recordRejectedIfCurrent(
+                    preferences, beginRequestToken, errorCode
+            );
+        }
     }
 
     /** Stop a runtime start attempt without deleting the user's configuration. */
@@ -391,7 +450,12 @@ public class FlowForegroundService extends Service {
             String beginRequestToken
     ) {
         if (ACTION_BEGIN_REST.equals(action)) {
-            if (stateStore == null || !RestBeginRequestTokenStore.isCurrentRequest(
+            if (stateStore == null) {
+                recordBeginRequestFailure(beginRequestToken, "SERVICE_STATE_UNAVAILABLE");
+                clearPendingBeginRequestTokenIfMatches(beginRequestToken);
+                return;
+            }
+            if (!RestBeginRequestTokenStore.isCurrentRequest(
                     stateStore.preferences(), beginRequestToken
             )) {
                 Log.i("FlowForegroundService", "Ignoring stale BEGIN_REST command");
@@ -410,6 +474,11 @@ public class FlowForegroundService extends Service {
                 if (!cancelInvalidRestOnMonitor(staleSessionId)) {
                     Log.w("FlowForegroundService",
                             "Unable to reset invalid REST clock before new begin");
+                    RestBeginRequestTokenStore.recordRejectedIfCurrent(
+                            stateStore.preferences(),
+                            beginRequestToken,
+                            "REST_CLOCK_RECOVERY_FAILED"
+                    );
                     clearPendingBeginRequestTokenIfMatches(beginRequestToken);
                     return;
                 }
@@ -422,10 +491,26 @@ public class FlowForegroundService extends Service {
                 Log.w("FlowForegroundService",
                         "BEGIN_REST rejected: current protection runtime is unhealthy");
                 postOverlayAction(() -> overlayController.dismissAll());
+                RestBeginRequestTokenStore.recordRejectedIfCurrent(
+                        stateStore.preferences(),
+                        beginRequestToken,
+                        "PROTECTION_RUNTIME_UNHEALTHY"
+                );
                 clearPendingBeginRequestTokenIfMatches(beginRequestToken);
             } else {
-                beginRestSession(beginRequestToken);
-                postOverlayAction(() -> overlayController.dismissBlocker());
+                boolean started = beginRestSession(beginRequestToken);
+                if (started) {
+                    RestBeginRequestTokenStore.recordAcceptedIfCurrent(
+                            stateStore.preferences(), beginRequestToken
+                    );
+                    postOverlayAction(() -> overlayController.dismissBlocker());
+                } else {
+                    RestBeginRequestTokenStore.recordRejectedIfCurrent(
+                            stateStore.preferences(),
+                            beginRequestToken,
+                            "REST_SESSION_PERSISTENCE_FAILED"
+                    );
+                }
                 clearPendingBeginRequestTokenIfMatches(beginRequestToken);
             }
         } else if (ACTION_COMPLETE_REST.equals(action)) {
@@ -970,7 +1055,8 @@ public class FlowForegroundService extends Service {
         return targets.contains(blockedPackage) ? blockedPackage : "";
     }
 
-    private void beginRestSession(String beginRequestToken) {
+    private boolean beginRestSession(String beginRequestToken) {
+        if (stateStore == null || machine == null) return false;
         long existingStartedAt = stateStore.preferences().getLong(PREF_REST_STARTED_AT, 0L);
         boolean alreadyResting = machine.getState() == BlockStateMachine.State.RESTING;
         long nowElapsed = SystemClock.elapsedRealtime();
@@ -979,7 +1065,7 @@ public class FlowForegroundService extends Service {
         long nextSessionId = nextRestSessionId(now);
         if (nextSessionId <= 0L) {
             Log.w("FlowForegroundService", "Unable to allocate a unique REST session id");
-            return;
+            return false;
         }
         RestSessionManager.BeginRestDecision decision = RestSessionManager.prepareBeginRest(
                 alreadyResting,
@@ -994,10 +1080,10 @@ public class FlowForegroundService extends Service {
             // granting a fresh timer, so its page can cancel the real session.
             if (!stateStore.bindActiveRestBeginRequestToken(beginRequestToken)) {
                 Log.i("FlowForegroundService", "Ignoring stale duplicate BEGIN_REST request");
-                return;
+                return false;
             }
             persistState(true);
-            return;
+            return true;
         }
         String startForegroundPackage = staticForegroundPackage == null
                 ? ""
@@ -1029,7 +1115,7 @@ public class FlowForegroundService extends Service {
         );
         if (!persisted) {
             Log.i("FlowForegroundService", "Ignoring stale BEGIN_REST session commit");
-            return;
+            return false;
         }
         if (restCheatTracker != null) restCheatTracker.reset();
         machine.beginRest();
@@ -1057,6 +1143,7 @@ public class FlowForegroundService extends Service {
                 startForegroundPackage
         );
         persistState(true);
+        return true;
     }
 
     /**
@@ -2419,10 +2506,10 @@ public class FlowForegroundService extends Service {
     }
 
     /** All service commands and lifecycle transitions enter the engine owner. */
-    private void postMonitorCommand(Runnable command) {
+    private boolean postMonitorCommand(Runnable command) {
         Handler worker = monitorHandler;
-        if (worker == null || monitorShutdownRequested) return;
-        worker.post(() -> {
+        if (worker == null || monitorShutdownRequested) return false;
+        return worker.post(() -> {
             if (!monitorShutdownRequested) command.run();
         });
     }

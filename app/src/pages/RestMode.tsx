@@ -72,6 +72,7 @@ export default function RestMode() {
   // component or leak pending callbacks.
   const fanfareTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const cancelledRestRef = useRef(false);
+  const beginRequestRejectedRef = useRef(false);
   const beginRequestTokenRef = useRef<string | null>(null);
   const restSessionIdRef = useRef<number | null>(null);
 
@@ -119,8 +120,80 @@ export default function RestMode() {
         // execution gap. Keep waiting for authoritative RESTING while this
         // page is open, backing off to avoid tight polling.
         while (active) {
-          const state = await NativeFlow.getBlockState();
+          let state = await NativeFlow.getBlockState();
           if (!active) return;
+          if (state.restBeginRequestToken
+              && state.restBeginRequestToken !== beginRequestToken) {
+            beginRequestRejectedRef.current = true;
+            cancelledRestRef.current = true;
+            setBlockState(state.state, state.graceUntil, state.blockedPackage);
+            setRestReady(false);
+            setOperationError('当前休息请求已被新的页面请求接管，请返回面板确认最新状态。');
+            return;
+          }
+          if (state.restBeginRequestStatusToken === beginRequestToken
+              && state.restBeginRequestStatus === 'REJECTED') {
+            beginRequestRejectedRef.current = true;
+            cancelledRestRef.current = true;
+            setBlockState(state.state, state.graceUntil, state.blockedPackage);
+            setRestReady(false);
+            const rejectionMessage = state.restBeginRequestErrorCode === 'UNSUPPORTED_DEVICE'
+              ? '当前设备不在保护支持范围内，休息模式没有启动。'
+              : state.restBeginRequestErrorCode === 'PROTECTION_RUNTIME_UNHEALTHY'
+                ? '保护服务状态已变化，休息没有启动。请返回面板检查后重试。'
+                : '原生服务未能开始休息，本次状态未改变。请返回面板重试。';
+            setOperationError(rejectionMessage);
+            return;
+          }
+          if (state.restBeginRequestStatusToken === beginRequestToken
+              && state.restBeginRequestStatus === 'ACCEPTED'
+              && state.state !== 'RESTING') {
+            // The status receipt and block state are read from separate
+            // SharedPreferences keys, so a single snapshot may straddle the
+            // session commit. Confirm a second complete snapshot before
+            // treating ACCEPTED + non-RESTING as a terminal transition.
+            const confirmedState = await NativeFlow.getBlockState();
+            if (!active) return;
+            if (confirmedState.restBeginRequestToken
+                && confirmedState.restBeginRequestToken !== beginRequestToken) {
+              beginRequestRejectedRef.current = true;
+              cancelledRestRef.current = true;
+              setBlockState(
+                confirmedState.state,
+                confirmedState.graceUntil,
+                confirmedState.blockedPackage,
+              );
+              setRestReady(false);
+              setOperationError('当前休息请求已被新的页面请求接管，请返回面板确认最新状态。');
+              return;
+            }
+            if (confirmedState.restBeginRequestStatusToken === beginRequestToken
+                && confirmedState.restBeginRequestStatus === 'REJECTED') {
+              beginRequestRejectedRef.current = true;
+              cancelledRestRef.current = true;
+              setBlockState(
+                confirmedState.state,
+                confirmedState.graceUntil,
+                confirmedState.blockedPackage,
+              );
+              setRestReady(false);
+              setOperationError('原生服务未能开始休息，本次状态未改变。请返回面板重试。');
+              return;
+            }
+            state = confirmedState;
+            if (state.state !== 'RESTING'
+                && state.restBeginRequestStatusToken === beginRequestToken
+                && state.restBeginRequestStatus === 'ACCEPTED') {
+              beginRequestRejectedRef.current = true;
+              cancelledRestRef.current = true;
+              setBlockState(state.state, state.graceUntil, state.blockedPackage);
+              setRestReady(false);
+              setOperationError(
+                '原生服务已接受休息请求，但当前休息状态随后结束或发生变化。请返回面板确认保护状态。',
+              );
+              return;
+            }
+          }
           if (state.state === 'RESTING'
               && (state.restClockValid !== true
                   || typeof state.restRemainingMs !== 'number'
@@ -175,8 +248,20 @@ export default function RestMode() {
           attempt++;
           await new Promise<void>(resolve => window.setTimeout(resolve, intervalMs));
         }
-      } catch {
-        if (active) setOperationError('休息模式启动失败，请返回后重试。');
+      } catch (error) {
+        if (!active) return;
+        const requestRejectedBeforeToken = beginRequestToken === null;
+        if (requestRejectedBeforeToken) {
+          beginRequestRejectedRef.current = true;
+          cancelledRestRef.current = true;
+        }
+        if (error instanceof Error && error.message.includes('PROTECTION_RUNTIME_UNHEALTHY')) {
+          setOperationError('保护服务状态已变化，休息没有启动。请返回面板检查后重试。');
+        } else if (requestRejectedBeforeToken) {
+          setOperationError('原生服务未接受休息请求，本次休息没有启动。请返回面板检查或重试。');
+        } else {
+          setOperationError('休息请求已发送，但暂时无法读取原生状态。请返回面板确认；退出时会尝试安全取消。');
+        }
       }
     };
     void restoreOrStartRest();
@@ -432,12 +517,14 @@ export default function RestMode() {
     setClosing(true);
     try {
       if (isNative) {
-        const beginRequestToken = beginRequestTokenRef.current;
-        if (!beginRequestToken) {
-          throw new Error('休息请求尚未确认，请稍后重试。');
+        if (!beginRequestRejectedRef.current) {
+          const beginRequestToken = beginRequestTokenRef.current;
+          if (!beginRequestToken) {
+            throw new Error('休息请求尚未确认，请稍后重试。');
+          }
+          await NativeFlow.cancelRest({ beginRequestToken });
+          cancelledRestRef.current = true;
         }
-        await NativeFlow.cancelRest({ beginRequestToken });
-        cancelledRestRef.current = true;
       } else {
         // Web 端：已休息 30 秒以上时记录部分休息
         const elapsed = totalDuration - timeLeft;

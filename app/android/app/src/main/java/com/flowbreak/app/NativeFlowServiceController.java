@@ -129,6 +129,18 @@ public final class NativeFlowServiceController {
         result.put("restClockValid", restClockValid);
         result.put("restRemainingMs", remainingMs);
         result.put("restRemainingSeconds", remainingSeconds);
+        result.put("restBeginRequestToken", prefs.getString(
+                FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, ""
+        ));
+        result.put("restBeginRequestStatusToken", prefs.getString(
+                RestBeginRequestTokenStore.PREF_STATUS_TOKEN, ""
+        ));
+        result.put("restBeginRequestStatus", prefs.getString(
+                RestBeginRequestTokenStore.PREF_STATUS, ""
+        ));
+        result.put("restBeginRequestErrorCode", prefs.getString(
+                RestBeginRequestTokenStore.PREF_ERROR_CODE, ""
+        ));
         return result;
     }
 
