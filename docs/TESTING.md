@@ -31,7 +31,7 @@
 | AVD 诊断与服务 | 诊断页显示服务心跳、监控线程、设备支持、已配置、关键权限、Room v3 和 1 个目标应用；服务 `isForeground=true`。这是模拟器证据，不是 Redmi/HyperOS 或 24h 稳定性证据 |
 | 崩溃检查 | 本次筛选日志未见 `FATAL EXCEPTION` / `AndroidRuntime` fatal；WebView variations seed 告警属于系统环境提示 |
 | 2026-10-24 USB 实体机 smoke | **PASS_UNSUPPORTED_SCOPE_ONLY**：vivo `V2073A` / Android 13 / SDK 33；现有已签名 Domestic v1.1.0（APK SHA-256 `2ee7d214…`，来源 `2af5e93…`）的 Dashboard/Diagnostics 显示设备不支持、保护能力不可用、未发现 FlowBreak 保护 FGS；force-stop 后重新打开恢复，未见 fatal crash。此结果不代表 PR #43 候选包 |
-| 候选安装与 Gate F | **NOT_EXECUTED / STILL OPEN**：PR #43 最新 Domestic APK（SHA-256 `08b27565…`）为 unsigned，`adb install -r` 返回 `INSTALL_PARSE_FAILED_NO_CERTIFICATES`；未卸载或清除现有签名包。connected instrumentation、候选 APK 真机 smoke、24h soak、生产签名、商店审核和正式发布仍未完成 |
+| 候选安装与 Gate F | **NOT_EXECUTED / STILL OPEN**：实际尝试的是较早的 PR #43 unsigned APK（SHA-256 `8bb6c5cb…`），`adb install -r` 返回 `INSTALL_PARSE_FAILED_NO_CERTIFICATES`；最终文档 HEAD 的 Domestic APK（SHA-256 `08b27565…`）未尝试安装，未卸载或清除现有签名包。connected instrumentation、候选 APK 真机 smoke、24h soak、生产签名、商店审核和正式发布仍未完成 |
 
 AVD 截图与脱敏日志保存在工作区外：`D:\temp\flowbreak-avd-evidence-20261019`。该目录中的截图仅证明指定 API 36 模拟器的受控页面和权限状态，不能转译为 Gate F/G/H/I 通过。
 

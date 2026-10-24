@@ -117,7 +117,7 @@ GATE C PASS 的范围（重要）：
 
 - 设备为 vivo `V2073A` / Android 13 / SDK 33；当前安装的是历史已签名 Domestic v1.1.0，APK SHA-256 `2ee7d2147b8d19a4f83e45dd85bc5eb3ea61504ab87e875260fedcdc1b0b1875`，来源 `2af5e93e88687cdb8b7903f270ae67380773a200`，不是 PR #43 候选。
 - Dashboard 与运行诊断均显示 `设备不支持` / `protectionRuntimeAvailable=false`，保护服务未检测到心跳，未发现 FlowBreak 保护 FGS；force-stop 后重新打开恢复，筛选 logcat 未见 `FATAL EXCEPTION`。该结果仅确认 vivo/iQOO 的 fail-closed 边界。
-- PR #43 最新 Domestic unsigned APK（SHA-256 `08b275650c780c9b576257251464777f77585151d711fc303d052a099827a98d`）尝试 `adb install -r` 时被系统以 `INSTALL_PARSE_FAILED_NO_CERTIFICATES` 拒绝；未卸载、未清除现有签名包，也未使用生产签名材料。原始证据目录：`D:\temp\flowbreak-device-evidence-20261024`。
+- 实际尝试安装的是较早的 PR #43 Domestic unsigned APK（SHA-256 `8bb6c5cbca1f487b81ea579c3759be297837753dbdaff4230e7071c422f0123f`），系统以 `INSTALL_PARSE_FAILED_NO_CERTIFICATES` 拒绝；最终文档 HEAD 的 Domestic unsigned APK（SHA-256 `08b275650c780c9b576257251464777f77585151d711fc303d052a099827a98d`）未尝试安装。未卸载、未清除现有签名包，也未使用生产签名材料。原始证据目录：`D:\temp\flowbreak-device-evidence-20261024`。
 - 因此本轮不计为候选安装、Protection Integrity 或 24h soak；`FB-P1-08` / Issue #28 保持 OPEN，Gate F 仍为 **FAIL / NOT_CLOSED**。
 
 ### GATE G — Signing / Versioning / Publishable Build：PENDING

@@ -25,7 +25,7 @@ PR #42 已于 2026-10-23 合并到 `master`，merge SHA = `67d1b7c3ee82ef4f6dd27
 | API 36 AVD | **受控范围 PASS**：`Medium_Phone_API_36.0` / `emulator-5554`；启动、权限页 0/2、系统 Usage Access/Overlay 页面往返、个性化、目标应用选择、首页、统计、个人中心、阻断设置和运行诊断均已截图；证据目录 `D:\temp\flowbreak-avd-evidence-20261019` |
 | AVD 诊断边界 | 诊断页显示服务心跳、监控线程、设备支持、监控配置、关键权限、Room v3 和 1 个目标应用；这是模拟器受控证据，不是 Redmi/HyperOS 后台稳定性或真实用户证据 |
 | 2026-10-24 USB 实体机 smoke | **PASS_UNSUPPORTED_SCOPE_ONLY**：vivo `V2073A` / Android 13 / SDK 33；现有已签名 Domestic v1.1.0（APK SHA-256 `2ee7d214…`，来源 `2af5e93…`）的 Dashboard 与 Diagnostics 均显示 `设备不支持` / `protectionRuntimeAvailable=false`，未发现 FlowBreak 保护 FGS；强制停止后重新打开可恢复，未见 `FATAL EXCEPTION`。这不是 PR #43 候选包验收 |
-| 2026-10-24 候选安装边界 | **NOT_EXECUTED**：最新 CI Domestic APK `08b27565…` 是 unsigned，`adb install -r` 被系统以 `INSTALL_PARSE_FAILED_NO_CERTIFICATES` 拒绝；未卸载、未清除现有签名包，候选 SHA 与设备包 SHA 不混用。原始截图/日志/UI dump：`D:\temp\flowbreak-device-evidence-20261024` |
+| 2026-10-24 候选安装边界 | **NOT_EXECUTED**：实际尝试的是较早的 PR #43 unsigned APK `8bb6c5cb…`，`adb install -r` 被系统以 `INSTALL_PARSE_FAILED_NO_CERTIFICATES` 拒绝；最终文档 HEAD 的 Domestic APK `08b27565…` 未尝试安装。未卸载、未清除现有签名包，候选 SHA 与设备包 SHA 不混用。原始截图/日志/UI dump：`D:\temp\flowbreak-device-evidence-20261024` |
 | Gate A–E | 既有发布基线的历史/支持范围证据保留；不转移为本候选的真实设备验收 |
 | Gate F | **FAIL / NOT_CLOSED** — Issue #28 / `FB-P1-08` 仍开放；24 小时稳定性 `NOT_EXECUTED`，AVD/JVM/CI 不关闭此门禁 |
 | Gate G | **PENDING_CROSS_MACHINE_RECOVERY** — 跨机器签名恢复与真实版本升级仍未完成；当前无签名发布包 |
