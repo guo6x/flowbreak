@@ -52,4 +52,15 @@ cd android
 ./gradlew testPlayDebugUnitTest testDomesticDebugUnitTest
 ```
 
+逐页网页预览检查（先构建）：
+
+```bash
+npx playwright install chromium
+npm run build
+npm run test:ui
+npm run test:brand
+```
+
+`test:ui` 默认启动并停止独立的本地预览服务器，输出写入被 Git 忽略的 `../.tmp/ui-smoke/`。它只验证浏览器界面，不执行 Android 真机保护。更多命令见 [开发指南](../docs/DEVELOPMENT.md)，品牌资产见 [设计参考](../docs/BRAND.md)。
+
 > Windows 下请使用 `gradlew.bat`。构建需要 JDK 21。

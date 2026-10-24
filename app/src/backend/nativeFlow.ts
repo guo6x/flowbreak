@@ -143,8 +143,8 @@ export interface NativeFlowPlugin {
     monitoringEnabled?: boolean;
   }): Promise<void>;
   stopService(): Promise<void>;
-  beginRest(): Promise<void>;
-  cancelRest(): Promise<void>;
+  beginRest(): Promise<{ beginRequestToken: string }>;
+  cancelRest(options: { beginRequestToken: string }): Promise<void>;
   getCurrentApp(): Promise<{ packageName: string }>;
   getCurrentFatigueLevel(): Promise<{ level: number; minutes: number }>;
   getProtectionStatus(): Promise<NativeProtectionStatus>;
@@ -155,10 +155,15 @@ export interface NativeFlowPlugin {
     blockedPackage: string;
     restStartedAt: number;
     restRequiredSeconds: number;
+    restSessionId?: number;
+    restClockValid?: boolean;
+    restRemainingMs?: number;
+    restRemainingSeconds?: number;
   }>;
   completeRestAndUnlock(options: {
     activity: 'eye' | 'stretch' | 'breathe';
     duration: number;
+    restSessionId: number;
   }): Promise<{ graceUntil: number; points: number; streak: number; achievement: string }>;
   requestEmergencyUnlock(): Promise<{
     allowed: boolean;

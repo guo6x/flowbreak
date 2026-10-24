@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import { Accessibility, ArrowLeft, Battery, Bell, ChevronDown, ChevronUp, Clock, Eye, Power, RefreshCw, Shield } from 'lucide-react';
 import { NativeFlow } from '../backend/nativeFlow';
+import AccessibilityDisclosureDialog from '../components/AccessibilityDisclosureDialog';
 import { useNativePermissions } from '../hooks/useNativePermissions';
 import {
   UNSUPPORTED_DEVICE_DETAIL,
   UNSUPPORTED_DEVICE_MESSAGE,
 } from '../utils/backgroundStability';
-
 const AUTO_START_BRANDS = [
   'xiaomi', 'redmi', 'blackshark',
   'huawei',
@@ -49,8 +49,8 @@ export default function Permissions() {
   const [actionError, setActionError] = useState('');
   const [autoStartOpened, setAutoStartOpened] = useState(false);
   const [optionalExpanded, setOptionalExpanded] = useState(false);
-
-
+  const [accessibilityDisclosureOpen, setAccessibilityDisclosureOpen] = useState(false);
+  const reduceMotion = useReducedMotion();
   const manufacturer = state.manufacturer;
   const unsupportedDevice = isNative && state.unsupportedDevice === true;
   const needsAutoStart = isNative
@@ -59,8 +59,8 @@ export default function Permissions() {
     && AUTO_START_BRANDS.some(b => (manufacturer || '').toLowerCase().includes(b));
 
   const requiredItems = unsupportedDevice ? [] : [
-      { key: 'usage', icon: Clock, title: '使用情况访问', desc: '识别所选应用并计算连续使用时长', granted: state.hasUsageStats },
-      { key: 'overlay', icon: Eye, title: '悬浮窗权限', desc: '在达到阻断条件时显示全屏覆盖页', granted: state.hasOverlay },
+      { key: 'usage', icon: Clock, title: '使用情况访问', desc: '统计所选应用的连续使用时长', granted: state.hasUsageStats },
+      { key: 'overlay', icon: Eye, title: '悬浮窗权限', desc: '达到阻断条件时显示覆盖页', granted: state.hasOverlay },
     ];
 
   const optionalItems = unsupportedDevice ? [] : [
@@ -106,14 +106,33 @@ export default function Permissions() {
       else if (key === 'overlay') await NativeFlow.requestOverlayPermission();
       else if (key === 'notification') await NativeFlow.requestNotificationPermission();
       else if (key === 'battery') await NativeFlow.requestIgnoreBatteryOptimizations();
-      else if (key === 'accessibility') await NativeFlow.requestAccessibilityPermission();
-      else if (key === 'autostart') {
+      else if (key === 'accessibility') {
+        // Disclosure must precede leaving the app for Android settings.
+        // Do not request Accessibility on this preliminary click.
+        setAccessibilityDisclosureOpen(true);
+        return;
+      } else if (key === 'autostart') {
         await NativeFlow.openAutoStartSettings();
         setAutoStartOpened(true);
       }
       window.setTimeout(refreshPermissions, 500);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : '权限请求失败，请稍后重试。');
+    } finally {
+      setRequesting(null);
+    }
+  };
+
+  const confirmAccessibilityDisclosure = async () => {
+    if (requesting || !isNative || !state.isDomestic || unsupportedDevice) return;
+    setActionError('');
+    setRequesting('accessibility');
+    try {
+      await NativeFlow.requestAccessibilityPermission();
+      setAccessibilityDisclosureOpen(false);
+      window.setTimeout(refreshPermissions, 500);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : '无法打开无障碍设置，请重试。');
     } finally {
       setRequesting(null);
     }
@@ -143,39 +162,45 @@ export default function Permissions() {
   const getStatusClass = (granted: boolean): string => {
     if (checking) return 'text-gray-400';
     if (checkError) return 'text-error';
-    return granted ? 'text-primary' : 'text-gray-400';
+    return granted ? 'text-primary' : 'text-gray-500';
   };
 
   return (
-    <div className="flex flex-col min-h-dvh px-8 pt-14 pb-10">
-      <button onClick={() => navigate('/onboarding')} aria-label="返回引导页" className="min-w-[44px] min-h-[44px] rounded-full bg-white card flex items-center justify-center mb-4">
-        <ArrowLeft size={20} />
-      </button>
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col flex-1">
+    <div className="flex flex-col min-h-dvh px-5 pt-7 pb-8 sm:px-8">
+      <div className="flex items-center justify-between mb-7">
+        <button onClick={() => navigate('/onboarding')} aria-label="返回引导页" className="w-[44px] h-[44px] rounded-full bg-white card flex items-center justify-center">
+          <ArrowLeft size={20} />
+        </button>
+        <span className="text-[13px] font-medium text-gray-500">保护设置 · 第 1 步</span>
+      </div>
+      <motion.div initial={reduceMotion ? false : { opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col flex-1">
         {!isNative && (
           <div className="mb-5 p-4 bg-secondary/5 border border-secondary/10 rounded-2xl flex gap-3">
             <Shield size={18} className="text-secondary shrink-0" />
-            <p className="text-[12px] text-gray-600">Web 仅用于界面预览，正式阻断能力只支持 Android。</p>
+            <p className="text-[13px] text-gray-600 leading-relaxed">Web 仅用于界面预览，正式阻断能力只支持 Android。</p>
           </div>
         )}
         <div className="w-14 h-14 rounded-2xl bg-secondary/10 flex items-center justify-center mb-5">
           <Shield size={30} className="text-secondary" />
         </div>
-        <h1 className="text-[24px] font-bold mb-2">
+        <h1 className="text-[26px] font-bold tracking-tight mb-3">
           {unsupportedDevice ? UNSUPPORTED_DEVICE_MESSAGE : '开始保护前需要两项权限'}
         </h1>
-        <p className="text-[14px] text-gray-500 mb-7">
+        <p className="text-[14px] text-gray-600 leading-6 mb-7">
           {unsupportedDevice ? UNSUPPORTED_DEVICE_DETAIL : '所有数据仅在本机处理。权限可随时在系统设置中撤销。'}
         </p>
 
         {unsupportedDevice && (
-          <div className="mb-6 rounded-2xl border border-error/20 bg-error/5 p-4 text-[12px] text-error" role="alert">
+          <div className="mb-6 rounded-2xl border border-error/20 bg-error/5 p-4 text-[13px] text-error" role="alert">
             为避免显示已保护但实际失效，FlowBreak 不会在此设备上启动保护。你的目标应用、限额和历史数据不会被删除。
           </div>
         )}
 
         {/* Required permissions */}
-        {!unsupportedDevice && <p className="text-[12px] font-medium text-gray-400 mb-3 uppercase tracking-wide">必需权限</p>}
+        {!unsupportedDevice && <div className="flex items-center justify-between mb-3">
+          <p className="text-[13px] font-semibold text-gray-700">必需权限</p>
+          {isNative && <p className="text-[13px] text-primary font-medium" role="status">已开启 {Number(usageGranted) + Number(overlayGranted)} / 2</p>}
+        </div>}
         {!unsupportedDevice && <div className="flex flex-col gap-3 mb-6">
           {requiredItems.map(item => {
             const Icon = item.icon;
@@ -187,23 +212,28 @@ export default function Permissions() {
             return (
               <div
                 key={item.key}
-                className={`flex items-center gap-4 p-4 rounded-2xl border-2 ${isGranted ? 'border-primary bg-primary/5' : 'border-gray-200 bg-white'}`}
+                className={`p-4 rounded-[22px] border ${isGranted ? 'border-primary/35 bg-primary/5' : 'border-gray-200 bg-white'}`}
               >
-                <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${isGranted ? 'bg-primary/15' : 'bg-gray-100'}`}>
-                  <Icon size={21} className={isGranted ? 'text-primary' : 'text-gray-400'} />
+                <div className="flex items-start gap-3">
+                  <div className={`w-11 h-11 shrink-0 rounded-2xl flex items-center justify-center ${isGranted ? 'bg-primary/10' : 'bg-secondary/10'}`}>
+                    <Icon size={21} className={isGranted ? 'text-primary' : 'text-secondary'} aria-hidden="true" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[15px] font-semibold">{item.title}</p>
+                    <p className="text-[13px] text-gray-600 leading-relaxed mt-1">{item.desc}</p>
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[14px] font-medium">{item.title}</p>
-                  <p className="text-[12px] text-gray-500 mt-1">{item.desc}</p>
+                <div className="mt-3 pl-14 flex items-center justify-between gap-3">
+                  <span className={`text-[13px] font-medium ${statusClass}`}>{isNative ? statusText : '仅 Android 可设置'}</span>
+                  <button
+                    onClick={() => request(item.key)}
+                    disabled={isReq || disabled}
+                    aria-label={`${isGranted ? '查看' : '开启'}${item.title}`}
+                    className={`min-h-[44px] px-4 rounded-xl text-[13px] font-semibold transition-colors disabled:opacity-50 ${item.granted ? 'bg-primary/10 text-primary' : 'bg-secondary/10 text-secondary'}`}
+                  >
+                    {isReq ? '请求中…' : isGranted ? '已授权' : '去开启'}
+                  </button>
                 </div>
-                <span className={`text-[12px] font-medium shrink-0 ${statusClass}`}>{statusText}</span>
-                <button
-                  onClick={() => request(item.key)}
-                  disabled={isReq || disabled}
-                  className={`shrink-0 px-3 py-1.5 rounded-lg text-[12px] font-medium transition-colors ${item.granted ? 'bg-primary/10 text-primary' : 'bg-secondary/10 text-secondary'}`}
-                >
-                  {isReq ? '请求中…' : isGranted ? '已授权' : '去开启'}
-                </button>
               </div>
             );
           })}
@@ -213,13 +243,15 @@ export default function Permissions() {
         {!unsupportedDevice && <div className="mb-6">
           <button
             onClick={() => setOptionalExpanded(!optionalExpanded)}
-            className="w-full flex items-center justify-between p-3 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors"
+            aria-expanded={optionalExpanded}
+            aria-controls="optional-permissions"
+            className="w-full min-h-[52px] flex items-center justify-between gap-3 p-4 rounded-2xl bg-white border border-gray-200 hover:bg-gray-100 transition-colors text-left"
           >
             <span className="text-[13px] font-medium text-gray-600">提升后台稳定性（可稍后设置）</span>
             {optionalExpanded ? <ChevronUp size={18} className="text-gray-400" /> : <ChevronDown size={18} className="text-gray-400" />}
           </button>
           {optionalExpanded && (
-            <div className="flex flex-col gap-2 mt-3">
+            <div id="optional-permissions" className="flex flex-col gap-3 mt-3">
               {optionalItems.map(item => {
                 const Icon = item.icon;
                 const isGranted = item.granted;
@@ -230,44 +262,56 @@ export default function Permissions() {
                 return (
                   <div
                     key={item.key}
-                    className={`flex items-center gap-3 p-3 rounded-xl border ${isGranted ? 'border-primary/30 bg-primary/[0.03]' : 'border-gray-100 bg-white'}`}
+                    className={`p-4 rounded-2xl border ${isGranted ? 'border-primary/30 bg-primary/[0.03]' : 'border-gray-200 bg-white'}`}
                   >
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isGranted ? 'bg-primary/10' : 'bg-gray-100'}`}>
-                      <Icon size={16} className={isGranted ? 'text-primary' : 'text-gray-400'} />
+                    <div className="flex items-start gap-3">
+                      <div className={`w-9 h-9 shrink-0 rounded-xl flex items-center justify-center ${isGranted ? 'bg-primary/10' : 'bg-gray-100'}`}>
+                        <Icon size={18} className={isGranted ? 'text-primary' : 'text-gray-600'} aria-hidden="true" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[14px] font-medium">{item.title}</p>
+                        <p className="text-[13px] leading-relaxed text-gray-600 mt-1">{item.desc}</p>
+                        {item.key === 'accessibility' && <p className="text-[12px] text-secondary mt-1">可选实验性能力，不读取页面内容。</p>}
+                      </div>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[13px] font-medium">{item.title}</p>
-                      <p className="text-[11px] text-gray-400 mt-0.5">{item.desc}</p>
+                    <div className="mt-2 pl-12 flex items-center justify-between gap-3">
+                      <span className={`text-[13px] font-medium ${statusClass}`}>{item.key === 'autostart' ? (autoStartOpened ? '请在系统中确认' : '需手动设置') : statusText}</span>
+                      <button
+                        onClick={() => request(item.key)}
+                        disabled={isReq || disabled}
+                        aria-label={`设置${item.title}`}
+                        className={`min-h-[44px] px-4 rounded-xl text-[13px] font-medium transition-colors disabled:opacity-50 ${isGranted ? 'bg-primary/10 text-primary' : 'bg-gray-100 text-gray-700'}`}
+                      >
+                        {isReq ? '请求中…' : isGranted ? '已授权' : '设置'}
+                      </button>
                     </div>
-                    <span className={`text-[11px] font-medium shrink-0 ${statusClass}`}>{statusText}</span>
-                    <button
-                      onClick={() => request(item.key)}
-                      disabled={isReq || disabled}
-                      className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors ${isGranted ? 'bg-primary/10 text-primary' : 'bg-gray-100 text-gray-600'}`}
-                    >
-                      {isReq ? '…' : isGranted ? '已授权' : '设置'}
-                    </button>
                   </div>
                 );
               })}
             </div>
           )}
         </div>}
-
-        {(checkError || actionError) && <p className="text-[12px] text-error text-center mb-3">{actionError || checkError}</p>}
+        <AccessibilityDisclosureDialog
+          open={accessibilityDisclosureOpen && isNative && state.isDomestic && !unsupportedDevice}
+          busy={requesting !== null}
+          onDecline={() => setAccessibilityDisclosureOpen(false)}
+          onConfirm={() => void confirmAccessibilityDisclosure()}
+          error={actionError}
+        />
+        {(checkError || actionError) && <p role="alert" className="text-[13px] text-error text-center mb-3">{actionError || checkError}</p>}
 
         {/* Bottom buttons */}
-        <div className="mt-auto flex items-center gap-3">
+        <div className="mt-auto flex flex-col gap-3 pt-3">
+          <button onClick={() => navigate('/personalize')} disabled={!canProceed} className="btn-primary w-full disabled:opacity-50">
+            {btnText}
+          </button>
           <button
-            onClick={refreshPermissions}
+            onClick={() => void refreshPermissions()}
             disabled={checking}
-            className="flex items-center justify-center gap-2 rounded-2xl bg-gray-100 min-h-[44px] px-5 text-[13px] font-medium text-gray-600 shrink-0 disabled:opacity-50 transition-colors hover:bg-gray-200"
+            className="flex items-center justify-center gap-2 rounded-2xl min-h-[44px] px-5 text-[13px] font-medium text-gray-600 disabled:opacity-50 transition-colors hover:bg-white"
           >
             <RefreshCw size={16} className={checking ? 'animate-spin' : ''} />
             重新检测权限
-          </button>
-          <button onClick={() => navigate('/personalize')} disabled={!canProceed} className="btn-primary flex-1 disabled:opacity-50">
-            {btnText}
           </button>
         </div>
       </motion.div>

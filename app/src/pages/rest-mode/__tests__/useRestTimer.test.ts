@@ -3,7 +3,7 @@
 // These tests pin down the exact timer semantics inherited from the original
 // RestMode.tsx page so the refactor cannot regress them:
 //   - Web mode decrements via setTimeout(1s) re-armed on each tick.
-//   - Native mode derives remaining seconds from a wall-clock restEndsAt.
+//   - Native mode derives remaining seconds from a monotonic native sample.
 //   - Pause stops the web timer; native has no pause.
 //   - The hook does NOT auto-fire a completion callback when the timer
 //     reaches zero (the page surfaces a "完成休息" button the user must tap;
@@ -27,7 +27,7 @@ describe('useRestTimer — web mode', () => {
       useRestTimer({
         totalDuration: 60,
         initialSeconds: 60,
-        restEndsAt: null,
+        nativeRemainingMs: null,
         isNative: false,
         active: true,
         isPaused: false,
@@ -43,7 +43,7 @@ describe('useRestTimer — web mode', () => {
       useRestTimer({
         totalDuration: 60,
         initialSeconds: 60,
-        restEndsAt: null,
+        nativeRemainingMs: null,
         isNative: false,
         active: true,
         isPaused: false,
@@ -65,7 +65,7 @@ describe('useRestTimer — web mode', () => {
       useRestTimer({
         totalDuration: 60,
         initialSeconds: 60,
-        restEndsAt: null,
+        nativeRemainingMs: null,
         isNative: false,
         active: true,
         isPaused: true,
@@ -83,7 +83,7 @@ describe('useRestTimer — web mode', () => {
         useRestTimer({
           totalDuration: 60,
           initialSeconds: 60,
-          restEndsAt: null,
+          nativeRemainingMs: null,
           isNative: false,
           active: true,
           isPaused,
@@ -107,7 +107,7 @@ describe('useRestTimer — web mode', () => {
         useRestTimer({
           totalDuration: 60,
           initialSeconds: 60,
-          restEndsAt: null,
+          nativeRemainingMs: null,
           isNative: false,
           active,
           isPaused: false,
@@ -135,7 +135,7 @@ describe('useRestTimer — web mode', () => {
       useRestTimer({
         totalDuration: 2,
         initialSeconds: 2,
-        restEndsAt: null,
+        nativeRemainingMs: null,
         isNative: false,
         active: true,
         isPaused: false,
@@ -158,7 +158,7 @@ describe('useRestTimer — web mode', () => {
       useRestTimer({
         totalDuration: 2,
         initialSeconds: 2,
-        restEndsAt: null,
+        nativeRemainingMs: null,
         isNative: false,
         active: true,
         isPaused: false,
@@ -180,7 +180,7 @@ describe('useRestTimer — web mode', () => {
       useRestTimer({
         totalDuration: 60,
         initialSeconds: 60,
-        restEndsAt: null,
+        nativeRemainingMs: null,
         isNative: false,
         active: true,
         isPaused: false,
@@ -196,7 +196,7 @@ describe('useRestTimer — web mode', () => {
 });
 
 describe('useRestTimer — native mode', () => {
-  it('derives remaining seconds from restEndsAt via wall-clock time', () => {
+  it('derives remaining seconds from the monotonic native sample', () => {
     const now = Date.now();
     vi.setSystemTime(now);
 
@@ -204,21 +204,43 @@ describe('useRestTimer — native mode', () => {
       useRestTimer({
         totalDuration: 60,
         initialSeconds: 60,
-        restEndsAt: now + 60_000,
+        nativeRemainingMs: 60_000,
         isNative: true,
         active: true,
         isPaused: false,
       }),
     );
 
-    // On mount the hook computes Math.max(0, Math.ceil((restEndsAt - now)/1000)).
+    // On mount the hook anchors the native remaining time to performance.now().
     expect(result.current.timeLeft).toBe(60);
 
-    // Advance wall clock by 5 seconds — timeLeft should drop to 55.
+    // Advance both the monotonic timer and the fake clock by 5 seconds.
     act(() => {
       vi.advanceTimersByTime(5000);
     });
     expect(result.current.timeLeft).toBe(55);
+  });
+
+  it('ignores a wall-clock jump while the monotonic countdown keeps running', () => {
+    const now = Date.now();
+    vi.setSystemTime(now);
+
+    const { result } = renderHook(() =>
+      useRestTimer({
+        totalDuration: 60,
+        initialSeconds: 60,
+        nativeRemainingMs: 60_000,
+        isNative: true,
+        active: true,
+        isPaused: false,
+      }),
+    );
+
+    act(() => vi.advanceTimersByTime(5000));
+    expect(result.current.timeLeft).toBe(55);
+    vi.setSystemTime(now + 60 * 60_000);
+    act(() => vi.advanceTimersByTime(1000));
+    expect(result.current.timeLeft).toBe(54);
   });
 
   it('does not pause on native even if isPaused is true (native has no pause button)', () => {
@@ -229,7 +251,7 @@ describe('useRestTimer — native mode', () => {
       useRestTimer({
         totalDuration: 60,
         initialSeconds: 60,
-        restEndsAt: now + 60_000,
+        nativeRemainingMs: 60_000,
         isNative: true,
         active: true,
         isPaused: true, // ignored on native
@@ -242,7 +264,7 @@ describe('useRestTimer — native mode', () => {
     expect(result.current.timeLeft).toBe(57);
   });
 
-  it('clamps to zero once restEndsAt has passed', () => {
+  it('clamps to zero once the native monotonic duration has passed', () => {
     const now = Date.now();
     vi.setSystemTime(now);
 
@@ -250,7 +272,7 @@ describe('useRestTimer — native mode', () => {
       useRestTimer({
         totalDuration: 10,
         initialSeconds: 10,
-        restEndsAt: now + 10_000,
+        nativeRemainingMs: 10_000,
         isNative: true,
         active: true,
         isPaused: false,

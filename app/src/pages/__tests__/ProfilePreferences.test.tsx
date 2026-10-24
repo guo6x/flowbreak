@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router";
 import ProfilePreferences from "../ProfilePreferences";
 import { useStore } from "../../hooks/useStore";
 import { NativeFlow } from "../../backend/nativeFlow";
+import { themeGlows } from "../rest-mode/themeData";
 
 const mockNavigate = vi.fn();
 
@@ -56,6 +57,11 @@ describe("ProfilePreferences", () => {
   it("原值回填每日目标", () => {
     renderProfilePreferences();
     expect(screen.getByText("1小时")).toBeInTheDocument();
+  });
+
+  it("默认4小时目标可见且保持选中", () => {
+    renderProfilePreferences({ dailyGoal: 240 });
+    expect(screen.getByRole("button", { name: "4小时" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("修改昵称并保存Store更新", () => {
@@ -126,5 +132,29 @@ describe("ProfilePreferences", () => {
     fireEvent.change(input, { target: { value: "   " } });
     fireEvent.click(screen.getByText("保存"));
     expect(useStore.getState().profile.name).toBe("");
+  });
+
+  it("昵称具有关联标签且所有偏好显示可访问的选中状态", () => {
+    renderProfilePreferences();
+    expect(screen.getByRole("textbox", { name: "昵称" })).toHaveValue("测试用户");
+    expect(screen.getByRole("button", { name: "学生" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "1小时" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "森林" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "海洋" }));
+    expect(screen.getByRole("button", { name: "森林" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "海洋" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("每日目标明确为参考展示而非新增阻断条件", () => {
+    renderProfilePreferences();
+    expect(screen.getByText(/每日参考目标，不会触发额外阻断/)).toBeInTheDocument();
+  });
+
+  it("背景选择预览使用实际休息主题而不是独立旧色板", () => {
+    renderProfilePreferences();
+    ["森林", "海洋", "山脉", "花园", "日落"].forEach((name, index) => {
+      const preview = screen.getByRole("button", { name }).querySelector<HTMLElement>("div[aria-hidden='true']");
+      expect(preview?.style.background).toBe(themeGlows[index].baseBg);
+    });
   });
 });

@@ -44,12 +44,20 @@ public final class FlowOverlayController {
     private final Handler handler;
     private final Callbacks callbacks;
 
-    private View blockerView;
-    private View warningBar;
-    private int warningBarLevel; // 0=无, 1=80%, 2=100%
-    private View graceCountdownBar;
-    private TextView graceCountdownText;
-    private Runnable emergencyRunnable;
+    private volatile View blockerView;
+    private volatile View warningBar;
+    private volatile int warningBarLevel; // 0=无, 1=80%, 2=100%
+    private volatile View graceCountdownBar;
+    private volatile TextView graceCountdownText;
+    private volatile Runnable emergencyRunnable;
+
+    /**
+     * 每个异步 overlay 都有独立的 generation。dismiss* 即使在 show Runnable
+     * 执行前被调用，也会让已经排队的旧任务失效，避免恢复/停止后又把旧层画回来。
+     */
+    private final GenerationGate blockerGeneration = new GenerationGate();
+    private final GenerationGate warningBarGeneration = new GenerationGate();
+    private final GenerationGate graceCountdownGeneration = new GenerationGate();
 
     public interface Callbacks {
         /** 用户点击"开始休息"。 */
@@ -81,13 +89,15 @@ public final class FlowOverlayController {
     /** 显示阻断全屏层。 */
     public void showBlocker(String packageName, long sessionMs, boolean allowEmergency) {
         if (blockerView != null) return;
+        final long generation = blockerGeneration.issue();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
                 && !Settings.canDrawOverlays(context)) {
-            openBlockActivity(packageName);
+            if (blockerGeneration.isCurrent(generation)) {
+                openBlockActivity(packageName);
+            }
             return;
         }
         handler.post(() -> {
-            if (blockerView != null) return;
             LinearLayout root = new LinearLayout(context);
             root.setOrientation(LinearLayout.VERTICAL);
             root.setGravity(Gravity.CENTER);
@@ -139,11 +149,21 @@ public final class FlowOverlayController {
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                     PixelFormat.OPAQUE
             );
-            blockerView = root;
-            try {
-                windowManager.addView(root, params);
-            } catch (Exception ignored) {
-                blockerView = null;
+            // dismissBlocker() may have run while the view was being built. Do not
+            // commit a stale view after the generation was invalidated.
+            boolean fallbackToBlockActivity = false;
+            synchronized (blockerGeneration) {
+                if (!blockerGeneration.isCurrent(generation)
+                        || blockerView != null) return;
+                blockerView = root;
+                try {
+                    windowManager.addView(root, params);
+                } catch (Exception ignored) {
+                    blockerView = null;
+                    fallbackToBlockActivity = true;
+                }
+            }
+            if (fallbackToBlockActivity && blockerGeneration.isCurrent(generation)) {
                 openBlockActivity(packageName);
             }
         });
@@ -168,10 +188,14 @@ public final class FlowOverlayController {
     }
 
     public void dismissBlocker() {
+        blockerGeneration.invalidate();
         if (emergencyRunnable != null) handler.removeCallbacks(emergencyRunnable);
-        if (blockerView == null) return;
-        View view = blockerView;
-        blockerView = null;
+        final View view;
+        synchronized (blockerGeneration) {
+            if (blockerView == null) return;
+            view = blockerView;
+            blockerView = null;
+        }
         handler.post(() -> {
             try { windowManager.removeView(view); } catch (Exception ignored) { }
         });
@@ -190,8 +214,8 @@ public final class FlowOverlayController {
             return;
         }
         warningBarLevel = level;
+        final long generation = warningBarGeneration.issue();
         handler.post(() -> {
-            if (warningBar != null) return;
             LinearLayout root = new LinearLayout(context);
             root.setOrientation(LinearLayout.HORIZONTAL);
             root.setGravity(Gravity.CENTER_VERTICAL);
@@ -233,23 +257,31 @@ public final class FlowOverlayController {
             );
             params.gravity = Gravity.TOP;
             params.y = dp(40);
-            warningBar = root;
-            try {
-                windowManager.addView(root, params);
-            } catch (Exception ignored) {
-                warningBar = null;
+            synchronized (warningBarGeneration) {
+                if (!warningBarGeneration.isCurrent(generation)
+                        || warningBar != null) return;
+                warningBar = root;
+                try {
+                    windowManager.addView(root, params);
+                } catch (Exception ignored) {
+                    warningBar = null;
+                }
             }
         });
     }
 
     public void dismissWarningBar() {
-        if (warningBar == null) {
+        warningBarGeneration.invalidate();
+        final View view;
+        synchronized (warningBarGeneration) {
+            if (warningBar == null) {
+                warningBarLevel = 0;
+                return;
+            }
+            view = warningBar;
+            warningBar = null;
             warningBarLevel = 0;
-            return;
         }
-        View view = warningBar;
-        warningBar = null;
-        warningBarLevel = 0;
         handler.post(() -> {
             try { windowManager.removeView(view); } catch (Exception ignored) { }
         });
@@ -266,12 +298,14 @@ public final class FlowOverlayController {
             if (graceCountdownText != null) graceCountdownText.setText(countdown);
             return;
         }
+        // Invalidate a pending show before checking permission. If permission was
+        // revoked while the task was queued, the old task must not resurrect it.
+        final long generation = graceCountdownGeneration.issue();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
                 && !Settings.canDrawOverlays(context)) {
             return;
         }
         handler.post(() -> {
-            if (graceCountdownBar != null) return;
             LinearLayout root = new LinearLayout(context);
             root.setOrientation(LinearLayout.HORIZONTAL);
             root.setGravity(Gravity.CENTER_VERTICAL);
@@ -305,22 +339,30 @@ public final class FlowOverlayController {
             );
             params.gravity = Gravity.BOTTOM;
             params.y = dp(40);
-            graceCountdownBar = root;
-            graceCountdownText = msg;
-            try {
-                windowManager.addView(root, params);
-            } catch (Exception ignored) {
-                graceCountdownBar = null;
-                graceCountdownText = null;
+            synchronized (graceCountdownGeneration) {
+                if (!graceCountdownGeneration.isCurrent(generation)
+                        || graceCountdownBar != null) return;
+                graceCountdownBar = root;
+                graceCountdownText = msg;
+                try {
+                    windowManager.addView(root, params);
+                } catch (Exception ignored) {
+                    graceCountdownBar = null;
+                    graceCountdownText = null;
+                }
             }
         });
     }
 
     public void dismissGraceCountdown() {
-        if (graceCountdownBar == null) return;
-        View view = graceCountdownBar;
-        graceCountdownBar = null;
-        graceCountdownText = null;
+        graceCountdownGeneration.invalidate();
+        final View view;
+        synchronized (graceCountdownGeneration) {
+            if (graceCountdownBar == null) return;
+            view = graceCountdownBar;
+            graceCountdownBar = null;
+            graceCountdownText = null;
+        }
         handler.post(() -> {
             try { windowManager.removeView(view); } catch (Exception ignored) { }
         });
@@ -351,6 +393,30 @@ public final class FlowOverlayController {
     /** 移除所有 Handler 回调（onDestroy 时调用）。 */
     public void clearCallbacks() {
         if (emergencyRunnable != null) handler.removeCallbacks(emergencyRunnable);
+        blockerGeneration.invalidate();
+        warningBarGeneration.invalidate();
+        graceCountdownGeneration.invalidate();
+    }
+
+    /**
+     * Monotonic cancellation gate for a single overlay type. It is deliberately
+     * package-private so JVM tests can exercise the pending-show race without
+     * requiring a real WindowManager or device overlay permission.
+     */
+    static final class GenerationGate {
+        private long generation;
+
+        synchronized long issue() {
+            return ++generation;
+        }
+
+        synchronized void invalidate() {
+            generation++;
+        }
+
+        synchronized boolean isCurrent(long token) {
+            return token == generation;
+        }
     }
 
     private void openBlockActivity(String packageName) {

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { Capacitor } from "@capacitor/core";
 import { BrowserRouter } from "react-router";
 import Dashboard from "../Dashboard";
 import { useStore } from "../../hooks/useStore";
@@ -13,12 +14,13 @@ vi.mock("react-router", async () => {
 });
 
 vi.mock("@capacitor/core", () => ({
-  Capacitor: { isNativePlatform: () => false },
+  Capacitor: { isNativePlatform: vi.fn(() => false) },
 }));
 
 vi.mock("../../backend/nativeFlow", () => ({
   NativeFlow: {
     getDashboardSummary: vi.fn().mockRejectedValue(new Error("not native")),
+    getUsageStats: vi.fn().mockResolvedValue({ screenTimeSeconds: 0 }),
     saveDailyReflection: vi.fn(),
     getProtectionStatus: vi.fn(),
     saveSettings: vi.fn().mockResolvedValue(undefined),
@@ -126,6 +128,9 @@ function renderDashboard(overrides: Record<string, any> = {}) {
 
 describe("Dashboard", () => {
   beforeEach(() => {
+    localStorage.clear();
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
+    vi.mocked(NativeFlow.getUsageStats).mockReset().mockResolvedValue({ screenTimeSeconds: 0 });
     mockNavigate.mockClear();
     mockIsNative = false;
     mockHasUsage = true;
@@ -489,5 +494,96 @@ describe("Dashboard", () => {
     // Check that operation buttons are still present
     expect(screen.getByText("检查权限")).toBeInTheDocument();
     expect(screen.getByText("重试开启")).toBeInTheDocument();
+  });
+
+  it.each(["NONE", "PERCEPTION", "COGNITION", "ACTION"])("%s stage does not claim physiological fatigue detection", level => {
+    renderDashboard({ fatigueLevel: level, fatigueScore: 0.9 });
+    expect(screen.queryByText(/未检测到明显疲劳|认知疲劳|轻度疲劳|疲劳指数/)).not.toBeInTheDocument();
+    expect(screen.getByText("今日目标应用时间")).toBeInTheDocument();
+  });
+
+  it("paused protection never presents a stale normal-use state as operational", () => {
+    renderDashboard({ isMonitoring: false, blockState: "IDLE" });
+    expect(screen.queryByText("正常使用")).not.toBeInTheDocument();
+    expect(screen.getByText("当前未开启保护")).toBeInTheDocument();
+  });
+
+  it("exposes an accessible goal progress bar and clamps progress at 100%", () => {
+    renderDashboard({ todayStats: { totalScreenTime: 7200, restCount: 0, interventionCount: 0 }, profile: { dailyGoal: 60 } });
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
+    expect(screen.getByRole("progressbar")).toHaveAccessibleName("今日目标应用使用时间占每日目标");
+  });
+
+  it("does not produce NaN progress for a missing daily goal", () => {
+    renderDashboard({ profile: { dailyGoal: 0 } });
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "0");
+  });
+
+  it("reflection buttons expose the selected state to assistive technology", () => {
+    renderDashboard();
+    const helped = screen.getByRole("button", { name: "有帮助" });
+    expect(helped).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(helped);
+    expect(helped).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "一般" }));
+    expect(helped).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("places the core rest action before optional daily reflection", () => {
+    renderDashboard();
+    const rest = screen.getByRole("button", { name: /^开始休息/ });
+    const reflection = screen.getByTestId("daily-reflection");
+    expect(rest.compareDocumentPosition(reflection) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+  });
+
+  it("does not show local counters while native dashboard counts are still loading", async () => {
+    mockIsNative = true;
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    let resolve!: (value: Awaited<ReturnType<typeof NativeFlow.getDashboardSummary>>) => void;
+    vi.mocked(NativeFlow.getDashboardSummary).mockReturnValueOnce(new Promise(resolver => { resolve = resolver; }));
+    renderDashboard({ todayStats: { totalScreenTime: 0, interventionCount: 97, restCount: 98 } });
+    expect(screen.queryByText("97")).not.toBeInTheDocument();
+    expect(screen.queryByText("98")).not.toBeInTheDocument();
+    await act(async () => resolve({
+      blockCount: 3, restCount: 2, rescuedSeconds: 0, unlockSeconds: 1200, points: 0, streak: 0,
+      pullbackOutcomeCount: 0, successfulPullbackCount: 0, postRestReturnCount: 0,
+      postRestTargetSeconds: 0, reflectionValue: 0,
+    }));
+    expect(screen.getByText("完成休息").nextElementSibling).toHaveTextContent("2次");
+    expect(screen.getByText("今日阻断").nextElementSibling).toHaveTextContent("3次");
+  });
+
+  it("does not substitute local counters after native summary errors", async () => {
+    mockIsNative = true;
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    vi.mocked(NativeFlow.getDashboardSummary).mockRejectedValueOnce(new Error("native read failed"));
+    renderDashboard({ todayStats: { totalScreenTime: 0, interventionCount: 97, restCount: 98 } });
+    expect(await screen.findByText("今日计数暂未读取成功，稍后会自动重试。")).toBeInTheDocument();
+    expect(screen.getByText("完成休息").nextElementSibling).toHaveTextContent("--次");
+    expect(screen.queryByText("97")).not.toBeInTheDocument();
+    expect(screen.queryByText("98")).not.toBeInTheDocument();
+  });
+
+  it("shows unknown native time instead of the legacy local total until the read succeeds", async () => {
+    mockIsNative = true;
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    let resolve!: (value: { screenTimeSeconds: number }) => void;
+    vi.mocked(NativeFlow.getUsageStats).mockReturnValueOnce(new Promise(resolver => { resolve = resolver; }));
+    renderDashboard({ todayStats: { totalScreenTime: 72000, restCount: 0, interventionCount: 0 } });
+    expect(screen.getByTestId("dashboard-total-time")).toHaveTextContent("--");
+    expect(screen.getByRole("progressbar")).not.toHaveAttribute("aria-valuenow");
+    expect(screen.queryByText("20小时")).not.toBeInTheDocument();
+    await act(async () => resolve({ screenTimeSeconds: 600 }));
+    expect(screen.getByTestId("dashboard-total-time")).toHaveTextContent("10分钟");
+  });
+
+  it("does not fall back to the legacy local total when native usage cannot be read", async () => {
+    mockIsNative = true;
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    vi.mocked(NativeFlow.getUsageStats).mockRejectedValueOnce(new Error("native usage unavailable"));
+    renderDashboard({ todayStats: { totalScreenTime: 72000, restCount: 0, interventionCount: 0 } });
+    expect(await screen.findByText("暂时无法读取设备记录")).toBeInTheDocument();
+    expect(screen.getByTestId("dashboard-total-time")).toHaveTextContent("--");
+    expect(screen.queryByText("20小时")).not.toBeInTheDocument();
   });
 });

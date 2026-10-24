@@ -6,6 +6,7 @@ import android.content.SharedPreferences;
 import android.content.Context;
 import android.net.Uri;
 import android.os.Build;
+import android.util.Log;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -13,6 +14,7 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -36,6 +38,68 @@ public class NativeFlowPlugin extends Plugin {
 
     private SharedPreferences prefs() {
         return getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+    }
+
+    /**
+     * Keep service commands behind a small seam so persistence failures can be
+     * exercised without starting a real Android service. Production behavior
+     * remains the same; tests can inject a command failure after preferences
+     * have been written.
+     */
+    protected void dispatchServiceAction(String action) {
+        serviceController.sendAction(action);
+    }
+
+    /** Build the same persisted settings snapshot exposed by loadSettings. */
+    private JSObject persistedSettingsSnapshot(SharedPreferences preferences) {
+        com.getcapacitor.JSArray apps = new com.getcapacitor.JSArray();
+        for (String value : PreferenceUtils.getMigratedTargetApps(preferences)) apps.put(value);
+        JSObject result = new JSObject();
+        result.put("limitMinutes", preferences.getInt("limitMinutes", 25));
+        result.put("restDuration", preferences.getInt("restDuration", 180));
+        result.put("allowEmergencyUnlock", preferences.getBoolean("allowEmergencyUnlock", true));
+        result.put(
+                "strongBlockingEnabled",
+                PreferenceUtils.isStrongBlockingEnabled(
+                        preferences, "domestic".equals(BuildConfig.CHANNEL)
+                )
+        );
+        result.put("monitoringEnabled", preferences.getBoolean("monitoringEnabled", true));
+        result.put("targetApps", apps);
+        result.put("channel", BuildConfig.CHANNEL);
+        return result;
+    }
+
+    /**
+     * Preferences and service commands are not one atomic transaction. If the
+     * command fails after apply(), report the persisted state instead of
+     * promising that the old settings are still active.
+     */
+    private void rejectAfterPersist(
+            PluginCall call,
+            String message,
+            String action,
+            Exception error,
+            SharedPreferences preferences
+    ) {
+        JSObject data = new JSObject();
+        data.put("persisted", true);
+        data.put("serviceReloaded", false);
+        data.put("serviceAction", action);
+        data.put("settings", persistedSettingsSnapshot(preferences));
+        call.reject(message, "SERVICE_ACTION_FAILED_AFTER_PERSIST", error, data);
+    }
+
+    private void enqueueRestCancellationFallback(long expectedSessionId, String beginRequestToken) {
+        try {
+            serviceController.sendAction(
+                    FlowForegroundService.ACTION_CANCEL_REST,
+                    expectedSessionId,
+                    beginRequestToken
+            );
+        } catch (RuntimeException error) {
+            Log.w("NativeFlowPlugin", "Could not enqueue token-bound REST cancellation", error);
+        }
     }
 
     /**
@@ -198,8 +262,23 @@ public class NativeFlowPlugin extends Plugin {
                 call.reject("PROTECTION_RUNTIME_UNHEALTHY");
                 return;
             }
-            serviceController.sendAction(FlowForegroundService.ACTION_BEGIN_REST);
-            call.resolve();
+            String beginRequestToken = UUID.randomUUID().toString();
+            boolean persisted = RestBeginRequestTokenStore.persistLatestRequest(
+                    prefs(),
+                    beginRequestToken
+            );
+            if (!persisted) {
+                call.reject("休息模式请求未能安全保存，请重试。");
+                return;
+            }
+            serviceController.sendAction(
+                    FlowForegroundService.ACTION_BEGIN_REST,
+                    null,
+                    beginRequestToken
+            );
+            JSObject result = new JSObject();
+            result.put("beginRequestToken", beginRequestToken);
+            call.resolve(result);
         } catch (Exception error) {
             call.reject("休息模式启动失败", error);
         }
@@ -207,8 +286,53 @@ public class NativeFlowPlugin extends Plugin {
 
     @PluginMethod public void cancelRest(PluginCall call) {
         try {
-            serviceController.sendAction(FlowForegroundService.ACTION_CANCEL_REST);
-            call.resolve();
+            String beginRequestToken = call.getString("beginRequestToken", "");
+            if (beginRequestToken == null || beginRequestToken.isEmpty()) {
+                call.reject("休息请求已失效，请返回后重试。");
+                return;
+            }
+            long expectedRestSessionId = prefs().getLong(
+                    FlowForegroundService.PREF_REST_SESSION_ID,
+                    0L
+            );
+            boolean queued = FlowForegroundService.requestRestCancellation(
+                    expectedRestSessionId,
+                    beginRequestToken,
+                    new FlowForegroundService.RestCancellationCallback() {
+                        private void finishOnUiThread(Runnable completion) {
+                            android.app.Activity activity = getActivity();
+                            if (activity == null) {
+                                call.reject("休息状态暂时无法确认；请保持页面并重试。");
+                                return;
+                            }
+                            activity.runOnUiThread(completion);
+                        }
+
+                        @Override public void onCancelled() {
+                            finishOnUiThread(call::resolve);
+                        }
+
+                        @Override public void onRejected(String message) {
+                            finishOnUiThread(() -> call.reject(message));
+                        }
+
+                        @Override public void onDeferred() {
+                            // The asynchronous API stays unconfirmed, but leave a token-bound
+                            // service command queued so the session can still be reconciled.
+                            enqueueRestCancellationFallback(
+                                    expectedRestSessionId,
+                                    beginRequestToken
+                            );
+                            finishOnUiThread(() -> call.reject(
+                                    "尚未确认退出休息模式；后台可能仍在处理，请刷新状态后再操作。"
+                            ));
+                        }
+                    }
+            );
+            if (!queued) {
+                enqueueRestCancellationFallback(expectedRestSessionId, beginRequestToken);
+                call.reject("尚未确认退出休息模式；请刷新状态后再操作。");
+            }
         } catch (Exception error) {
             call.reject("休息模式退出失败", error);
         }
@@ -241,8 +365,9 @@ public class NativeFlowPlugin extends Plugin {
             boolean hasOverlay = permissions.hasOverlay();
             boolean serviceRuntimeActive = runtimeHealth.serviceRuntimeActive;
             boolean monitorThreadAlive = runtimeHealth.monitorThreadAlive;
-            boolean strongRequested = "domestic".equals(BuildConfig.CHANNEL)
-                    && preferences.getBoolean("strongBlockingEnabled", true);
+            boolean strongRequested = PreferenceUtils.isStrongBlockingEnabled(
+                    preferences, "domestic".equals(BuildConfig.CHANNEL)
+            );
             boolean accessibilityEnabledInSettings = permissions.hasAccessibility();
             boolean accessibilityRuntimeConnected = AccessibilityRuntimeState.isConnected();
             ProtectionStatusEvaluator.Result status = ProtectionStatusEvaluator.evaluate(
@@ -295,43 +420,35 @@ public class NativeFlowPlugin extends Plugin {
 
     @PluginMethod public void completeRestAndUnlock(PluginCall call) {
         String requestedActivity = call.getString("activity", "breathe");
-        executor.execute(() -> {
-            try {
-                SharedPreferences preferences = prefs();
-                ProtectionRuntimeHealthEvaluator.Result runtimeHealth =
-                        FlowForegroundService.getCurrentProtectionRuntimeHealth();
-                RestCompletionIntegrityGate.Attempt<NativeFlowRestCoordinator.Result> attempt =
-                        RestCompletionIntegrityGate.execute(
-                                preferences.getString(
-                                        "blockState", BlockStateMachine.State.IDLE.name()
-                                ),
-                                runtimeHealth,
-                                () -> restCoordinator.complete(preferences, requestedActivity)
+        long expectedSessionId = call.getData().optLong("restSessionId", 0L);
+        if (expectedSessionId <= 0L) {
+            call.reject(RestCompletionIntegrityGate.RETRYABLE_MESSAGE);
+            return;
+        }
+        boolean queued = FlowForegroundService.requestRestCompletion(
+                expectedSessionId,
+                requestedActivity,
+                restCoordinator,
+                new FlowForegroundService.RestCompletionCallback() {
+                    @Override public void onSuccess(NativeFlowRestCoordinator.Result result) {
+                        getActivity().runOnUiThread(() -> call.resolve(result.response));
+                    }
+
+                    @Override public void onDeferred() {
+                        getActivity().runOnUiThread(
+                                () -> call.reject(RestCompletionIntegrityGate.RETRYABLE_MESSAGE)
                         );
-                if (attempt.deferred()) {
-                    getActivity().runOnUiThread(
-                            () -> call.reject(RestCompletionIntegrityGate.RETRYABLE_MESSAGE)
-                    );
-                    return;
-                }
-                NativeFlowRestCoordinator.Result outcome = attempt.value;
-                if (outcome.needServiceRefresh) {
-                    try {
-                        serviceController.sendAction(FlowForegroundService.ACTION_COMPLETE_REST);
-                    } catch (Exception serviceError) {
-                        // commit 已成功，状态已持久化到 GRACE。服务下次启动时 load() 会读到正确状态。
-                        // 不中断流程，前端仍收到成功响应，避免用户被卡在休息完成按钮上。
-                        android.util.Log.w("NativeFlowPlugin",
-                                "startService failed after rest commit", serviceError);
+                    }
+
+                    @Override public void onRejected(String message, Exception error) {
+                        getActivity().runOnUiThread(() -> {
+                            if (error == null) call.reject(message);
+                            else call.reject(message, error);
+                        });
                     }
                 }
-                getActivity().runOnUiThread(() -> call.resolve(outcome.response));
-            } catch (NativeFlowRestCoordinator.RestPendingException pending) {
-                getActivity().runOnUiThread(() -> call.reject("休息尚未完成，请继续完成本次引导。"));
-            } catch (Exception error) {
-                getActivity().runOnUiThread(() -> call.reject("保存休息记录失败", error));
-            }
-        });
+        );
+        if (!queued) call.reject(RestCompletionIntegrityGate.RETRYABLE_MESSAGE);
     }
 
     @PluginMethod public void requestEmergencyUnlock(PluginCall call) {
@@ -375,13 +492,18 @@ public class NativeFlowPlugin extends Plugin {
                 && current.getBoolean("monitoringEnabled", true);
         prefs().edit()
                 .putStringSet(PreferenceUtils.PREF_TARGET_APPS, filtered)
-                .putBoolean("serviceConfigured", true)
                 .apply();
         try {
-            if (shouldReload) serviceController.sendAction(FlowForegroundService.ACTION_RELOAD);
+            if (shouldReload) dispatchServiceAction(FlowForegroundService.ACTION_RELOAD);
             call.resolve();
         } catch (Exception error) {
-            call.reject("保存受限应用失败", error);
+            rejectAfterPersist(
+                    call,
+                    "受限应用已保存，但保护服务重载失败，请稍后重试。",
+                    FlowForegroundService.ACTION_RELOAD,
+                    error,
+                    current
+            );
         }
     }
 
@@ -393,7 +515,6 @@ public class NativeFlowPlugin extends Plugin {
         boolean monitoringEnabled = data.has("monitoringEnabled")
                 ? call.getBoolean("monitoringEnabled", true)
                 : current.getBoolean("monitoringEnabled", true);
-        boolean wasMonitoringEnabled = current.getBoolean("monitoringEnabled", true);
         boolean wasConfigured = current.getBoolean("serviceConfigured", false);
         com.getcapacitor.JSArray apps = call.getArray("targetApps");
         Set<String> filteredTargets = null;
@@ -405,10 +526,17 @@ public class NativeFlowPlugin extends Plugin {
         int targetCount = filteredTargets == null
                 ? PreferenceUtils.getMigratedTargetApps(current).size()
                 : filteredTargets.size();
-        if (monitoringEnabled && !wasMonitoringEnabled
-                && rejectMonitoringActivation(call, true, targetCount)) return;
-
-        SharedPreferences.Editor editor = current.edit().putBoolean("serviceConfigured", true);
+        // Ordinary edits are not activation requests. Explicit activation must
+        // pass the same fail-closed device, permission, and stability gate used
+        // by the monitoring control.
+        if (ProtectionSettingsSaveGate.requiresActivationCheck(
+                data.has("monitoringEnabled"), monitoringEnabled)
+                && rejectMonitoringActivation(call, monitoringEnabled, targetCount)) return;
+        SharedPreferences.Editor editor = current.edit();
+        if (ProtectionSettingsSaveGate.shouldMarkConfigured(
+                data.has("monitoringEnabled"), monitoringEnabled)) {
+            editor.putBoolean("serviceConfigured", true);
+        }
         if (data.has("limitMinutes")) editor.putInt(
                 "limitMinutes", Math.max(1, call.getInt("limitMinutes", 25))
         );
@@ -420,7 +548,8 @@ public class NativeFlowPlugin extends Plugin {
         );
         if (data.has("strongBlockingEnabled") && "domestic".equals(BuildConfig.CHANNEL)) {
             editor.putBoolean(
-                    "strongBlockingEnabled", call.getBoolean("strongBlockingEnabled", true)
+                    PreferenceUtils.PREF_STRONG_BLOCKING_ENABLED,
+                    call.getBoolean(PreferenceUtils.PREF_STRONG_BLOCKING_ENABLED, false)
             );
         }
         if (data.has("monitoringEnabled")) editor.putBoolean(
@@ -431,27 +560,32 @@ public class NativeFlowPlugin extends Plugin {
         }
         editor.apply();
         try {
-            if (wasConfigured) serviceController.sendAction(FlowForegroundService.ACTION_RELOAD);
+            // Do not send a reload/start command from a settings-only save
+            // when this device cannot run a supported protection service.
+            if (data.has("monitoringEnabled") && !monitoringEnabled) {
+                dispatchServiceAction(FlowForegroundService.ACTION_STOP);
+            } else if (ProtectionSettingsSaveGate.mayReload(
+                    wasConfigured,
+                    monitoringEnabled,
+                    permissions.isProtectionRuntimeAvailable(),
+                    permissions.isBackgroundStabilitySatisfied())) {
+                dispatchServiceAction(FlowForegroundService.ACTION_RELOAD);
+            }
             call.resolve();
         } catch (Exception error) {
-            call.reject("保存设置失败", error);
+            String action = data.has("monitoringEnabled") && !monitoringEnabled
+                    ? FlowForegroundService.ACTION_STOP
+                    : FlowForegroundService.ACTION_RELOAD;
+            String message = FlowForegroundService.ACTION_STOP.equals(action)
+                    ? "设置已保存，但保护服务停止失败，请稍后重试。"
+                    : "设置已保存，但保护服务重载失败，请稍后重试。";
+            rejectAfterPersist(call, message, action, error, current);
         }
     }
 
     @PluginMethod public void loadSettings(PluginCall call) {
         SharedPreferences preferences = prefs();
-        com.getcapacitor.JSArray apps = new com.getcapacitor.JSArray();
-        for (String value : PreferenceUtils.getMigratedTargetApps(preferences)) apps.put(value);
-        JSObject result = new JSObject();
-        result.put("limitMinutes", preferences.getInt("limitMinutes", 25));
-        result.put("restDuration", preferences.getInt("restDuration", 180));
-        result.put("allowEmergencyUnlock", preferences.getBoolean("allowEmergencyUnlock", true));
-        boolean strongDefault = "domestic".equals(BuildConfig.CHANNEL);
-        result.put("strongBlockingEnabled", preferences.getBoolean("strongBlockingEnabled", strongDefault));
-        result.put("monitoringEnabled", preferences.getBoolean("monitoringEnabled", true));
-        result.put("targetApps", apps);
-        result.put("channel", BuildConfig.CHANNEL);
-        call.resolve(result);
+        call.resolve(persistedSettingsSnapshot(preferences));
     }
 
     // ==================== Statistics ====================

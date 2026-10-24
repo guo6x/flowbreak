@@ -12,6 +12,7 @@ import android.view.accessibility.AccessibilityEvent;
 import androidx.core.content.ContextCompat;
 import java.util.Locale;
 import java.util.Set;
+import java.util.UUID;
 
 public class FlowAccessibilityService extends AccessibilityService {
 
@@ -133,8 +134,20 @@ public class FlowAccessibilityService extends AccessibilityService {
             cleanupBanner();
             return;
         }
+        // Match the plugin BEGIN protocol: only the latest durably stored
+        // request may create a rest session on the monitor-owned service path.
+        String beginRequestToken = UUID.randomUUID().toString();
+        boolean persisted = RestBeginRequestTokenStore.persistLatestRequest(
+                prefs,
+                beginRequestToken
+        );
+        if (!persisted) {
+            Log.w(TAG, "BEGIN_REST request token could not be persisted");
+            return;
+        }
         Intent service = new Intent(this, FlowForegroundService.class);
         service.setAction(FlowForegroundService.ACTION_BEGIN_REST);
+        service.putExtra(FlowForegroundService.EXTRA_REST_BEGIN_REQUEST_TOKEN, beginRequestToken);
         try {
             ContextCompat.startForegroundService(this, service);
         } catch (Exception e) {
@@ -209,9 +222,8 @@ public class FlowAccessibilityService extends AccessibilityService {
     }
 
     private boolean canEnforce(SharedPreferences prefs) {
-        boolean strongDefault = "domestic".equals(BuildConfig.CHANNEL);
         boolean monitoringEnabled = prefs.getBoolean("monitoringEnabled", true);
-        boolean strongBlockingEnabled = prefs.getBoolean("strongBlockingEnabled", strongDefault);
+        boolean strongBlockingEnabled = PreferenceUtils.isStrongBlockingEnabled(prefs, true);
         Set<String> targets = PreferenceUtils.getMigratedTargetApps(prefs);
         ProtectionPrerequisiteGate.Result prerequisites = ProtectionPrerequisiteGate.evaluate(
                 protectionRuntimeAvailable(),

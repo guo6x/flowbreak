@@ -5,30 +5,37 @@
 
 ## 当前发布状态
 
-**RELEASE PREPARATION**（截至 2026-09-11；Redmi R1–R4 复测 2026-08-14 通过；GATE C 2026-08-15 通过；PR #20 与 PR #26 已合并；GATE D final-scope acceptance、Gate E supported-scope closeout 与 GATE G signed dry-run 已完成）
+**RELEASE PREPARATION · NOT APPROVED**（当前状态快照见 [CURRENT_STATUS.md](CURRENT_STATUS.md)；测试和候选来源事实见 [TESTING.md](TESTING.md)）。
 
-- 原 Redmi 验收阻塞项已消除：`FB-P1-01`、`FB-P1-02`、`FB-P1-03`、`FB-P2-01` 全部 RESOLVED（`KNOWN_ISSUES.md`）。`FB-P1-05` 保持 **OPEN — UNSUPPORTED IN V1.1.0**，不属于 v1.1.0 支持设备运行时。
-- 但 **RELEASE PREPARATION ≠ RELEASE APPROVED**：GATE C、GATE D 与 Gate E supported-scope decision 已通过；GATE F–I 仍 PENDING，当前不是 STORE READY，更不是 PRODUCTION RELEASE APPROVED。
+- 功能修复源为 `f7abbad7e900b32db5291cf26754cbd492721948`；对应 hosted verify [Run `39301143402`](https://github.com/guo6x/flowbreak/actions/runs/39301143402) 与 [unsigned artifact](https://github.com/guo6x/flowbreak/actions/runs/39301143402/artifacts/12211868639) 只归属这个 SHA。其后仅文档变化的 `afe404fe094bb3968f8ef16a372cb09131b8a3f7` 已通过精确 HEAD [Run `39303124166`](https://github.com/guo6x/flowbreak/actions/runs/39303124166)。2026-10-23 审查跟进后的最新 HEAD、checks 与合并状态见 [PR #42](https://github.com/guo6x/flowbreak/pull/42)；不把任一旧 SHA 称为后续当前 HEAD，也不重新归属旧二进制哈希。unsigned APK/AAB 不能冒充最终签名发布包。Gate A–E 的既有 PASS 是已记录的历史/支持范围决策；它们不是本轮候选的真实设备发布验收。
+- **GATE F = FAIL**：Issue #28 / `FB-P1-08` 仍 OPEN。真实设备摘要报告 Bilibili 前台约 33 秒时 REST 页面仍倒计时；摘要未含足够原生诊断，根因未定。**24 小时稳定性运行 NOT_EXECUTED**。见 [设备验收交接](FB-P1-08-FINAL-DEVICE-HANDOFF.md)。
+- **GATE G = PENDING**：`CROSS_MACHINE_SIGNING_RECOVERY=NOT_YET_TESTED`，`TRUE_VERSION_UPGRADE=NOT_TESTED`。本地恢复、已有安装/同签名覆盖安装与 off-machine backup 记录不能替代这两个独立验证，也不等于本轮集成候选有签名发布包。
+- **GATE H = PENDING**：PR #33 的无手机准备及国内无障碍独立告知已合并；发行主体、公开支持联系方式、隐私政策 URL、最终包网络/依赖审查、平台申报与审核资质仍未完成。网络审计来源 [PR #39](https://github.com/guo6x/flowbreak/pull/39) 与工程集成 PR #42 的生命周期以云端记录为准；合并或清理旧分支不证明运行时没有网络流量。
+- **GATE I = PENDING / NOT_STARTED**：真实小规模 Beta 未开始。
+- **绝对门禁**：`STORE_READY=NO`；`PRODUCTION_RELEASE_APPROVED=NO`；不得创建正式发布 tag、使用生产密钥进行未授权发布或将现有失败门禁标为通过。
+- **工程合并不等于发布批准**：2026-10-23 用户允许在最新检查通过后经普通 PR 合并代码并清理冗余分支；master push 只触发 unsigned verify。生产签名、设备验收、正式 tag 与商店发布仍不在此次授权范围。
 
 ## 发布门禁总览
 
 | Gate | 内容 | 状态 |
 | ---- | ---- | ---- |
-| GATE A | Core automated validation | **PASS** |
-| GATE B | Redmi targeted P1/P2 revalidation | **PASS** |
-| GATE C | Artifact Provenance / Controlled Release Build | **PASS** |
-| GATE D | Supported OEM scope + fail-closed boundary | **PASS_SUPPORTED_SCOPE** |
-| GATE E | Usage accounting accuracy / blocking latency + documented Android execution boundary | **PASS_SUPPORTED_SCOPE_WITH_DOCUMENTED_PLATFORM_LIMITATION** |
-| GATE F | 24h stability + Protection Integrity | **PENDING** |
-| GATE G | Signing / Versioning / Publishable Build | **PENDING_CROSS_MACHINE_RECOVERY** |
+| GATE A | Core automated validation | **已记录 PASS — functional source Run `39301143402`；docs-only `afe404fe…` Run `39303124166`；新修补须独立 CI** |
+| GATE B | Redmi targeted P1/P2 revalidation | **PASS — historical R1–R4 evidence; not a new-build smoke** |
+| GATE C | Artifact Provenance / Controlled Release Build | **PASS — source `f7abbad7…` unsigned provenance Run `39301143402`; not a later HEAD or signed release** |
+| GATE D | Supported OEM scope + fail-closed boundary | **PASS_SUPPORTED_SCOPE — prior supported-scope evidence** |
+| GATE E | Usage accounting accuracy / blocking latency + documented Android execution boundary | **PASS_SUPPORTED_SCOPE_WITH_DOCUMENTED_PLATFORM_LIMITATION — prior evidence only** |
+| GATE F | 24h stability + Protection Integrity | **FAIL — Issue #28 / FB-P1-08 remains OPEN; 24h run NOT_EXECUTED** |
+| GATE G | Signing / Versioning / Publishable Build | **PENDING — cross-machine recovery and true version upgrade not tested** |
 | GATE H | Store / Compliance Readiness | **PENDING** |
 | GATE I | Small-scale Beta | **PENDING** |
 
 最终发布条件：**所有 release-blocking gates PASS**。
 
+表中的 A/C 是所列精确来源的自动化/unsigned 产物证据，B/D/E 是既有 v1.1.0 的历史设备/支持范围裁定；均不可自动转移到后续提交。Gate F 的 FAIL 是保留的设备失败状态；虚拟设备、自动化、静态审计或旧签名 APK 均不能替代其未完成的候选验收和稳定性要求。
+
 ### GATE A — Core automated validation：PASS
 
-- CI Run `31900444404`（PR #1，verify Job `95050260127`）**SUCCESS**，HEAD = `ea53a22136dd58663291581763eb3614c4b10ba6`（最新全矩阵验证）。
+- 历史 CI Run `31900444404`（PR #1，verify Job `95050260127`）**SUCCESS**，HEAD = `ea53a22136dd58663291581763eb3614c4b10ba6`（不是当前最新全矩阵验证）。
 - 基线运行 `31577669420`（verify Job `94053353542`）SUCCESS，HEAD = `99fdcc2f6f357e78fb70dd127adedfa31a098a71`。
 - frontend 151/151（14 test files）+ provenance 18/18（`npm run test:provenance`）；Play JVM 244；Domestic JVM 254；RecoveryIntegration 23（仍是 23，不是 26）；Room migrations 6/6。
 - `assemblePlayDebugAndroidTest` = AndroidTest APK successfully ASSEMBLED，**不等于** instrumentation tests executed（真机验证归 GATE B/D/F）。
@@ -64,6 +71,7 @@
 
 GATE C PASS 的范围（重要）：
 
+- **历史功能修复源已验证**：PR #42 hosted verify Run `39301143402`，source `f7abbad7e900b32db5291cf26754cbd492721948`；Play AAB SHA-256 `989af971a7683ba615fca335335c44b51acbf6e96c97fc8ef15aca995c0c796`，Domestic unsigned APK SHA-256 `cc8e9f01cb11d41ef58ff25751863496ab47bb36a82e74069216d361d488376e`；artifact manifest 与 `SHA256SUMS.txt` 已上传并可复核，`signed=false`，版本为 CI test-only `versionCode=1` / `versionName=ci-2a7b01cceecf46031ec5ea04ac43b467fd280453`。这些哈希不代表后续 HEAD 的二进制。
 - **unsigned CI artifact provenance pipeline 已验证**：PR #1 CI Run `31900444404` verify SUCCESS；artifact 可下载、SHA256SUMS 复核一致、manifest sourceGitSha = PR head SHA、APK/AAB 内部 provenance 一致、版本信息与二进制独立读取一致。
 - **signed publishable build 仍属于 GATE G**；STORE READY 仍为 NO。
 
@@ -91,13 +99,15 @@ GATE C PASS 的范围（重要）：
 
 本 Gate 不声称当前 master 独立重新执行了完整的 E1/E2 physical test sequence。Gate E 的结论是 documented supported-scope evidence carry-forward，加上当前签名 execution-gap recovery integration。
 
-本阶段不修改 Gate F 要求。由于 Gate F/G/H/I 仍 pending，发布仍为 **NOT APPROVED**。
+本阶段不修改 Gate F 要求。Gate F 为 **FAIL**，Gate G/H/I 为 **PENDING**，因此发布仍为 **NOT APPROVED**。
 
-### GATE F — 24h stability + Protection Integrity：PENDING
+### GATE F — 24h stability + Protection Integrity：FAIL
 
-- 24h 连续运行：无时间暴涨、重复通知、ANR；且**无 silent protection drift**（保护能力无声漂移）。
-- Protection Integrity 原则（`TESTING.md`）：**UI promise ≤ actual protection capability**。正常路径测试同步做失效注入：撤销 Usage Access / 撤销 Overlay / 关闭 Accessibility / service 被杀 / battery saver / OEM 后台限制 / force-stop 后手动重开；逐项验证 A. 实际保护行为 + B. UI 如实反映能力。
+- Issue #28 / `FB-P1-08` 当前 **OPEN_SUPPORTED_SCOPE_RELEASE_BLOCKER**。历史真实设备摘要显示 Bilibili 前台约 33 秒时 REST 页面仍显示倒计时；摘要未包括原生持久状态、service tick、前台分类器与取消判定，因此保留真实失败，但根因 **UNDETERMINED**。不得把问题归结为某个实现分支已修复。
+- **24h 连续运行 = NOT_EXECUTED**。不得将短时测试、前端/JVM 模拟、AVD 或历史设备证据称为 24h PASS。
+- Protection Integrity 原则（`TESTING.md`）：**UI promise ≤ actual protection capability**。最终候选应在正常路径同步做失效注入：撤销 Usage Access / Overlay、关闭可选 Accessibility、service 被杀、battery saver、OEM 后台限制、force-stop 后手动重开；逐项验证实际保护行为与界面是否如实反映能力。
 - force-stop 语义：不要求自动复活；手动重开后 UI 不得谎称旧保护状态仍完全有效，应走合法恢复。
+- 当前无真实手机，可用 AVD 验证其可覆盖的受控功能与页面状态；它不模拟 Redmi/HyperOS 调度，也不能关闭 Issue #28 或 Gate F。未来若有真实设备证据，按 [FB-P1-08 交接协议](FB-P1-08-FINAL-DEVICE-HANDOFF.md) 执行。
 
 ### GATE G — Signing / Versioning / Publishable Build：PENDING
 
@@ -117,7 +127,7 @@ GATE C PASS 的范围（重要）：
 - **TRUE_VERSION_UPGRADE = NOT_TESTED_NO_VALID_LOWER_FINAL_SIGNED_BUILD**：没有可用的更低版本最终签名生产产物，不能把覆盖安装改称真实版本升级。
 - **GITHUB_FINAL_SIGNING_SECRETS = PROVISIONED**：旧 identity 的 secrets 已清理，本轮仅写入最终 identity 对应的 8 个 Environment Secrets；secret values 未读取或写入仓库。
 
-**GATE G 当前 = PENDING_CROSS_MACHINE_RECOVERY**。final identity、local custody、8 个最终 GitHub signing secrets、signed dry-run、signed install、signed replacement 与 off-machine backup 已 PASS；真实版本升级未测试，cross-machine recovery 仍未完成，不能整体关闭 GATE G。
+**GATE G 当前 = PENDING**。既有记录中的 final identity、local custody、最终 GitHub signing secrets、signed dry-run、signed install/replacement 与 off-machine backup 是历史范围内的证据；它们不代表本轮集成候选已签名。`CROSS_MACHINE_SIGNING_RECOVERY=NOT_YET_TESTED` 与 `TRUE_VERSION_UPGRADE=NOT_TESTED_NO_VALID_LOWER_FINAL_SIGNED_BUILD` 是两个独立未完成项。即使其中一项完成，另一项仍需单独验收后方可讨论关闭 Gate G。
 
 ### Signing Portability
 
@@ -164,7 +174,7 @@ ORIGINAL_LAPTOP_RECOVERY = `NOT_YET_TESTED`
 
 **不由** GATE G 负责：Data Safety、Accessibility declaration、商店文案、隐私政策 URL、商店截图、合规申报材料（归 GATE H）。
 
-**GATE G 当前不具备整体 PASS 条件**：final identity、8 个最终 secrets、signed dry-run、signed install/upgrade、portable vault 与 off-machine backup 已完成；cross-machine recovery 仍未完成。后续必须完成跨机器恢复测试后才能关闭 Gate G。
+**GATE G 当前不具备整体 PASS 条件**：final identity、8 个最终 secrets、signed dry-run、signed install/replacement、portable vault 与 off-machine backup 是既有历史范围内的完成项，并非当前候选签名验收。真实 lower-final-signed-build 到当前 final-signed-build 的版本升级未测试，cross-machine recovery 也未测试；这两个条件均须分别完成，不能只做其中一项后关闭 Gate G。
 
 ### GATE H — Store / Compliance Readiness：PENDING
 
@@ -181,8 +191,22 @@ ORIGINAL_LAPTOP_RECOVERY = `NOT_YET_TESTED`
 - 渠道审核材料
 - distribution compliance
 
-> Distribution compliance research is in progress and will be incorporated after source verification.（合规研究完成后并入；当前不提前创建未经最终审查的 COMPLIANCE 文档，不把未经确认的研究内容写成 CONFIRMED 项目事实。）
-> 本门禁只调整「职责归属」，不提前把任何 PENDING 改为 PASS。
+> 本轮尚无可核验的外部合规审查或平台申报记录；旧版“研究进行中”不代表已完成研究。只维护源码事实与发行待办，不把未经负责人确认的材料写成已确认的法律或商店结论。
+
+Gate H source facts and owner-dependent deliverables:
+
+| Item | Current evidence | State |
+| --- | --- | --- |
+| Product data / permission description | Updated in `PRIVACY.md`; source declares Android `INTERNET`, local Room/SharedPreferences/WebView storage, and Domestic-only optional Accessibility; full export includes existing SharedPreferences values | Draft; final merged-manifest/dependency/network verification required |
+| Diagnostics sharing | Share JSON is assembled from a field allowlist and excludes `runtimeTracking`; current source has no implemented `restCheatEvidence` field. Full local data export is separate and broader | Historical regression exists; exact final-candidate review remains required |
+| Public privacy policy URL | None configured | Owner must provide and host |
+| Public support contact / publisher identity | None configured | Owner must provide verified legal/contact details |
+| Play Data Safety / FGS / Accessibility declarations | No final Console submission evidence in this workspace | Owner account and final artifact required |
+| Domestic filing, copyright and distribution qualifications | No verified issuer documents attached | Owner/legal review required |
+| Store screenshots and listing | UI source and web-preview evidence exist; no final store listing pack | Prepare against final channel builds |
+| Static network-surface audit | PR #39 是审计来源之一；后续集成和 PR 生命周期以 PR #42/#39 记录为准，静态检查随精确 HEAD CI 重跑 | 运行时网络审查仍需真实环境；静态扫描不等于运行时流量证明 |
+
+GATE H remains **PENDING**. Do not submit store forms, invent a contact, or mark the app Store Ready based only on repository evidence.
 
 ### GATE I — Small-scale Beta：PENDING
 
@@ -198,11 +222,12 @@ ORIGINAL_LAPTOP_RECOVERY = `NOT_YET_TESTED`
 
 ### CI
 
-- [x] `npm test`（151）/ `npm run test:provenance`（20）/ `npm run test:release`（8）/ `npm run build` / `npx cap sync android` 通过（最新 PR #2 Run 31919816373；基线 Run 31577669420）
-- [x] `testPlayDebugUnitTest`（244）、`testDomesticDebugUnitTest`（254）、lint 双渠道通过
+- [x] 历史功能修复源 `f7abbad7…` 的 `npm test` **291/291** / `npm run test:provenance` **20/20** / `npm run test:release` **8/8** / `npm run build` / `npx cap sync android` 通过（PR #42 Run `39301143402`）；本轮审查/恢复逻辑修补须另跑新 HEAD CI
+- [x] 同一历史快照 `testPlayDebugUnitTest` **456/456**、`testDomesticDebugUnitTest` **489/489**、lint 双渠道通过（JUnit XML 汇总 0 failure / 0 error / 0 skipped）
 - [x] `assemblePlayDebug`、`assembleDomesticDebug`、`bundlePlayRelease`、`assembleDomesticRelease` 通过，R8 mapping 存在
 - [x] Room schema drift 检查通过（migrations 6/6，无未提交 schema 变更）
-- [x] npm audit 门禁通过（生产依赖无 high，全依赖无 critical）
+- [x] GitHub CI npm audit 门禁通过（Run `39301143402` 的生产依赖 high、全依赖 critical 及 build 后重跑均为 **0 vulnerabilities**）
+- [ ] 本地 npm audit（`https://registry.npmmirror.com`）可复核（当前返回 404/`NOT_IMPLEMENTED`，状态为 **BLOCKED / NOT_PASS**；该环境阻塞不覆盖 hosted CI 结论）
 - [x] 构建产物持久上传/归档并可复核（GATE C，PASS：`flowbreak-unsigned-<sha>` artifact，retention 90 天，已实际下载复核）
 - [x] provenance 工具链测试 `npm run test:provenance` 20/20（原 18 + signing evidence 2）
 - [x] Web asset sync 校验（dist → Android assets SHA-256 全量一致，缺失/mismatch 即 FAIL）
@@ -224,15 +249,15 @@ ORIGINAL_LAPTOP_RECOVERY = `NOT_YET_TESTED`
 
 - [ ] `PRIVACY.md` 与实际权限/数据行为一致（发布前最终核对）
 - [ ] 无密钥/敏感信息入库；release 使用环境变量签名
-- [ ] 脱敏诊断导出不含姓名、受限应用包名、具体使用明细
+- [x] 脱敏诊断分享采用字段白名单，与完整 JSON 数据导出严格区分；该范围的历史回归快照见 `TESTING.md`。当前候选源码不含 `restCheatEvidence`，分享白名单不含 `runtimeTracking`；完整本地导出包含全部现存 SharedPreferences 值（见 `PRIVACY.md`）
 - [ ] 提供公开隐私政策 URL 和支持邮箱（当前未配置）
 
 ### Android / 双渠道
 
 - [x] Play 清单不含 AccessibilityService；国内版包含且默认关闭
 - [ ] 两个 applicationId 可同时安装，设置互不污染（待发布版最终验证）
-- [ ] AAB/APK 签名、安装、覆盖升级测试通过（待签名产物）
-- [x] 覆盖安装保留用户数据（Room schema 迁移验证；真机覆盖安装 PASS）
+- [ ] 本体验分支 release-candidate 的 AAB/APK 签名与安装验收（当前只有功能基线 unsigned 产物；生产签名与安装验收仍归 Gate G）
+- [x] 既有 final-signed Domestic APK 安装 / `adb install -r` 数据保留验证通过（GATE G）；真实 lower-version 到 current-version 升级仍未测试，且不代表本分支 release-candidate 已验收
 
 ### 真机设备矩阵
 

@@ -1,10 +1,9 @@
-// src/components/InterventionOverlay.tsx
-// PRD 第二章 三层渐进式唤醒机制
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import { useNavigate } from 'react-router';
-import { InterventionLevel } from '../backend/fatigueEngine';
-import { Clock, Eye, Brain, AlertTriangle, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import type { InterventionLevel } from '../backend/fatigueEngine';
+import { ArrowRight, Brain, Eye, Leaf, StretchHorizontal, Wind, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import type { KeyboardEvent } from 'react';
 
 interface Props {
   level: InterventionLevel;
@@ -13,201 +12,60 @@ interface Props {
   onSnooze?: () => void;
 }
 
+const suggestedActivities = [
+  { icon: Eye, label: '眼部放松', detail: '把视线，从屏幕移向远处', color: 'text-primary', background: 'bg-primary/8' },
+  { icon: StretchHorizontal, label: '身体拉伸', detail: '轻轻舒展一下颈肩', color: 'text-secondary', background: 'bg-secondary/8' },
+  { icon: Wind, label: '深呼吸', detail: '让呼吸回到舒服的节奏', color: 'text-primary', background: 'bg-primary/8' },
+];
+
 export default function InterventionOverlay({ level, elapsed, onDismiss, onSnooze }: Props) {
   const navigate = useNavigate();
+  const reduceMotion = useReducedMotion();
   const [dismissed, setDismissed] = useState(false);
+  const actionRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => { setDismissed(false); }, [level]);
   useEffect(() => {
-    setDismissed(false);
-  }, [level]);
+    if (level !== 'ACTION' || dismissed) return;
+    const previousFocus = document.activeElement;
+    actionRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
+    return () => { if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus(); };
+  }, [level, dismissed]);
+
+  const keepActionFocus = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Tab') return;
+    const buttons = actionRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)');
+    if (!buttons?.length) return;
+    const first = buttons[0];
+    const last = buttons[buttons.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  };
 
   if (level === 'NONE' || dismissed) return null;
-
   const elapsedMin = Math.floor(elapsed / 60);
 
-  // 1. 根据当前唤醒层级，设定常驻呼吸灯的周期、透明度与警示色彩 (PRD 2.1 - 2.3)
-  let glowColor = '#A5D6A7'; // 感知层：绿色
-  let glowDuration = 3.0;
-  let glowOpacity = [0.1, 0.3, 0.1];
+  if (level === 'PERCEPTION') return <motion.button initial={reduceMotion ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} onClick={() => { onSnooze?.(); setDismissed(true); }} className="fixed bottom-28 right-4 left-4 sm:left-auto z-[61] flex items-center justify-center gap-2.5 bg-primary-dark text-white px-5 py-3.5 rounded-2xl shadow-lg border border-white/10 text-left" aria-label={`已用 ${elapsedMin} 分钟，注意休息。关闭这次轻提醒`}><Eye size={19} className="shrink-0" /><span className="text-[13px] leading-relaxed">已用 {elapsedMin} 分钟，给眼睛一点留白</span></motion.button>;
 
-  if (level === 'COGNITION') {
-    glowColor = '#FF9800'; // 认知层：橙黄色
-    glowDuration = 2.5;
-    glowOpacity = [0.2, 0.45, 0.2];
-  } else if (level === 'ACTION') {
-    glowColor = '#F44336'; // 行为层：深红色
-    glowDuration = 1.8;
-    glowOpacity = [0.3, 0.65, 0.3];
-  }
+  if (level === 'COGNITION') return (
+    <motion.section initial={reduceMotion ? false : { y: 24, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="fixed bottom-28 left-4 right-4 z-[62] bg-white rounded-[24px] p-5 border border-gray-200/80 shadow-xl max-w-[420px] mx-auto" aria-labelledby="cognition-title">
+      <button onClick={() => setDismissed(true)} aria-label="关闭提示" className="absolute top-2 right-2 w-11 h-11 rounded-full text-gray-600 flex items-center justify-center"><X size={18} /></button>
+      <div className="flex items-start gap-3 pr-6"><span className="w-11 h-11 rounded-2xl bg-accent/10 flex items-center justify-center shrink-0"><Brain size={22} className="text-accent" aria-hidden="true" /></span><div><h2 id="cognition-title" className="text-[17px] font-semibold text-gray-900 leading-snug">已经连续用了 {elapsedMin} 分钟</h2><p className="text-[13px] text-gray-600 leading-relaxed mt-2">不妨停一下，看看远处，让注意力回到自己身上。</p></div></div>
+      <div className="flex gap-3 mt-5"><button onClick={() => { onDismiss(); setDismissed(true); }} className="flex-1 min-h-12 rounded-xl bg-gray-100 text-[14px] text-gray-700 font-semibold">稍后提醒</button><button onClick={() => { setDismissed(true); navigate('/rest'); }} className="flex-1 min-h-12 rounded-xl bg-primary text-[14px] text-white font-semibold">去休息</button></div>
+    </motion.section>
+  );
 
   return (
-    <>
-      {/* 边缘呼吸灯：全层级常驻组件，渐进式变色与变频 (PRD 2.1.1) */}
-      <motion.div
-        className="fixed inset-0 pointer-events-none z-[60]"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-      >
-        {/* Top edge */}
-        <motion.div
-          animate={{ opacity: glowOpacity }}
-          transition={{ duration: glowDuration, repeat: Infinity }}
-          className="absolute top-0 left-0 right-0 h-[2.5px]"
-          style={{ background: `linear-gradient(90deg, transparent, ${glowColor}, transparent)` }}
-        />
-        {/* Bottom edge */}
-        <motion.div
-          animate={{ opacity: glowOpacity }}
-          transition={{ duration: glowDuration, repeat: Infinity, delay: glowDuration / 2 }}
-          className="absolute bottom-0 left-0 right-0 h-[2.5px]"
-          style={{ background: `linear-gradient(90deg, transparent, ${glowColor}, transparent)` }}
-        />
-        {/* Left edge */}
-        <motion.div
-          animate={{ opacity: glowOpacity }}
-          transition={{ duration: glowDuration, repeat: Infinity, delay: glowDuration / 4 }}
-          className="absolute top-0 bottom-0 left-0 w-[2.5px]"
-          style={{ background: `linear-gradient(180deg, transparent, ${glowColor}, transparent)` }}
-        />
-        {/* Right edge */}
-        <motion.div
-          animate={{ opacity: glowOpacity }}
-          transition={{ duration: glowDuration, repeat: Infinity, delay: (glowDuration * 3) / 4 }}
-          className="absolute top-0 bottom-0 right-0 w-[2.5px]"
-          style={{ background: `linear-gradient(180deg, transparent, ${glowColor}, transparent)` }}
-        />
-      </motion.div>
-
-      {/* 角落时间指示器：只在轻度感知或预警状态下展示 (PRD 2.1.1) */}
-      {(level === 'PERCEPTION' || level === 'COGNITION') && (
-        <motion.div
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="fixed bottom-28 right-4 z-[61] flex items-center gap-2 bg-gray-900/85 backdrop-blur-sm px-4 py-2.5 rounded-full cursor-pointer shadow-md select-none border border-gray-800"
-          onClick={() => {
-            onSnooze?.();
-            setDismissed(true);
-          }}
-        >
-          {level === 'PERCEPTION' ? (
-            <Eye size={15} className="text-green-400 animate-pulse" />
-          ) : (
-            <Brain size={15} className="text-orange-400 animate-pulse" />
-          )}
-          <span className="text-[12px] text-gray-100 font-medium">已用 {elapsedMin} 分钟，注意休息</span>
-        </motion.div>
-      )}
-
-      {/* 认知提示卡片：仅在认知层弹出，与呼吸灯/指示器完美叠加 (PRD 2.2.1) */}
-      {level === 'COGNITION' && (
-        <motion.div
-          initial={{ y: 100, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ type: 'spring', damping: 20 }}
-          className="fixed bottom-28 left-4 right-4 z-[62] bg-white rounded-2xl p-5 shadow-lg border border-gray-100"
-          style={{ boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}
-        >
-          <button onClick={() => setDismissed(true)} aria-label="关闭提示" className="absolute top-3 right-3 text-gray-400 hover:text-gray-600 active:text-gray-800">
-            <X size={18} />
-          </button>
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center shrink-0">
-              <Brain size={22} className="text-accent" />
-            </div>
-            <div className="flex-1">
-              <h3 className="text-[16px] font-bold text-gray-900 mb-1">
-                你已经连续观看了 {elapsedMin} 分钟
-              </h3>
-              <p className="text-[14px] text-gray-500 leading-relaxed">
-                眼睛需要休息一下，看看远处的绿色植物 🌿
-              </p>
-            </div>
-          </div>
-          <div className="flex gap-2 mt-4">
-            <button
-              onClick={() => {
-                onDismiss();
-                setDismissed(true);
-              }}
-              className="flex-1 py-2.5 rounded-xl bg-gray-100 text-[14px] text-gray-700 font-medium hover:bg-gray-200 active:bg-gray-300 transition-colors"
-            >
-              稍后提醒
-            </button>
-            <button
-              onClick={() => {
-                setDismissed(true);
-                navigate('/rest');
-              }}
-              className="flex-1 py-2.5 rounded-xl bg-primary text-[14px] text-white font-medium hover:bg-primary-dark active:bg-primary transition-colors"
-            >
-              去休息
-            </button>
-          </div>
-        </motion.div>
-      )}
-
-      {/* 行为层强力阻断：全屏遮罩与视频暂停建议卡片叠加 (PRD 2.3.1) */}
-      {level === 'ACTION' && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-md flex items-center justify-center px-6"
-        >
-          {/* Action Suggestion Card */}
-          <motion.div
-            initial={{ scale: 0.85, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ type: 'spring', damping: 15, delay: 0.1 }}
-            className="bg-white rounded-3xl p-6 w-full max-w-[350px]"
-            style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.15)' }}
-          >
-            <div className="flex flex-col items-center text-center mb-6">
-              <div className="w-16 h-16 rounded-full bg-error/10 flex items-center justify-center mb-4">
-                <AlertTriangle size={32} className="text-error" />
-              </div>
-              <h2 className="text-[20px] font-bold text-gray-900 mb-1">是时候休息一下了</h2>
-              <p className="text-[14px] text-gray-500">推荐以下 3 分钟恢复活动</p>
-            </div>
-
-            {/* Activity Options */}
-            <div className="flex flex-col gap-2 mb-6">
-              {[
-                { icon: Eye, label: '眼部放松', desc: '转动眼球 + 看远处', color: '#4CAF50' },
-                { icon: Brain, label: '身体拉伸', desc: '颈部 + 肩部拉伸', color: '#2196F3' },
-                { icon: Clock, label: '深呼吸', desc: '4-7-8 呼吸法', color: '#FF9800' },
-              ].map((opt, i) => {
-                const OptIcon = opt.icon;
-                return (
-                  <button
-                    key={i}
-                    onClick={() => {
-                      onDismiss();
-                      navigate('/rest', { state: { activityIdx: i } });
-                    }}
-                    className="flex items-center gap-3 p-3 rounded-xl border border-gray-200 hover:border-gray-300 active:bg-gray-50 transition-colors text-left"
-                  >
-                    <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ backgroundColor: opt.color + '15' }}>
-                      <OptIcon size={18} style={{ color: opt.color }} />
-                    </div>
-                    <div>
-                      <p className="text-[14px] font-medium text-gray-900">{opt.label}</p>
-                      <p className="text-[12px] text-gray-500">{opt.desc}</p>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Action Buttons */}
-            <button
-              onClick={() => { onDismiss(); navigate('/rest'); }}
-              className="btn-primary w-full mb-2"
-            >
-              开始休息
-            </button>
-          </motion.div>
-        </motion.div>
-      )}
-    </>
+    <motion.div ref={actionRef} initial={reduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 z-[70] bg-[#F4F7F3] overflow-y-auto overscroll-contain" role="dialog" aria-modal="true" aria-labelledby="action-title" aria-describedby="action-description" onKeyDown={keepActionFocus}>
+      <div className="min-h-dvh flex flex-col justify-center px-5 py-10 w-full max-w-[440px] mx-auto">
+        <div className="w-17 h-17 rounded-[24px] bg-primary/10 flex items-center justify-center mx-auto mb-6"><Leaf size={34} className="text-primary" strokeWidth={1.5} aria-hidden="true" /></div>
+        <p className="text-center text-[11px] tracking-[0.2em] text-primary font-semibold mb-3">LET THE MOMENT BREATHE</p>
+        <h2 id="action-title" className="text-[27px] font-bold text-gray-900 text-center tracking-tight">是时候休息一下了</h2>
+        <p id="action-description" className="text-[14px] text-gray-600 leading-relaxed text-center mt-3 mb-7">已经连续使用 {elapsedMin} 分钟。<br />给自己一点时间，选一种舒服的方式。</p>
+        <div className="flex flex-col gap-3 mb-6">{suggestedActivities.map(({ icon: Icon, label, detail, color, background }, index) => <button key={label} onClick={() => { onDismiss(); navigate('/rest', { state: { activityIdx: index } }); }} className="card flex items-center gap-3.5 p-4 text-left"><span className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${background}`}><Icon size={21} className={color} aria-hidden="true" /></span><span className="flex-1"><span className="block text-[15px] font-semibold text-gray-900">{label}</span><span className="block text-[12px] text-gray-600 mt-1">{detail}</span></span><ArrowRight size={17} className="text-gray-500" aria-hidden="true" /></button>)}</div>
+        <button onClick={() => { onDismiss(); navigate('/rest'); }} className="btn-primary w-full">开始休息</button>
+        <p className="text-[12px] text-gray-600 text-center mt-4 leading-relaxed">完成设置的休息时长后，可获得 10 分钟访问窗口。</p>
+      </div>
+    </motion.div>
   );
 }

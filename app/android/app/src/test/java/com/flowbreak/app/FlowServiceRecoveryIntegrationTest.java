@@ -2,17 +2,22 @@ package com.flowbreak.app;
 
 import static org.junit.Assert.*;
 
+import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.SystemClock;
+import android.provider.Settings;
 import androidx.test.core.app.ApplicationProvider;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
+import org.robolectric.shadows.ShadowSystemClock;
 
 /**
  * 前台服务进程死亡恢复逻辑集成测试。
@@ -33,6 +38,7 @@ public class FlowServiceRecoveryIntegrationTest {
     private static final long GRACE_MS = FlowServiceStateStore.GRACE_MS; // 600_000L
     private static final int LIMIT_MINUTES = 25;
     private static final long LIMIT_MS = LIMIT_MINUTES * 60_000L; // 1_500_000L
+    private static final int TEST_BOOT_COUNT = 7;
 
     private SharedPreferences prefs;
 
@@ -188,6 +194,8 @@ public class FlowServiceRecoveryIntegrationTest {
                 .putString("blockState", BlockStateMachine.State.RESTING.name())
                 .putLong("sessionMs", 500_000L)
                 .putLong("restStartedAt", startedAt)
+                .putLong(FlowForegroundService.PREF_REST_STARTED_ELAPSED_AT, startedAt)
+                .putInt(FlowForegroundService.PREF_REST_STARTED_BOOT_COUNT, TEST_BOOT_COUNT)
                 .putLong("restRequiredMs", requiredMs)
                 .putLong("restSessionId", 1001L)
                 .putInt("limitMinutes", 25)
@@ -216,6 +224,48 @@ public class FlowServiceRecoveryIntegrationTest {
     // ==================== 5. RESTING 恰好完成 → GRACE ====================
 
     @Test
+    public void expiredRestDefersCompletionUntilHistoryCanBeChecked() {
+        long startedAt = NOW - 180_000L;
+        long requiredMs = 180_000L;
+        prefs.edit()
+                .putString("blockState", BlockStateMachine.State.RESTING.name())
+                .putLong("sessionMs", 1L)
+                .putLong(FlowForegroundService.PREF_REST_STARTED_AT, startedAt)
+                .putLong(FlowForegroundService.PREF_REST_STARTED_ELAPSED_AT, startedAt)
+                .putInt(FlowForegroundService.PREF_REST_STARTED_BOOT_COUNT, TEST_BOOT_COUNT)
+                .putLong(FlowForegroundService.PREF_REST_REQUIRED_MS, requiredMs)
+                .putLong(FlowForegroundService.PREF_REST_SESSION_ID, 2_001L)
+                .putBoolean(FlowForegroundService.PREF_REST_START_TARGET_ACTIVE, true)
+                .putBoolean(FlowForegroundService.PREF_REST_START_INTERACTION_AVAILABLE, true)
+                .putString(FlowForegroundService.PREF_REST_START_FOREGROUND_PACKAGE, "a")
+                .putStringSet(FlowForegroundService.PREF_REST_TARGET_APPS, setOf("a"))
+                .putLong(FlowForegroundService.PREF_REST_TARGET_SESSION_ID, 2_001L)
+                .putInt("limitMinutes", 25)
+                .putStringSet(PreferenceUtils.PREF_TARGET_APPS, setOf("a"))
+                .putBoolean("monitoringEnabled", true)
+                .putInt("restDuration", 180)
+                .putBoolean("allowEmergencyUnlock", true)
+                .commit();
+
+        FlowServiceStateStore store = newStore();
+        FlowServiceRecoveryCoordinator.Result result =
+                FlowServiceRecoveryCoordinator.restore(store, NOW, true);
+
+        assertFalse(result.autoCompletedRest);
+        assertTrue(result.restCompletionPending);
+        assertEquals(BlockStateMachine.State.RESTING, result.machine.getState());
+        assertTrue(result.machineSnapshot.restStartTargetActive);
+        assertTrue(result.machineSnapshot.restStartInteractionAvailable);
+        assertEquals("a", result.machineSnapshot.restStartForegroundPackage);
+        assertEquals(startedAt, store.preferences().getLong(
+                FlowForegroundService.PREF_REST_STARTED_AT, 0L));
+        assertEquals(2_001L, store.preferences().getLong(
+                FlowForegroundService.PREF_REST_SESSION_ID, 0L));
+        assertFalse(store.preferences().contains(
+                FlowForegroundService.PREF_COMPLETED_REST_SESSION_ID));
+    }
+
+    @Test
     public void restingExactlyCompleteAutoEntersGrace() {
         long startedAt = NOW - 180_000L;
         long requiredMs = 180_000L;
@@ -224,8 +274,15 @@ public class FlowServiceRecoveryIntegrationTest {
                 .putLong("sessionMs", 1L)
                 .putString("blockedPackage", "com.example.video")
                 .putLong("restStartedAt", startedAt)
+                .putLong(FlowForegroundService.PREF_REST_STARTED_ELAPSED_AT, startedAt)
+                .putInt(FlowForegroundService.PREF_REST_STARTED_BOOT_COUNT, TEST_BOOT_COUNT)
                 .putLong("restRequiredMs", requiredMs)
                 .putLong("restSessionId", 2002L)
+                .putBoolean(FlowForegroundService.PREF_REST_START_TARGET_ACTIVE, false)
+                .putBoolean(FlowForegroundService.PREF_REST_START_INTERACTION_AVAILABLE, true)
+                .putString(FlowForegroundService.PREF_REST_START_FOREGROUND_PACKAGE, "com.example.video")
+                .putStringSet(FlowForegroundService.PREF_REST_TARGET_APPS, setOf("a"))
+                .putLong(FlowForegroundService.PREF_REST_TARGET_SESSION_ID, 2002L)
                 .putInt("limitMinutes", 25)
                 .putStringSet(PreferenceUtils.PREF_TARGET_APPS, setOf("a"))
                 .putBoolean("monitoringEnabled", true)
@@ -252,6 +309,11 @@ public class FlowServiceRecoveryIntegrationTest {
         assertEquals(NOW + GRACE_MS, sp.getLong("graceUntil", 0L));
         assertFalse(sp.contains(FlowForegroundService.PREF_REST_STARTED_AT));
         assertFalse(sp.contains(FlowForegroundService.PREF_REST_REQUIRED_MS));
+        assertFalse(sp.contains(FlowForegroundService.PREF_REST_START_TARGET_ACTIVE));
+        assertFalse(sp.contains(FlowForegroundService.PREF_REST_START_INTERACTION_AVAILABLE));
+        assertFalse(sp.contains(FlowForegroundService.PREF_REST_START_FOREGROUND_PACKAGE));
+        assertFalse(sp.contains(FlowForegroundService.PREF_REST_TARGET_APPS));
+        assertFalse(sp.contains(FlowForegroundService.PREF_REST_TARGET_SESSION_ID));
         assertEquals(2002L, sp.getLong(FlowForegroundService.PREF_COMPLETED_REST_SESSION_ID, 0L));
         assertEquals(NOW + GRACE_MS, sp.getLong(
                 FlowForegroundService.PREF_COMPLETED_REST_GRACE_UNTIL, 0L));
@@ -268,8 +330,12 @@ public class FlowServiceRecoveryIntegrationTest {
                 .putLong("sessionMs", 1L)
                 .putString("blockedPackage", "com.example.video")
                 .putLong("restStartedAt", startedAt)
+                .putLong(FlowForegroundService.PREF_REST_STARTED_ELAPSED_AT, startedAt)
+                .putInt(FlowForegroundService.PREF_REST_STARTED_BOOT_COUNT, TEST_BOOT_COUNT)
                 .putLong("restRequiredMs", requiredMs)
                 .putLong("restSessionId", 3003L)
+                .putStringSet(FlowForegroundService.PREF_REST_TARGET_APPS, setOf("a"))
+                .putLong(FlowForegroundService.PREF_REST_TARGET_SESSION_ID, 3003L)
                 .putInt("limitMinutes", 25)
                 .putStringSet(PreferenceUtils.PREF_TARGET_APPS, setOf("a"))
                 .putBoolean("monitoringEnabled", true)
@@ -309,6 +375,384 @@ public class FlowServiceRecoveryIntegrationTest {
                 FlowForegroundService.PREF_COMPLETED_REST_SESSION_ID, 0L));
         assertEquals(firstCompletedGrace, store2.preferences().getLong(
                 FlowForegroundService.PREF_COMPLETED_REST_GRACE_UNTIL, 0L));
+    }
+
+    @Test
+    public void expiredLegacyRestWithoutTargetSnapshotDoesNotAutoComplete() {
+        long startedAt = NOW - 180_000L;
+        prefs.edit()
+                .putString("blockState", BlockStateMachine.State.RESTING.name())
+                .putLong("sessionMs", 1L)
+                .putLong(FlowForegroundService.PREF_REST_STARTED_AT, startedAt)
+                .putLong(FlowForegroundService.PREF_REST_STARTED_ELAPSED_AT, startedAt)
+                .putInt(FlowForegroundService.PREF_REST_STARTED_BOOT_COUNT, TEST_BOOT_COUNT)
+                .putLong(FlowForegroundService.PREF_REST_REQUIRED_MS, 180_000L)
+                .putLong(FlowForegroundService.PREF_REST_SESSION_ID, 4_004L)
+                .putStringSet(PreferenceUtils.PREF_TARGET_APPS, setOf("com.example.new"))
+                .putBoolean("monitoringEnabled", true)
+                .putInt("restDuration", 180)
+                .commit();
+
+        FlowServiceStateStore store = newStore();
+        FlowServiceRecoveryCoordinator.Result result =
+                FlowServiceRecoveryCoordinator.restore(store, NOW);
+
+        assertNull(result.machineSnapshot.restTargetApps);
+        assertFalse(result.autoCompletedRest);
+        assertTrue(result.restCompletionPending);
+        assertEquals(BlockStateMachine.State.RESTING, result.machine.getState());
+        assertFalse(store.preferences().contains(FlowForegroundService.PREF_COMPLETED_REST_SESSION_ID));
+        assertEquals(startedAt, store.preferences().getLong(
+                FlowForegroundService.PREF_REST_STARTED_AT, 0L));
+    }
+
+    @Test
+    public void emptyRestTargetSnapshotIsDistinctFromMissingSnapshot() {
+        long startedAt = NOW - 60_000L;
+        FlowServiceStateStore store = newStore();
+        assertTrue(RestBeginRequestTokenStore.persistLatestRequest(prefs, "empty-target-begin"));
+        assertTrue(store.persistBeginRest(
+                startedAt,
+                60_000L,
+                4_005L,
+                false,
+                true,
+                "com.example.other",
+                "empty-target-begin",
+                setOf(),
+                startedAt,
+                TEST_BOOT_COUNT
+        ));
+        store.persist(
+                new BlockStateMachine(BlockStateMachine.State.RESTING, 1L, 0L, 0L, ""),
+                PullbackSessionCoordinator.Snapshot.empty()
+        );
+
+        FlowServiceRecoveryCoordinator.Result result =
+                FlowServiceRecoveryCoordinator.restore(newStore(), NOW, true);
+
+        assertNotNull(result.machineSnapshot.restTargetApps);
+        assertTrue(result.machineSnapshot.restTargetApps.isEmpty());
+        assertTrue(result.restCompletionPending);
+        assertEquals(BlockStateMachine.State.RESTING, result.machine.getState());
+    }
+
+    @Test
+    public void remountedBeginRebindsLatestTokenWithoutResettingActiveRestSession() {
+        long startedAt = NOW - 45_000L;
+        long requiredMs = 180_000L;
+        long sessionId = 4_006L;
+        FlowServiceStateStore store = newStore();
+
+        assertTrue(RestBeginRequestTokenStore.persistLatestRequest(prefs, "begin-original"));
+        assertTrue(store.persistBeginRest(
+                startedAt,
+                requiredMs,
+                sessionId,
+                true,
+                true,
+                "com.example.video",
+                "begin-original",
+                setOf("com.example.video")
+        ));
+
+        // A WebView remount creates a new BEGIN request, but the same REST
+        // session must remain authoritative and cancellable by its new page.
+        assertTrue(RestBeginRequestTokenStore.persistLatestRequest(prefs, "begin-remounted"));
+        assertTrue(store.bindActiveRestBeginRequestToken("begin-remounted"));
+
+        assertEquals(startedAt, prefs.getLong(FlowForegroundService.PREF_REST_STARTED_AT, 0L));
+        assertEquals(requiredMs, prefs.getLong(FlowForegroundService.PREF_REST_REQUIRED_MS, 0L));
+        assertEquals(sessionId, prefs.getLong(FlowForegroundService.PREF_REST_SESSION_ID, 0L));
+        assertEquals("begin-remounted", prefs.getString(
+                FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN,
+                ""
+        ));
+        assertTrue(RestCancellationGate.shouldCancel(
+                BlockStateMachine.State.RESTING,
+                sessionId,
+                sessionId,
+                "begin-remounted",
+                prefs.getString(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, "")
+        ));
+    }
+
+    @Test
+    public void staleBeginCannotOverwriteNewestRequestOrPersistAnotherSession() {
+        FlowServiceStateStore store = newStore();
+        assertTrue(RestBeginRequestTokenStore.persistLatestRequest(prefs, "begin-current"));
+
+        assertFalse(store.persistBeginRest(
+                NOW,
+                180_000L,
+                4_007L,
+                false,
+                true,
+                "",
+                "begin-stale",
+                setOf("com.example.video")
+        ));
+
+        assertEquals("begin-current", prefs.getString(
+                FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN,
+                ""
+        ));
+        assertFalse(prefs.contains(FlowForegroundService.PREF_REST_SESSION_ID));
+        assertFalse(RestCancellationGate.shouldAcceptBegin(
+                "begin-stale",
+                prefs.getString(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, "")
+        ));
+    }
+
+    @Test
+    public void restCancellationCommitAtomicallyPersistsStateAndClearsSession() {
+        long sessionId = 4_008L;
+        String requestToken = "begin-cancel-commit";
+        FlowServiceStateStore store = newStore();
+        assertTrue(RestBeginRequestTokenStore.persistLatestRequest(prefs, requestToken));
+        assertTrue(store.persistBeginRest(
+                NOW - 45_000L,
+                180_000L,
+                sessionId,
+                true,
+                true,
+                "com.example.video",
+                requestToken,
+                setOf("com.example.video")
+        ));
+        BlockStateMachine machine = new BlockStateMachine(
+                BlockStateMachine.State.RESTING,
+                900_000L,
+                0L,
+                0L,
+                "com.example.video"
+        );
+        FlowServiceStateStore.Checkpoint checkpoint = new FlowServiceStateStore.Checkpoint(
+                NOW,
+                90_000L,
+                false,
+                true,
+                "com.example.other"
+        );
+        store.persist(
+                machine,
+                PullbackSessionCoordinator.Snapshot.empty(),
+                checkpoint
+        );
+
+        assertFalse(store.commitRestCancellation(
+                sessionId,
+                "stale-cancel-token",
+                BlockStateMachine.State.COGNITION,
+                machine.getSessionMs(),
+                machine.getGraceUntil(),
+                machine.getLeftTargetsAt(),
+                machine.getBlockedPackage(),
+                PullbackSessionCoordinator.Snapshot.empty(),
+                checkpoint
+        ));
+        assertEquals(BlockStateMachine.State.RESTING.name(), prefs.getString("blockState", ""));
+        assertEquals(sessionId, prefs.getLong(FlowForegroundService.PREF_REST_SESSION_ID, 0L));
+
+        assertTrue(store.commitRestCancellation(
+                sessionId,
+                requestToken,
+                BlockStateMachine.State.COGNITION,
+                machine.getSessionMs(),
+                machine.getGraceUntil(),
+                machine.getLeftTargetsAt(),
+                machine.getBlockedPackage(),
+                PullbackSessionCoordinator.Snapshot.empty(),
+                checkpoint
+        ));
+
+        assertEquals(BlockStateMachine.State.COGNITION.name(), prefs.getString("blockState", ""));
+        assertEquals(machine.getSessionMs(), prefs.getLong("sessionMs", -1L));
+        assertEquals(NOW, prefs.getLong("checkpointWallMs", 0L));
+        assertEquals(90_000L, prefs.getLong("checkpointElapsedMs", 0L));
+        assertEquals("com.example.other", prefs.getString("checkpointForegroundPackage", ""));
+        assertFalse(prefs.contains(FlowForegroundService.PREF_REST_STARTED_AT));
+        assertFalse(prefs.contains(FlowForegroundService.PREF_REST_REQUIRED_MS));
+        assertFalse(prefs.contains(FlowForegroundService.PREF_REST_SESSION_ID));
+        assertFalse(prefs.contains(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN));
+        assertFalse(prefs.contains(FlowForegroundService.PREF_REST_TARGET_APPS));
+        assertFalse(prefs.contains(FlowForegroundService.PREF_REST_TARGET_SESSION_ID));
+    }
+
+    @Test
+    public void automaticCheatCancellationKeepsAQueuedNewBeginToken() {
+        long sessionId = 4_009L;
+        FlowServiceStateStore store = newStore();
+        assertTrue(RestBeginRequestTokenStore.persistLatestRequest(prefs, "begin-original"));
+        assertTrue(store.persistBeginRest(
+                NOW - 45_000L,
+                180_000L,
+                sessionId,
+                true,
+                true,
+                "com.example.video",
+                "begin-original",
+                setOf("com.example.video"),
+                NOW - 45_000L,
+                TEST_BOOT_COUNT
+        ));
+        assertTrue(RestBeginRequestTokenStore.persistLatestRequest(prefs, "begin-new"));
+
+        BlockStateMachine machine = new BlockStateMachine(
+                BlockStateMachine.State.COGNITION, 900_000L, 0L, 0L, ""
+        );
+        assertTrue(store.commitAutomaticRestCancellation(
+                sessionId,
+                "begin-new",
+                "begin-new",
+                BlockStateMachine.State.COGNITION,
+                machine.getSessionMs(),
+                machine.getGraceUntil(),
+                machine.getLeftTargetsAt(),
+                machine.getBlockedPackage(),
+                PullbackSessionCoordinator.Snapshot.empty(),
+                new FlowServiceStateStore.Checkpoint(NOW, NOW, false, false, "")
+        ));
+
+        assertEquals(BlockStateMachine.State.COGNITION.name(),
+                prefs.getString("blockState", ""));
+        assertEquals("begin-new", prefs.getString(
+                FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, ""
+        ));
+        assertFalse(prefs.contains(FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN));
+        assertFalse(prefs.contains(FlowForegroundService.PREF_REST_SESSION_ID));
+    }
+
+    @Test
+    public void automaticCompletionKeepsAQueuedNewBeginToken() {
+        Context context = ApplicationProvider.getApplicationContext();
+        int bootCount = 17;
+        Settings.Global.putInt(
+                context.getContentResolver(), Settings.Global.BOOT_COUNT, bootCount
+        );
+        ShadowSystemClock.advanceBy(2_000L, TimeUnit.MILLISECONDS);
+        long nowWall = System.currentTimeMillis();
+        long nowElapsed = SystemClock.elapsedRealtime();
+        long sessionId = 4_010L;
+        prefs.edit()
+                .putString("blockState", BlockStateMachine.State.RESTING.name())
+                .putLong(FlowForegroundService.PREF_REST_STARTED_AT, nowWall - 2_000L)
+                .putLong(FlowForegroundService.PREF_REST_STARTED_ELAPSED_AT,
+                        nowElapsed - 2_000L)
+                .putInt(FlowForegroundService.PREF_REST_STARTED_BOOT_COUNT, bootCount)
+                .putLong(FlowForegroundService.PREF_REST_REQUIRED_MS, 1L)
+                .putLong(FlowForegroundService.PREF_REST_SESSION_ID, sessionId)
+                .putString(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, "begin-new")
+                .putString(FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN,
+                        "begin-original")
+                .putStringSet(FlowForegroundService.PREF_REST_TARGET_APPS, setOf("target"))
+                .putLong(FlowForegroundService.PREF_REST_TARGET_SESSION_ID, sessionId)
+                .commit();
+
+        assertTrue(newStore().persistAutoCompletedRest(
+                nowWall + FlowServiceStateStore.GRACE_MS,
+                sessionId,
+                nowWall,
+                nowElapsed,
+                bootCount
+        ));
+        assertEquals(BlockStateMachine.State.GRACE.name(), prefs.getString("blockState", ""));
+        assertEquals("begin-new", prefs.getString(
+                FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, ""
+        ));
+        assertFalse(prefs.contains(FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN));
+    }
+
+    @Test
+    public void failClosedSessionCleanupKeepsAQueuedNewBeginToken() {
+        prefs.edit()
+                .putString("blockState", BlockStateMachine.State.RESTING.name())
+                .putLong(FlowForegroundService.PREF_REST_SESSION_ID, 4_011L)
+                .putString(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, "begin-new")
+                .putString(FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN,
+                        "begin-original")
+                .commit();
+
+        newStore().clearActiveRestSession();
+
+        assertEquals("begin-new", prefs.getString(
+                FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, ""
+        ));
+        assertFalse(prefs.contains(FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN));
+        assertFalse(prefs.contains(FlowForegroundService.PREF_REST_SESSION_ID));
+    }
+
+    @Test
+    public void restTargetSnapshotSurvivesConfigurationChangeAndReplayCancels() {
+        String oldTarget = "com.example.old-target";
+        String newTarget = "com.example.new-target";
+        String other = "com.example.other";
+        long startedAt = NOW - 20_000L;
+        long sessionId = 5_005L;
+        FlowServiceStateStore store = newStore();
+        assertTrue(RestBeginRequestTokenStore.persistLatestRequest(prefs, "begin-request"));
+        assertTrue(store.persistBeginRest(
+                startedAt,
+                60_000L,
+                sessionId,
+                false,
+                true,
+                other,
+                "begin-request",
+                setOf(oldTarget)
+        ));
+        BlockStateMachine machine = new BlockStateMachine(
+                BlockStateMachine.State.RESTING,
+                2_000_000L,
+                0L,
+                0L,
+                ""
+        );
+        store.persist(machine, PullbackSessionCoordinator.Snapshot.empty());
+
+        // Simulate saveTargetApps/saveSettings changing the mutable next-session config.
+        prefs.edit().putStringSet(PreferenceUtils.PREF_TARGET_APPS, setOf(newTarget)).commit();
+
+        FlowServiceStateStore restartedStore = newStore();
+        FlowServiceRecoveryCoordinator.Result restored =
+                FlowServiceRecoveryCoordinator.restore(restartedStore, NOW, true);
+        assertEquals(setOf(newTarget), restored.config.targetApps);
+        assertEquals(setOf(oldTarget), restored.machineSnapshot.restTargetApps);
+
+        TargetSessionGapReconciler.Result history = TargetSessionGapReconciler.reconcile(
+                new TargetSessionGapReconciler.Input(
+                        startedAt,
+                        startedAt + 8_000L,
+                        other,
+                        false,
+                        true,
+                        restored.machineSnapshot.restTargetApps,
+                        Arrays.asList(
+                                TargetSessionGapReconciler.Event.foreground(
+                                        oldTarget, "OldTarget", startedAt + 1_000L
+                                ),
+                                TargetSessionGapReconciler.Event.foreground(
+                                        other, "Other", startedAt + 7_000L
+                                )
+                        )
+                )
+        );
+        long verifiedTargetMs = RestCheatReplay.verifiedTargetMsDuring(
+                history,
+                startedAt,
+                startedAt + 8_000L
+        );
+        RestCheatReplay.Decision decision = RestCheatReplay.applyVerifiedTargetMs(
+                restored.machine,
+                new RestCheatTracker(),
+                verifiedTargetMs,
+                LIMIT_MS
+        );
+
+        assertEquals(TargetSessionGapReconciler.Status.SUCCESS, history.status);
+        assertEquals(6_000L, verifiedTargetMs);
+        assertTrue(decision.cancelled);
+        assertEquals(BlockStateMachine.State.BLOCKED, restored.machine.getState());
     }
 
     // ==================== 7. RESTING 缺少 startedAt → 回退 ====================
@@ -586,6 +1030,8 @@ public class FlowServiceRecoveryIntegrationTest {
                 .putLong("restStartedAt", NOW - 60_000L)
                 .putLong("restRequiredMs", 180_000L)
                 .putLong("restSessionId", 6006L)
+                .putStringSet(FlowForegroundService.PREF_REST_TARGET_APPS, setOf("a"))
+                .putLong(FlowForegroundService.PREF_REST_TARGET_SESSION_ID, 6006L)
                 .putInt("limitMinutes", 25)
                 .putStringSet(PreferenceUtils.PREF_TARGET_APPS, setOf("a"))
                 .putBoolean("monitoringEnabled", true)
@@ -606,6 +1052,8 @@ public class FlowServiceRecoveryIntegrationTest {
         assertFalse(store2.preferences().contains(FlowForegroundService.PREF_REST_STARTED_AT));
         assertFalse(store2.preferences().contains(FlowForegroundService.PREF_REST_REQUIRED_MS));
         assertFalse(store2.preferences().contains(FlowForegroundService.PREF_REST_SESSION_ID));
+        assertFalse(store2.preferences().contains(FlowForegroundService.PREF_REST_TARGET_APPS));
+        assertFalse(store2.preferences().contains(FlowForegroundService.PREF_REST_TARGET_SESSION_ID));
 
         // blockState=RESTING 但 restStartedAt=0 → 回退 stateFor
         assertEquals(BlockStateMachine.State.IDLE, result.machine.getState());

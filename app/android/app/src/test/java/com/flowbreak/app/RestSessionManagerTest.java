@@ -234,6 +234,15 @@ public class RestSessionManagerTest {
         assertNull(d);
     }
 
+    @Test public void prepareBeginRestUsesCallerSuppliedSessionIdentity() {
+        long sessionId = NOW + 99L;
+        RestSessionManager.BeginRestDecision d = RestSessionManager.prepareBeginRest(
+                false, 0L, 180, NOW, sessionId
+        );
+        assertNotNull(d);
+        assertEquals(sessionId, d.sessionId);
+    }
+
     @Test public void prepareBeginRestEnforcesThirtySecondMinimum() {
         RestSessionManager.BeginRestDecision d = RestSessionManager.prepareBeginRest(
                 false,

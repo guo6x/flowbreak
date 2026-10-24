@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <title>FlowBreak — 流动之间，留一点空白</title>
+  <rect width="64" height="64" rx="18" fill="#1C5943"/>
+  <path d="M29 15C19 16 13 24 13 33C13 42 18 48 25 50V32C25 25 26 20 29 15Z" fill="#F6FAF4"/>
+  <path d="M39 14V32C39 39 38 44 35 49C45 48 51 40 51 31C51 22 46 16 39 14Z" fill="#BFE3CA"/>
+</svg>

@@ -106,7 +106,7 @@ function withRouter(node: ReactNode) {
 // state. The bootstrap calls beginRest() then getBlockState(); we return
 // a rest window that has already elapsed so the timer reads zero.
 function seedNativeRest(now: number) {
-  mockBeginRest.mockResolvedValue(undefined);
+  mockBeginRest.mockResolvedValue({ beginRequestToken: 'begin-request-101' });
   mockGetBlockState.mockResolvedValue({
     state: 'RESTING',
     sessionSeconds: 0,
@@ -114,6 +114,9 @@ function seedNativeRest(now: number) {
     blockedPackage: '',
     restStartedAt: now - 2000, // started 2s ago
     restRequiredSeconds: 2,    // 2s rest → already elapsed
+    restSessionId: 101,
+    restClockValid: true,
+    restRemainingMs: 0,
   });
 }
 
@@ -187,6 +190,7 @@ describe('RestMode completion flow (native concurrency)', () => {
     expect(mockCompleteRestAndUnlock).toHaveBeenCalledWith({
       activity: 'eye',
       duration: 2,
+      restSessionId: 101,
     });
 
     // Resolve the pending native completion.

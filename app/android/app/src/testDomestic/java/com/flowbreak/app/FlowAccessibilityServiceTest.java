@@ -19,10 +19,12 @@ import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
 import android.widget.Button;
 import androidx.test.core.app.ApplicationProvider;
+import java.lang.reflect.Proxy;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.UUID;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -34,22 +36,35 @@ import org.robolectric.android.controller.ServiceController;
 import org.robolectric.annotation.Config;
 import org.robolectric.shadows.ShadowAccessibilityService;
 import org.robolectric.shadows.ShadowLog;
+import org.robolectric.shadows.ShadowSystemClock;
 import org.robolectric.shadows.ShadowWindowManagerImpl;
+import org.robolectric.util.ReflectionHelpers;
 
 /**
  * HyperOS 强阻断 fallback 回归测试（domestic 渠道）。
  *
  * 覆盖：命中已阻断目标回 HOME、无障碍横幅入口、重复事件不堆叠、
- * BLOCKED 解除清理、BlockActivity 失败不静默、微信视频号路径、service 断开清理。
+ * BEGIN token 协议与 RESTING 幂等、BLOCKED 解除清理、
+ * BlockActivity 失败不静默、微信视频号路径、service 断开清理。
  */
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 35)
 public class FlowAccessibilityServiceTest {
+    private static final String[] PUBLISHED_SERVICE_FIELDS = {
+            "staticState", "staticSessionMs", "staticGraceUntil", "staticBlockedPackage",
+            "staticLimitMinutes", "staticTargetAppsEmpty"
+    };
     private SharedPreferences prefs;
     private ServiceController<TestableFlowAccessibilityService> controller;
     private TestableFlowAccessibilityService service;
+    private Object[] publishedServiceState;
 
     @Before public void setUp() {
+        publishedServiceState = new Object[PUBLISHED_SERVICE_FIELDS.length];
+        for (int i = 0; i < PUBLISHED_SERVICE_FIELDS.length; i++) {
+            publishedServiceState[i] = ReflectionHelpers.getStaticField(
+                    FlowForegroundService.class, PUBLISHED_SERVICE_FIELDS[i]);
+        }
         AccessibilityRuntimeState.resetForTests();
         prefs = ApplicationProvider.getApplicationContext()
                 .getSharedPreferences("FlowBreakPrefs", Context.MODE_PRIVATE);
@@ -64,6 +79,10 @@ public class FlowAccessibilityServiceTest {
         AccessibilityRuntimeState.resetForTests();
         prefs.edit().clear().commit();
         ShadowLog.reset();
+        for (int i = 0; i < PUBLISHED_SERVICE_FIELDS.length; i++) {
+            ReflectionHelpers.setStaticField(
+                    FlowForegroundService.class, PUBLISHED_SERVICE_FIELDS[i], publishedServiceState[i]);
+        }
     }
 
     private void enableBlocked(String... targets) {
@@ -142,6 +161,16 @@ public class FlowAccessibilityServiceTest {
 
         assertTrue(shadowA11y(service).getGlobalActionsPerformed().isEmpty());
         assertFalse(service.isBlockBannerShowing());
+    }
+
+    @Test public void missingStrongBlockingPreferenceDefaultsOff() {
+        enableBlocked("com.example.video");
+        prefs.edit().remove(PreferenceUtils.PREF_STRONG_BLOCKING_ENABLED).commit();
+
+        service.onAccessibilityEvent(windowEvent("com.example.video", "com.example.video.MainActivity"));
+
+        assertNoEnforcement();
+        assertFalse(prefs.contains(PreferenceUtils.PREF_STRONG_BLOCKING_ENABLED));
     }
 
     @Test public void monitoringDisabledDoesNotEnforceBlockedTarget() {
@@ -328,6 +357,111 @@ public class FlowAccessibilityServiceTest {
         Intent started = Shadows.shadowOf((ContextWrapper) service).getNextStartedService();
         assertNotNull(started);
         assertEquals(FlowForegroundService.ACTION_BEGIN_REST, started.getAction());
+        String token = started.getStringExtra(FlowForegroundService.EXTRA_REST_BEGIN_REQUEST_TOKEN);
+        assertNotNull(token);
+        assertEquals(token, UUID.fromString(token).toString());
+        assertEquals(token, prefs.getString(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, ""));
+        assertTrue(RestCancellationGate.shouldAcceptBegin(token,
+                prefs.getString(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, "")));
+    }
+
+    @Test public void repeatedBannerClicksReplaceRequestTokenAndRejectEarlierBegin() {
+        enableBlocked("com.example.video");
+        service.onAccessibilityEvent(windowEvent("com.example.video", "com.example.video.MainActivity"));
+        Button firstButton = findButton((ViewGroup) windowViews().get(0));
+        assertNotNull(firstButton);
+        firstButton.performClick();
+        Intent first = Shadows.shadowOf((ContextWrapper) service).getNextStartedService();
+        assertNotNull(first);
+
+        // A new blocked event may recreate the banner before the worker consumes BEGIN.
+        service.onAccessibilityEvent(windowEvent("com.example.video", "com.example.video.MainActivity"));
+        Button secondButton = findButton((ViewGroup) windowViews().get(0));
+        assertNotNull(secondButton);
+        secondButton.performClick();
+        Intent second = Shadows.shadowOf((ContextWrapper) service).getNextStartedService();
+        assertNotNull(second);
+
+        String firstToken = first.getStringExtra(FlowForegroundService.EXTRA_REST_BEGIN_REQUEST_TOKEN);
+        String secondToken = second.getStringExtra(FlowForegroundService.EXTRA_REST_BEGIN_REQUEST_TOKEN);
+        String activeToken = prefs.getString(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, "");
+        assertNotNull(firstToken);
+        assertNotNull(secondToken);
+        assertFalse(firstToken.equals(secondToken));
+        assertEquals(secondToken, activeToken);
+        assertFalse(RestCancellationGate.shouldAcceptBegin(firstToken, activeToken));
+        assertTrue(RestCancellationGate.shouldAcceptBegin(secondToken, activeToken));
+        assertEquals(BlockStateMachine.State.BLOCKED.name(), prefs.getString("blockState", ""));
+        assertEquals(0L, prefs.getLong(FlowForegroundService.PREF_REST_SESSION_ID, 0L));
+    }
+
+    @Test public void bannerBeginRequestEntersRealRestSessionPathAndDuplicateDoesNotResetTimer() {
+        enableBlocked("com.example.video");
+        prefs.edit().putInt("restDuration", 120).commit();
+        service.onAccessibilityEvent(windowEvent("com.example.video", "com.example.video.MainActivity"));
+        Button rest = findButton((ViewGroup) windowViews().get(0));
+        assertNotNull(rest);
+        rest.performClick();
+        Intent begin = Shadows.shadowOf((ContextWrapper) service).getNextStartedService();
+        assertNotNull(begin);
+        String token = begin.getStringExtra(FlowForegroundService.EXTRA_REST_BEGIN_REQUEST_TOKEN);
+        assertTrue(RestCancellationGate.shouldAcceptBegin(token,
+                prefs.getString(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, "")));
+
+        // Exercise the real service's rest-entry/persistence implementation without
+        // starting its worker or monitor loop. Runtime health has a separate gate suite.
+        FlowForegroundService engine = new FlowForegroundService();
+        BlockStateMachine machine = new BlockStateMachine(
+                BlockStateMachine.State.BLOCKED, 1_800_000L, 0L, 0L, "com.example.video");
+        ReflectionHelpers.setField(engine, "stateStore", new FlowServiceStateStore(
+                ApplicationProvider.getApplicationContext()));
+        ReflectionHelpers.setField(engine, "machine", machine);
+        ReflectionHelpers.setField(engine, "usageAccumulator", new UsageAccumulator());
+        ReflectionHelpers.setField(engine, "pullbackCoordinator", new PullbackSessionCoordinator());
+        ReflectionHelpers.setField(engine, "targetApps", new HashSet<>(Arrays.asList("com.example.video")));
+        ReflectionHelpers.setField(engine, "limitMinutes", 25);
+        ReflectionHelpers.callInstanceMethod(engine, "beginRestSession",
+                ReflectionHelpers.ClassParameter.from(String.class, token));
+
+        long startedAt = prefs.getLong(FlowForegroundService.PREF_REST_STARTED_AT, 0L);
+        long sessionId = prefs.getLong(FlowForegroundService.PREF_REST_SESSION_ID, 0L);
+        assertEquals(BlockStateMachine.State.RESTING, machine.getState());
+        assertEquals(BlockStateMachine.State.RESTING.name(), prefs.getString("blockState", ""));
+        assertTrue(startedAt > 0L);
+        assertTrue(sessionId > 0L);
+        assertEquals(120_000L, prefs.getLong(FlowForegroundService.PREF_REST_REQUIRED_MS, 0L));
+        assertEquals(token, prefs.getString(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, ""));
+
+        // A retained/double-clicked old banner cannot replace an active REST token.
+        rest.performClick();
+        assertNull(Shadows.shadowOf((ContextWrapper) service).getNextStartedService());
+        assertEquals(token, prefs.getString(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, ""));
+
+        ShadowSystemClock.advanceBy(Duration.ofSeconds(2));
+        ReflectionHelpers.callInstanceMethod(engine, "beginRestSession",
+                ReflectionHelpers.ClassParameter.from(String.class, token));
+        assertEquals(startedAt, prefs.getLong(FlowForegroundService.PREF_REST_STARTED_AT, 0L));
+        assertEquals(sessionId, prefs.getLong(FlowForegroundService.PREF_REST_SESSION_ID, 0L));
+        assertEquals(120_000L, prefs.getLong(FlowForegroundService.PREF_REST_REQUIRED_MS, 0L));
+    }
+
+    @Test public void failedBeginRequestCommitDoesNotDispatchOrNavigateToRest() {
+        enableBlocked("com.example.video");
+        service.onAccessibilityEvent(windowEvent("com.example.video", "com.example.video.MainActivity"));
+        Button rest = findButton((ViewGroup) windowViews().get(0));
+        assertNotNull(rest);
+        // Ignore the existing best-effort BlockActivity launch from the blocked event.
+        Shadows.shadowOf((ContextWrapper) service).getNextStartedActivity();
+        service.failPreferenceCommit = true;
+
+        rest.performClick();
+
+        assertNull(Shadows.shadowOf((ContextWrapper) service).getNextStartedService());
+        assertNull(Shadows.shadowOf((ContextWrapper) service).getNextStartedActivity());
+        assertFalse(prefs.contains(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN));
+        assertEquals(BlockStateMachine.State.BLOCKED.name(), prefs.getString("blockState", ""));
+        assertTrue(ShadowLog.getLogsForTag("FlowAccessibility").stream().anyMatch(item ->
+                item.msg != null && item.msg.contains("BEGIN_REST request token could not be persisted")));
     }
 
     @Test public void unsupportedRuntimeDoesNotSendHomeForBlockedTarget() {
@@ -445,6 +579,26 @@ public class FlowAccessibilityServiceTest {
         long nowElapsed = 1_000L;
         String integrityFailureReason = "";
         int blockActivityAttempts;
+        boolean failPreferenceCommit;
+
+        @Override public SharedPreferences getSharedPreferences(String name, int mode) {
+            SharedPreferences delegate = super.getSharedPreferences(name, mode);
+            if (!failPreferenceCommit) return delegate;
+            return (SharedPreferences) Proxy.newProxyInstance(
+                    SharedPreferences.class.getClassLoader(), new Class<?>[]{SharedPreferences.class},
+                    (proxy, method, args) -> {
+                        if (!"edit".equals(method.getName())) return method.invoke(delegate, args);
+                        SharedPreferences.Editor editor = delegate.edit();
+                        return Proxy.newProxyInstance(
+                                SharedPreferences.Editor.class.getClassLoader(),
+                                new Class<?>[]{SharedPreferences.Editor.class},
+                                (editorProxy, editorMethod, editorArgs) -> {
+                                    if ("commit".equals(editorMethod.getName())) return false;
+                                    Object result = editorMethod.invoke(editor, editorArgs);
+                                    return result == editor ? editorProxy : result;
+                                });
+                    });
+        }
 
         @Override boolean protectionRuntimeAvailable() { return runtimeAvailable; }
 

@@ -2,13 +2,15 @@ package com.flowbreak.app;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.SystemClock;
 import com.getcapacitor.JSObject;
+import java.util.Set;
 
 /**
  * 负责休息完成和解锁逻辑的高风险协调器。
  *
  * 必须保持原有操作顺序：
- * 1. 先检查已经成功提交的重试（GRACE + sessionId 匹配 completedRestSessionId）
+ * 1. 先检查已经成功提交的重试（GRACE + expectedSessionId 匹配 completedRestSessionId）
  * 2. 再验证 RESTING/sessionId/休息时长
  * 3. 使用 sessionId 防止 Room 重复写入（dbRestRecordedSessionId）
  * 4. 更新事件和 Progress
@@ -49,22 +51,46 @@ public final class NativeFlowRestCoordinator {
      *
      * Service 刷新由调用方执行，本方法只返回是否需要刷新的标记。
      */
-    public Result complete(SharedPreferences prefs, String requestedActivity) {
+    public Result complete(
+            SharedPreferences prefs,
+            String requestedActivity,
+            long expectedSessionId
+    ) {
+        synchronized (RestSessionClock.LOCK) {
+            synchronized (RestBeginRequestTokenStore.LOCK) {
+                return completeUnderClockLock(prefs, requestedActivity, expectedSessionId);
+            }
+        }
+    }
+
+    private Result completeUnderClockLock(
+            SharedPreferences prefs,
+            String requestedActivity,
+            long expectedSessionId
+    ) {
         String activity = normalizeActivity(requestedActivity);
         FlowDao dao = FlowDatabase.get(context).flowDao();
         long now = System.currentTimeMillis();
-        long sessionId = prefs.getLong(
+        long nowElapsed = SystemClock.elapsedRealtime();
+        int currentBootCount = RestSessionClock.currentBootCount(context);
+        long activeSessionId = prefs.getLong(
                 FlowForegroundService.PREF_REST_SESSION_ID, 0L
+        );
+        String activeBeginRequestToken = prefs.getString(
+                FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN, ""
+        );
+        String sessionBeginRequestToken = prefs.getString(
+                FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN, ""
         );
         String state = prefs.getString(
                 "blockState", BlockStateMachine.State.IDLE.name()
         );
 
         // A retry after a successful native commit must be idempotent:
-        // return the original grace window instead of awarding points twice.
+        // expectedSessionId comes from the service only after its history gate accepts it.
         if (BlockStateMachine.State.GRACE.name().equals(state)
-                && sessionId > 0L
-                && sessionId == prefs.getLong(
+                && expectedSessionId > 0L
+                && expectedSessionId == prefs.getLong(
                         FlowForegroundService.PREF_COMPLETED_REST_SESSION_ID, -1L
                 )) {
             ProgressEntity existing = dao.getProgress();
@@ -79,18 +105,58 @@ public final class NativeFlowRestCoordinator {
             return new Result(result, false);
         }
 
+        // Legacy REST sessions did not bind the target set used by the
+        // completion-history gate. Never let a direct coordinator caller
+        // convert one of those sessions into GRACE without that evidence.
+        Set<String> restTargetSnapshot;
+        try {
+            restTargetSnapshot = prefs.getStringSet(
+                    FlowForegroundService.PREF_REST_TARGET_APPS, null
+            );
+        } catch (ClassCastException malformedSnapshot) {
+            restTargetSnapshot = null;
+        }
+        if (!prefs.contains(FlowForegroundService.PREF_REST_TARGET_APPS)
+                || restTargetSnapshot == null
+                || prefs.getLong(FlowForegroundService.PREF_REST_TARGET_SESSION_ID, 0L)
+                        != expectedSessionId) {
+            throw new RestPendingException();
+        }
+
         long startedAt = prefs.getLong(
                 FlowForegroundService.PREF_REST_STARTED_AT, 0L
+        );
+        long startedAtElapsed = prefs.getLong(
+                FlowForegroundService.PREF_REST_STARTED_ELAPSED_AT, 0L
+        );
+        int startedBootCount = prefs.getInt(
+                FlowForegroundService.PREF_REST_STARTED_BOOT_COUNT, -1
         );
         long requiredMs = prefs.getLong(
                 FlowForegroundService.PREF_REST_REQUIRED_MS, 0L
         );
         if (!BlockStateMachine.State.RESTING.name().equals(state)
-                || sessionId <= 0L
-                || !RestSessionValidator.isComplete(startedAt, requiredMs, now)) {
+                || expectedSessionId <= 0L
+                || activeSessionId != expectedSessionId
+                || !RestSessionClock.isValid(
+                        expectedSessionId,
+                        prefs.getLong(
+                                FlowForegroundService.PREF_REST_CLOCK_INVALIDATED_SESSION_ID, 0L
+                        ),
+                        startedAt,
+                        startedAtElapsed,
+                        startedBootCount,
+                        now,
+                        nowElapsed,
+                        currentBootCount
+                )
+                || !RestSessionValidator.isComplete(
+                        startedAtElapsed, requiredMs, nowElapsed
+                )) {
             throw new RestPendingException();
         }
 
+        long sessionId = expectedSessionId;
         long duration = requiredMs / 1000L;
         // 幂等保护：用 sessionId 标记 DB 写入是否已完成。
         // 如果 prefs commit 失败导致前端重试，此处可拦截重复的 DB 写入。
@@ -126,13 +192,24 @@ public final class NativeFlowRestCoordinator {
             firstRest = false;
         }
         long graceUntil = now + UNLOCK_MS;
-        boolean committed = prefs.edit()
+        SharedPreferences.Editor editor = prefs.edit()
                 .putString("blockState", BlockStateMachine.State.GRACE.name())
                 .putLong("sessionMs", 0)
                 .putLong("graceUntil", graceUntil)
                 .putString("blockedPackage", "")
                 .remove(FlowForegroundService.PREF_REST_STARTED_AT)
+                .remove(FlowForegroundService.PREF_REST_STARTED_ELAPSED_AT)
+                .remove(FlowForegroundService.PREF_REST_STARTED_BOOT_COUNT)
+                .remove(FlowForegroundService.PREF_REST_CLOCK_INVALIDATED_SESSION_ID)
                 .remove(FlowForegroundService.PREF_REST_REQUIRED_MS)
+                .remove(FlowForegroundService.PREF_REST_SESSION_ID)
+                .remove(FlowForegroundService.PREF_REST_START_TARGET_ACTIVE)
+                .remove(FlowForegroundService.PREF_REST_START_INTERACTION_AVAILABLE)
+                .remove(FlowForegroundService.PREF_REST_START_FOREGROUND_PACKAGE)
+                .remove(FlowForegroundService.PREF_REST_SESSION_BEGIN_REQUEST_TOKEN)
+                .remove(FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN)
+                .remove(FlowForegroundService.PREF_REST_TARGET_APPS)
+                .remove(FlowForegroundService.PREF_REST_TARGET_SESSION_ID)
                 .putLong(FlowForegroundService.PREF_COMPLETED_REST_SESSION_ID, sessionId)
                 .putLong(FlowForegroundService.PREF_COMPLETED_REST_GRACE_UNTIL, graceUntil)
                 .putLong(FlowForegroundService.PREF_PULLBACK_SESSION_ID, sessionId)
@@ -143,7 +220,20 @@ public final class NativeFlowRestCoordinator {
                 .putBoolean(FlowForegroundService.PREF_PULLBACK_RETURN_REPORTED, false)
                 .putBoolean(FlowForegroundService.PREF_PULLBACK_RESOLVED, false)
                 .putBoolean(FlowForegroundService.PREF_PULLBACK_SUCCESS, false)
-                .commit();
+                ;
+        // A newer BEGIN request may have been persisted while the WebView was
+        // remounting. Keep that token alive so its queued command can create a
+        // fresh session after this one settles; consume the token that created
+        // the completed session.
+        if (activeBeginRequestToken != null
+                && !activeBeginRequestToken.isEmpty()
+                && !activeBeginRequestToken.equals(sessionBeginRequestToken)) {
+            editor.putString(
+                    FlowForegroundService.PREF_REST_BEGIN_REQUEST_TOKEN,
+                    activeBeginRequestToken
+            );
+        }
+        boolean committed = editor.commit();
         if (!committed) throw new IllegalStateException("无法保存解锁状态");
         JSObject result = new JSObject();
         result.put("graceUntil", graceUntil);

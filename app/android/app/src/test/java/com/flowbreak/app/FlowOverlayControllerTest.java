@@ -1,7 +1,9 @@
 package com.flowbreak.app;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 public class FlowOverlayControllerTest {
@@ -75,5 +77,43 @@ public class FlowOverlayControllerTest {
         // 59_000ms = 59 秒 = 0:59
         String result = FlowOverlayController.formatGraceCountdown(NOW + 59_000L, NOW);
         assertEquals("访问窗口还剩 0:59 · 准备保存进度", result);
+    }
+
+    @Test public void pendingOverlayShowIsInvalidatedByDismiss() {
+        FlowOverlayController.GenerationGate gate = new FlowOverlayController.GenerationGate();
+
+        long pendingShow = gate.issue();
+        assertTrue(gate.isCurrent(pendingShow));
+
+        // Models dismiss* running before the Handler executes the queued show.
+        gate.invalidate();
+        assertFalse(gate.isCurrent(pendingShow));
+    }
+
+    @Test public void newerOverlayShowSupersedesOlderPendingShow() {
+        FlowOverlayController.GenerationGate gate = new FlowOverlayController.GenerationGate();
+
+        long firstShow = gate.issue();
+        long replacementShow = gate.issue();
+
+        assertFalse(gate.isCurrent(firstShow));
+        assertTrue(gate.isCurrent(replacementShow));
+    }
+
+    @Test public void clearCallbacksInvalidationLeavesNoPendingGeneration() {
+        FlowOverlayController.GenerationGate blocker = new FlowOverlayController.GenerationGate();
+        FlowOverlayController.GenerationGate warning = new FlowOverlayController.GenerationGate();
+        FlowOverlayController.GenerationGate grace = new FlowOverlayController.GenerationGate();
+
+        long blockerShow = blocker.issue();
+        long warningShow = warning.issue();
+        long graceShow = grace.issue();
+        blocker.invalidate();
+        warning.invalidate();
+        grace.invalidate();
+
+        assertFalse(blocker.isCurrent(blockerShow));
+        assertFalse(warning.isCurrent(warningShow));
+        assertFalse(grace.isCurrent(graceShow));
     }
 }

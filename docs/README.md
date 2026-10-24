@@ -4,6 +4,8 @@
 
 ## 阅读顺序
 
+第一次使用产品：先读 [使用指南](USER_GUIDE.md)。维护视觉和图标：读 [品牌与界面设计参考](BRAND.md)。这两份分别是面向用户的操作指南与面向开发者的设计参考，不取代产品规范或验收证据。
+
 第一次接手项目（新 AI / 新开发者）：
 
 1. [`docs/PRODUCT.md`](PRODUCT.md) — 产品是什么、现在应该怎么工作
@@ -14,7 +16,9 @@
 
 准备测试时：先读 [`docs/TESTING.md`](TESTING.md)。
 
-准备发布时：先读 [`docs/RELEASE.md`](RELEASE.md)。
+准备发布时：先读 [`docs/RELEASE.md`](RELEASE.md)；Gate F / `FB-P1-08` 的设备证据边界与复验步骤见 [`FB-P1-08-FINAL-DEVICE-HANDOFF.md`](FB-P1-08-FINAL-DEVICE-HANDOFF.md)。
+
+跨域审查集成风险时：参考 [`INTEGRATION_RISK_MATRIX.md`](INTEGRATION_RISK_MATRIX.md)；它可列出待验证的 WIP 行为与风险，但不是当前门禁/测试结果的事实源。离线视觉概览草稿在 [`INTEGRATION_ACCEPTANCE_DRAFT.html`](INTEGRATION_ACCEPTANCE_DRAFT.html)，不取代单一事实源文档。
 
 做文档变更时：先读 [`docs/docs-audit.md`](docs-audit.md) 了解本体系如何建立。
 
@@ -40,11 +44,16 @@
 | 信息类型 | 唯一归属 |
 | ---- | ---- |
 | 产品行为规范（现在应该怎么工作） | `docs/PRODUCT.md` |
+| 新用户操作与常见问题 | `docs/USER_GUIDE.md`（引用产品规范） |
+| 品牌资产与界面设计参考 | `docs/BRAND.md` |
 | 技术架构、组件、数据流 | `docs/ARCHITECTURE.md` |
 | 项目当前状态、基线、阶段 | `docs/CURRENT_STATUS.md` |
 | 自动化测试层级、CI、真机证据标准 | `docs/TESTING.md` |
 | 未解决问题（Bug） | `docs/KNOWN_ISSUES.md` |
 | 发布门禁与发布状态 | `docs/RELEASE.md` |
+| FB-P1-08 / Gate F 设备验收方法与证据边界 | `docs/FB-P1-08-FINAL-DEVICE-HANDOFF.md`（方法说明，不是验收证据） |
+| 跨域集成风险与待验证 WIP 行为 | `docs/INTEGRATION_RISK_MATRIX.md`（风险索引；不取代候选/门禁/测试事实源） |
+| 离线验收报告草稿 | `docs/INTEGRATION_ACCEPTANCE_DRAFT.html`（展示草稿，不是规范或验收结论） |
 | 开发环境、命令、提交规范 | `docs/DEVELOPMENT.md` |
 | 版本变更历史 | 根目录 `CHANGELOG.md` |
 | 隐私政策 | 根目录 `PRIVACY.md` |
@@ -54,5 +63,6 @@
 ## 防过时规则
 
 - 当前 HEAD、测试数量、CI Run ID、APK SHA 等易变事实**只允许**出现在 `CURRENT_STATUS.md` 和 `TESTING.md` 的验证快照中，其他文档只引用不复制。
+- 风险矩阵可记录需要复核的设计风险与 WIP 验证清单，但不得固化候选 SHA、CI、产物或门禁的易变结果；离线展示报告同样不是验收结论。候选最终化后应更新 `CURRENT_STATUS.md` / `TESTING.md`，而不是复制一份状态表。
 - 同一事实只写一次；新文档发现重复内容时应指向唯一归属文档。
 - 仓库文档不依赖任何一台电脑的绝对路径；设备原始证据不入 Git 仓库，由测试工作区外部保存（见 `TESTING.md` 验证快照元数据说明）。

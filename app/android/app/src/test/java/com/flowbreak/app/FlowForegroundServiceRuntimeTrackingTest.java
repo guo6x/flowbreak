@@ -329,6 +329,68 @@ public class FlowForegroundServiceRuntimeTrackingTest {
         assertFalse(FlowForegroundService.shouldCancelRestForIntegrityFailure(null));
     }
 
+    @Test public void coldStartBlockedRestoresTrustedCheckpointPackage() {
+        FlowServiceStateStore.MachineSnapshot snapshot = new FlowServiceStateStore.MachineSnapshot(
+                BlockStateMachine.State.BLOCKED,
+                900_000L,
+                0L,
+                0L,
+                "com.example.persisted",
+                0L,
+                0L,
+                0L,
+                2_000_000L,
+                1_000_000L,
+                true,
+                true,
+                "com.example.video"
+        );
+
+        assertEquals(
+                "com.example.video",
+                FlowForegroundService.restoreBlockedForegroundPackage(
+                        snapshot,
+                        new HashSet<>(Arrays.asList(
+                                "com.example.video",
+                                "com.example.persisted"
+                        ))
+                )
+        );
+    }
+
+    @Test public void coldStartBlockedFallsBackToPersistedPackageOnlyForCurrentTarget() {
+        FlowServiceStateStore.MachineSnapshot snapshot = new FlowServiceStateStore.MachineSnapshot(
+                BlockStateMachine.State.BLOCKED,
+                900_000L,
+                0L,
+                0L,
+                "com.example.video",
+                0L,
+                0L,
+                0L,
+                0L,
+                0L,
+                false,
+                false,
+                ""
+        );
+
+        assertEquals(
+                "com.example.video",
+                FlowForegroundService.restoreBlockedForegroundPackage(
+                        snapshot,
+                        new HashSet<>(Arrays.asList("com.example.video"))
+                )
+        );
+        assertEquals(
+                "",
+                FlowForegroundService.restoreBlockedForegroundPackage(
+                        snapshot,
+                        new HashSet<>(Arrays.asList("com.example.other"))
+                )
+        );
+    }
+
     private BlockStateMachine freshMachine() {
         return new BlockStateMachine(BlockStateMachine.State.IDLE, 0L, 0L, 0L, "");
     }
