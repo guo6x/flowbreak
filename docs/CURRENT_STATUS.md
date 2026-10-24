@@ -5,31 +5,33 @@
 
 ## 当前合并基线与验证来源（2026-10-24）
 
-PR #42 已于 2026-10-23 合并到 `master`，merge SHA = `67d1b7c3ee82ef4f6dd275299d51969869d7db4d`。仍开放的 Protection Integrity P1 是 PR #29（分支 `fix/fb-p1-08-protection-integrity`，HEAD `b00b9cc75073e77759e28ba5b71f960033cbf1d5`）；它与 PR #42 的合并身份分开记录，不能把其失败 CI 或历史取证倒灌为 master、真机或 24 小时验收结果。本轮运行时代码修复位于 `8cf1d653fe34d01096130322199ed4f4d6623039`；PR #43 的完整候选验证提交为 `c378b842f6acbde791f47a762dc61ae05d55d014`，只包含状态文档收口。完整候选的 [Run `40038753797`](https://github.com/guo6x/flowbreak/actions/runs/40038753797) `verify` 成功、`release` 按策略跳过，unsigned 产物已上传并可复核；master 的 [Run `39928579175`](https://github.com/guo6x/flowbreak/actions/runs/39928579175) 保留为合并基线。上述证据只覆盖 hosted 工程验证，不扩大为生产签名、真机或 24 小时稳定性通过。旧产物和旧 Run 仍只归属原始 source SHA。
+PR #42 已于 2026-10-23 合并到 `master`，merge SHA = `67d1b7c3ee82ef4f6dd275299d51969869d7db4d`。仍开放的 Protection Integrity P1 是 PR #29（分支 `fix/fb-p1-08-protection-integrity`，HEAD `b00b9cc75073e77759e28ba5b71f960033cbf1d5`）；它与 PR #42 的合并身份分开记录，不能把其失败 CI 或历史取证倒灌为 master、真机或 24 小时验收结果。本轮运行时代码修复位于 `8cf1d653fe34d01096130322199ed4f4d6623039`；PR #43 的最新完整候选 HEAD 为 `a66013d4f24bd6e282eda0904f6c735afcfa0446`，其上收口状态文档。最新候选的 [Run `40039686623`](https://github.com/guo6x/flowbreak/actions/runs/40039686623) `verify` 成功、`release` 按策略跳过，unsigned 产物已上传并可复核；master 的 [Run `39928579175`](https://github.com/guo6x/flowbreak/actions/runs/39928579175) 保留为合并基线。上述 hosted 证据只覆盖工程验证，不扩大为生产签名、真机候选安装或 24 小时稳定性通过。旧产物和旧 Run 仍只归属原始 source SHA。
 
 | 项 | 当前可核验状态 |
 | ---- | ---- |
 | 当前 master HEAD | `67d1b7c3ee82ef4f6dd275299d51969869d7db4d`（PR #42 merge commit） |
 | 未合并 P1 取证分支 HEAD | `b00b9cc75073e77759e28ba5b71f960033cbf1d5`（PR #29 OPEN；最近一次 verify FAILURE，不能并入当前候选） |
 | 运行时代码 SHA | `8cf1d653fe34d01096130322199ed4f4d6623039`（Android REST 作弊持久化失败时 fail closed；含回归测试） |
-| 本轮候选验证 HEAD | `c378b842f6acbde791f47a762dc61ae05d55d014`（仅在运行时代码之上收口三份状态文档） |
+| 本轮候选验证 HEAD | `a66013d4f24bd6e282eda0904f6c735afcfa0446`（运行时代码与三份状态文档收口） |
 | 本轮收口分支 | `integration/flowbreak-closeout-20261024`（PR #43，Draft/Open；基于 master `67d1b7c3…`，代码与文档均已推送） |
-| 最新候选 CI | 完整候选验证 HEAD 的 [Run `40038753797`](https://github.com/guo6x/flowbreak/actions/runs/40038753797) `verify` **PASS**；双渠道 JVM/Lint/Debug/unsigned Release、R8、Room、Manifest、Provenance 与审计均通过；`release` **SKIPPED** |
+| 最新候选 CI | 完整候选验证 HEAD 的 [Run `40039686623`](https://github.com/guo6x/flowbreak/actions/runs/40039686623) `verify` **PASS**；双渠道 JVM/Lint/Debug/unsigned Release、R8、Room、Manifest、Provenance 与审计均通过；`release` **SKIPPED** |
 | 工程集成身份 | **INTEGRATION_ENGINEERING_READY / DEVICE_ACCEPTANCE_PENDING**；PR #42 已 MERGED，PR #43 仍 Draft/Open；不创建正式 tag |
 | 历史 unsigned 产物 | hosted verify [Run `39301143402`](https://github.com/guo6x/flowbreak/actions/runs/39301143402)（source `f7abbad7…`）：[artifact `flowbreak-unsigned-f7abbad…`](https://github.com/guo6x/flowbreak/actions/runs/39301143402/artifacts/12211868639)；Play AAB SHA-256 `989af971a7683ba615fca335335c44b51acbf6e96c97fc8ef15aca995c0c796`；Domestic unsigned Release APK SHA-256 `cc8e9f01cb11d41ef58ff25751863496ab47bb36a82e74069216d361d488376e`；`versionCode=1`、`versionName=ci-2a7b01cceecf46031ec5ea04ac43b467fd280453`，只归属该旧 SHA；本地 `1.1.0` unsigned 包仅为功能基线/AVD 使用 |
-| 最后完成的工程验证快照 | 完整候选验证 HEAD `c378b842f6acbde791f47a762dc61ae05d55d014` / Run `40038753797`：Vitest **296/296 PASS**；UI smoke **44/44**；Brand **36/36**；Privacy static **15/15**；Provenance **20/20**；Release policy **8/8**；Web asset sync **50/50**；同源 JUnit Play **456/456**、Domestic **489/489**，0 failure/error/skip；双渠道 JVM/Lint/Debug/unsigned Release、R8、Room、Manifest 与包内 provenance 检查均 PASS（详见 [TESTING.md](TESTING.md)）。运行时代码 SHA `8cf1d653…` 的先前 Run `40033048741` 仍单独保留 |
-| 最后完成的 unsigned provenance artifact | 完整候选 [Run `40038753797`](https://github.com/guo6x/flowbreak/actions/runs/40038753797) 的 [artifact `flowbreak-unsigned-c378b842…`](https://github.com/guo6x/flowbreak/actions/runs/40038753797/artifacts/12538800501)（source `c378b842…`，ID `12538800501`）；Play AAB SHA-256 `8f8b8b774facf4fe79e2d8b1974c7b5eed8de7a35c843670a7b4d7bc902096bd`；Domestic unsigned Release APK SHA-256 `547aa287f47f1c7ed17e1d35c3afcdeab1e3f41c7e0569e3b4e7f4b9595e0a2a`；均为 `UNSIGNED / TEST ONLY` |
+| 最后完成的工程验证快照 | 完整候选验证 HEAD `a66013d4f24bd6e282eda0904f6c735afcfa0446` / Run `40039686623`：Vitest **296/296 PASS**；UI smoke **44/44**；Brand **36/36**；Privacy static **15/15**；Provenance **20/20**；Release policy **8/8**；Web asset sync **50/50**；同源 JUnit Play **456/456**、Domestic **489/489**，0 failure/error/skip；双渠道 JVM/Lint/Debug/unsigned Release、R8、Room、Manifest 与包内 provenance 检查均 PASS（详见 [TESTING.md](TESTING.md)）。运行时代码 SHA `8cf1d653…` 的先前 Run `40033048741` 仍单独保留 |
+| 最后完成的 unsigned provenance artifact | 完整候选 [Run `40039686623`](https://github.com/guo6x/flowbreak/actions/runs/40039686623) 的 [artifact `flowbreak-unsigned-a66013d…`](https://github.com/guo6x/flowbreak/actions/runs/40039686623/artifacts/12539036479)（source `a66013d…`，ID `12539036479`）；Play AAB SHA-256 `97ebb2efa038f3f6c250f1a2c7bcf2ac0673bdffda8012725b80d0b6710a5062`；Domestic unsigned Release APK SHA-256 `8bb6c5cbca1f487b81ea579c3759be297837753dbdaff4230e7071c422f0123f`；均为 `UNSIGNED / TEST ONLY` |
 | npm audit（GitHub CI，生产依赖 high） | **PASS — 0 vulnerabilities** |
 | npm audit（GitHub CI，全依赖 critical） | **PASS**；开发依赖仍有 Vite high advisory，不能写成“全依赖零漏洞” |
 | npm audit（本地镜像） | **BLOCKED / NOT_PASS**：`https://registry.npmmirror.com` 返回 404/`NOT_IMPLEMENTED`；不覆盖 hosted CI 结论 |
 | API 36 AVD | **受控范围 PASS**：`Medium_Phone_API_36.0` / `emulator-5554`；启动、权限页 0/2、系统 Usage Access/Overlay 页面往返、个性化、目标应用选择、首页、统计、个人中心、阻断设置和运行诊断均已截图；证据目录 `D:\temp\flowbreak-avd-evidence-20261019` |
 | AVD 诊断边界 | 诊断页显示服务心跳、监控线程、设备支持、监控配置、关键权限、Room v3 和 1 个目标应用；这是模拟器受控证据，不是 Redmi/HyperOS 后台稳定性或真实用户证据 |
+| 2026-10-24 USB 实体机 smoke | **PASS_UNSUPPORTED_SCOPE_ONLY**：vivo `V2073A` / Android 13 / SDK 33；现有已签名 Domestic v1.1.0（APK SHA-256 `2ee7d214…`，来源 `2af5e93…`）的 Dashboard 与 Diagnostics 均显示 `设备不支持` / `protectionRuntimeAvailable=false`，未发现 FlowBreak 保护 FGS；强制停止后重新打开可恢复，未见 `FATAL EXCEPTION`。这不是 PR #43 候选包验收 |
+| 2026-10-24 候选安装边界 | **NOT_EXECUTED**：最新 CI Domestic APK `8bb6c5cb…` 是 unsigned，`adb install -r` 被系统以 `INSTALL_PARSE_FAILED_NO_CERTIFICATES` 拒绝；未卸载、未清除现有签名包，候选 SHA 与设备包 SHA 不混用。原始截图/日志/UI dump：`D:\temp\flowbreak-device-evidence-20261024` |
 | Gate A–E | 既有发布基线的历史/支持范围证据保留；不转移为本候选的真实设备验收 |
 | Gate F | **FAIL / NOT_CLOSED** — Issue #28 / `FB-P1-08` 仍开放；24 小时稳定性 `NOT_EXECUTED`，AVD/JVM/CI 不关闭此门禁 |
 | Gate G | **PENDING_CROSS_MACHINE_RECOVERY** — 跨机器签名恢复与真实版本升级仍未完成；当前无签名发布包 |
 | Gate H | **PENDING** — 发行主体、公开政策 URL/联系方式、备案与商店材料/提交均未完成；当前候选仅有无手机合规准备 |
 | Gate I | **PENDING / NOT_STARTED** — 尚无真实小规模 Beta |
-| 独立复审 | PR #42 全部合并差异与 PR #43 最新 Android 修复已复核；saveSettings/saveTargetApps 的原生状态对账、REST marker 写入/提交失败 fail-closed 与清理路径均有回归覆盖；未发现新的 P0/P1/P2 代码阻断。PR #29 的 Protection Integrity 与 24 小时稳定性仍按 Gate F 保持未关闭。运行时网络、真机与 24 小时稳定性仍未完成 |
+| 独立复审 | PR #42 全部合并差异与 PR #43 最新 Android 修复已复核；saveSettings/saveTargetApps 的原生状态对账、REST marker 写入/提交失败 fail-closed 与清理路径均有回归覆盖；本轮 USB smoke 仅确认 vivo/iQOO fail-closed 边界，未发现新的 P0/P1/P2 代码阻断。PR #29 的 Protection Integrity 与 24 小时稳定性仍按 Gate F 保持未关闭；最新 unsigned 候选尚未安装到实体机 |
 | 合并与发布边界 | 2026-10-23 用户授权在最新 checks 通过后执行常规工程合并及冗余分支清理；合并不关闭设备/发布门禁。`STORE_READY=NO`；`PRODUCTION_RELEASE_APPROVED=NO`；不得 force-push、读取生产签名材料或创建正式 release |
 
 本工作允许使用 Android 虚拟设备开展受控功能与界面验证，但 AVD 不模拟 Redmi/HyperOS 的后台调度，也不能替代 Gate F 的真实设备与 24 小时稳定性门禁。每次修补后的 HEAD、hosted CI 与合并决定单独记录在 PR；仍需真实设备、运行时网络与其它发布门禁。

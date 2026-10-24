@@ -4,11 +4,11 @@
 
 ## 当前集成验证来源（2026-10-24 核对，历史计数与产物不转移）
 
-- 当前 master 基线：`67d1b7c3ee82ef4f6dd275299d51969869d7db4d`（PR #42 merge）；运行时代码 SHA：`8cf1d653fe34d01096130322199ed4f4d6623039`（Android REST 作弊取消持久化失败时 fail closed，并补齐回归测试）；PR #43 的完整候选验证 HEAD：`c378b842f6acbde791f47a762dc61ae05d55d014`（其上仅有三份状态文档收口）。仍开放的 PR #29 保护完整性分支快照为 `b00b9cc75073e77759e28ba5b71f960033cbf1d5`，各 SHA 证据不互相转移。
-- 最新完整候选 hosted verify [Run `40038753797`](https://github.com/guo6x/flowbreak/actions/runs/40038753797) **PASS**，release 按策略 **SKIPPED**；运行时代码 SHA 的上一轮 [Run `40033048741`](https://github.com/guo6x/flowbreak/actions/runs/40033048741) 与 master 基线 [Run `39928579175`](https://github.com/guo6x/flowbreak/actions/runs/39928579175) 仍单独保留。旧 Run/产物仍只归属原始 SHA。
+- 当前 master 基线：`67d1b7c3ee82ef4f6dd275299d51969869d7db4d`（PR #42 merge）；运行时代码 SHA：`8cf1d653fe34d01096130322199ed4f4d6623039`（Android REST 作弊取消持久化失败时 fail closed，并补齐回归测试）；PR #43 的最新完整候选验证 HEAD：`a66013d4f24bd6e282eda0904f6c735afcfa0446`（其上收口状态文档）。仍开放的 PR #29 保护完整性分支快照为 `b00b9cc75073e77759e28ba5b71f960033cbf1d5`，各 SHA 证据不互相转移。
+- 最新完整候选 hosted verify [Run `40039686623`](https://github.com/guo6x/flowbreak/actions/runs/40039686623) **PASS**，release 按策略 **SKIPPED**；运行时代码 SHA 的上一轮 [Run `40033048741`](https://github.com/guo6x/flowbreak/actions/runs/40033048741) 与 master 基线 [Run `39928579175`](https://github.com/guo6x/flowbreak/actions/runs/39928579175) 仍单独保留。旧 Run/产物仍只归属原始 SHA。
 - 目标状态为 **`INTEGRATION_ENGINEERING_READY / DEVICE_ACCEPTANCE_PENDING`**；常规工程合并不代表正式发布；模拟器、JVM、静态检查和 unsigned 产物都不能关闭真实设备 Gate F。
 
-> 下表中的自动化数字与审计结论均来自完整候选验证 HEAD `c378b842…` / Run `40038753797`；运行时代码 SHA `8cf1d653…` / Run `40033048741` 作为前一阶段代码验证历史保留。
+> 下表中的自动化数字与审计结论均来自完整候选验证 HEAD `a66013d4…` / Run `40039686623`；运行时代码 SHA `8cf1d653…` / Run `40033048741` 作为前一阶段代码验证历史保留。
 
 | 检查 | 结果与边界 |
 | ---- | ---- |
@@ -22,17 +22,20 @@
 | 双渠道 Lint | **PASS**；0 error（warnings 仅为既有工具链提示） |
 | 双渠道 Debug / unsigned Release | **PASS**；Play AAB 与 Domestic unsigned Release APK 均成功生成，R8/Room/Manifest 检查通过 |
 | Web → Android 同步 | **50 / 50 PASS**；Capacitor Web 资产与 Android assets SHA-256 一致 |
-| unsigned 产物 provenance | 完整候选 Run `40038753797` 的 unsigned provenance **PASS**，sourceGitSha = `c378b842…`；artifact `flowbreak-unsigned-c378b842…`（ID `12538800501`）仅为 TEST ONLY。运行时代码 SHA `8cf1d653…` 的 artifact 仍保留在 Run `40033048741` |
-| npm audit（GitHub CI，生产依赖 high） | **PASS — 0 vulnerabilities**（完整候选 Run `40038753797`） |
-| npm audit（GitHub CI，全依赖 critical） | **PASS**（完整候选 Run `40038753797`）；开发依赖仍有 Vite high advisory，不能写成全依赖零漏洞 |
+| unsigned 产物 provenance | 完整候选 Run `40039686623` 的 unsigned provenance **PASS**，sourceGitSha = `a66013d4…`；artifact `flowbreak-unsigned-a66013d…`（ID `12539036479`）仅为 TEST ONLY。Play AAB SHA-256 `97ebb2efa…`；Domestic unsigned APK SHA-256 `8bb6c5cb…`。运行时代码 SHA `8cf1d653…` 的 artifact 仍保留在 Run `40033048741` |
+| npm audit（GitHub CI，生产依赖 high） | **PASS — 0 vulnerabilities**（完整候选 Run `40039686623`） |
+| npm audit（GitHub CI，全依赖 critical） | **PASS**（完整候选 Run `40039686623`）；开发依赖仍有 Vite high advisory，不能写成全依赖零漏洞 |
 | npm audit（本地镜像） | **BLOCKED / NOT_PASS**；当前配置的 `https://registry.npmmirror.com` 返回 404/`NOT_IMPLEMENTED`，不覆盖 hosted CI 结果 |
 | API 36 AVD 启动与页面 | **受控范围 PASS**：`Medium_Phone_API_36.0` / Android 16 / API 36 / `emulator-5554`；Domestic debug 安装后启动，Onboarding、权限页、个性化、目标应用、首页、统计、个人中心、阻断设置、诊断均已截图 |
 | AVD 权限往返 | 初始权限页 **0/2**；Usage Access 与 Display over other apps 系统页可打开并返回，随后仅在模拟器上通过 app-op 受控授予进行后续页面 smoke；未触碰真实手机、未读取签名材料 |
 | AVD 诊断与服务 | 诊断页显示服务心跳、监控线程、设备支持、已配置、关键权限、Room v3 和 1 个目标应用；服务 `isForeground=true`。这是模拟器证据，不是 Redmi/HyperOS 或 24h 稳定性证据 |
 | 崩溃检查 | 本次筛选日志未见 `FATAL EXCEPTION` / `AndroidRuntime` fatal；WebView variations seed 告警属于系统环境提示 |
-| Instrumentation / 真机 / 发布 | 未运行 connected instrumentation；无真实手机/OEM smoke、24h soak、生产签名、商店审核或正式发布 |
+| 2026-10-24 USB 实体机 smoke | **PASS_UNSUPPORTED_SCOPE_ONLY**：vivo `V2073A` / Android 13 / SDK 33；现有已签名 Domestic v1.1.0（APK SHA-256 `2ee7d214…`，来源 `2af5e93…`）的 Dashboard/Diagnostics 显示设备不支持、保护能力不可用、未发现 FlowBreak 保护 FGS；force-stop 后重新打开恢复，未见 fatal crash。此结果不代表 PR #43 候选包 |
+| 候选安装与 Gate F | **NOT_EXECUTED / STILL OPEN**：PR #43 最新 Domestic APK 为 unsigned，`adb install -r` 返回 `INSTALL_PARSE_FAILED_NO_CERTIFICATES`；未卸载或清除现有签名包。connected instrumentation、候选 APK 真机 smoke、24h soak、生产签名、商店审核和正式发布仍未完成 |
 
 AVD 截图与脱敏日志保存在工作区外：`D:\temp\flowbreak-avd-evidence-20261019`。该目录中的截图仅证明指定 API 36 模拟器的受控页面和权限状态，不能转译为 Gate F/G/H/I 通过。
+
+实体机本轮原始截图、UI dump、logcat、包信息和安装失败输出保存在工作区外：`D:\temp\flowbreak-device-evidence-20261024`。本轮只使用已安装签名包做兼容性/失效保护边界复验；未使用生产签名，也未将 unsigned 候选强行安装。该设备属于 v1.1.0 明确 fail-closed 的 vivo/iQOO 范围，不能关闭 Issue #28 / `FB-P1-08` 或 24 小时稳定性门禁。
 
 ## 本轮本地验证快照（2026-10-18，默认设置 / 隐私分享 / 权限页回归）
 
