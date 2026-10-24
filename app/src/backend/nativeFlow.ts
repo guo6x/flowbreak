@@ -234,6 +234,7 @@ export interface NativeFlowPlugin {
     channel: string;
     packageName: string;
     databaseVersion: number;
+    databaseSchemaCurrent: boolean;
     serviceAlive: boolean;
     serviceHeartbeatAt: number;
     persistedServiceHeartbeatAt?: number;

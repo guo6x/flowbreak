@@ -69,6 +69,9 @@ function nativeStatusReason(reason: string) {
     MONITORING_DISABLED: '保护监控当前已暂停',
     NO_TARGETS: '尚未配置受限应用',
     NOT_CONFIGURED: '尚未完成保护配置',
+    TARGET_SET_MISMATCH: '受限应用配置与保护服务不一致，当前保护未生效，请重新开启保护以同步设置',
+    MONITORING_STATE_MISMATCH: '保护开关状态与系统服务不一致，当前保护未生效，请重新开启保护',
+    LIMIT_MINUTES_MISMATCH: '单次使用时长与保护服务不一致，当前保护未生效，请重新开启保护以同步设置',
     UNSUPPORTED_DEVICE: UNSUPPORTED_DEVICE_MESSAGE,
   };
   return labels[reason] || (reason ? `保护状态：${reason}` : '保护尚未确认');

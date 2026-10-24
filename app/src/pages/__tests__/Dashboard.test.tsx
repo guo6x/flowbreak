@@ -343,6 +343,24 @@ describe("Dashboard", () => {
     expect(screen.getByText("保护监控线程当前不可用，保护尚未生效")).toBeInTheDocument();
   });
 
+  it.each([
+    ["TARGET_SET_MISMATCH", "受限应用配置与保护服务不一致，当前保护未生效，请重新开启保护以同步设置"],
+    ["MONITORING_STATE_MISMATCH", "保护开关状态与系统服务不一致，当前保护未生效，请重新开启保护"],
+    ["LIMIT_MINUTES_MISMATCH", "单次使用时长与保护服务不一致，当前保护未生效，请重新开启保护以同步设置"],
+  ])("native %s integrity mismatch displays actionable Chinese guidance", async (reason, message) => {
+    mockIsNative = true;
+    vi.mocked(NativeFlow.getProtectionStatus).mockResolvedValue(protectionStatus({
+      status: "DEGRADED",
+      reason,
+      coreProtectionOperational: false,
+    }));
+    renderDashboard({ isMonitoring: true, blockState: "IDLE" });
+
+    await waitFor(() => expect(screen.getAllByText("保护降级").length).toBeGreaterThanOrEqual(1));
+    expect(screen.queryByText("已开启")).toBeNull();
+    expect(screen.getByText(message)).toBeInTheDocument();
+  });
+
   it("native missing usage or overlay is degraded rather than green", async () => {
     mockIsNative = true;
     vi.mocked(NativeFlow.getProtectionStatus).mockResolvedValue(protectionStatus({

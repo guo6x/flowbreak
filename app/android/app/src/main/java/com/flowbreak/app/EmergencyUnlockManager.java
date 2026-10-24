@@ -16,7 +16,7 @@ public final class EmergencyUnlockManager {
 
     private EmergencyUnlockManager() { }
 
-    public static boolean tryUnlock(Context context) {
+    public static synchronized boolean tryUnlock(Context context) {
         SharedPreferences prefs = context.getSharedPreferences("FlowBreakPrefs", Context.MODE_PRIVATE);
         if (!prefs.getBoolean("allowEmergencyUnlock", true)) return false;
 

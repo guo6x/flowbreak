@@ -20,6 +20,9 @@ public final class ProtectionStatusEvaluator {
         public final boolean monitoringEnabled;
         public final boolean supportedRuntime;
         public final boolean hasTargets;
+        public final boolean runtimeTargetsMatchPersisted;
+        public final boolean runtimeMonitoringEnabledMatchesPersisted;
+        public final boolean runtimeLimitMinutesMatchesPersisted;
         public final boolean hasUsageStats;
         public final boolean hasOverlay;
         public final boolean serviceRuntimeActive;
@@ -36,6 +39,9 @@ public final class ProtectionStatusEvaluator {
                 boolean monitoringEnabled,
                 boolean supportedRuntime,
                 boolean hasTargets,
+                boolean runtimeTargetsMatchPersisted,
+                boolean runtimeMonitoringEnabledMatchesPersisted,
+                boolean runtimeLimitMinutesMatchesPersisted,
                 boolean hasUsageStats,
                 boolean hasOverlay,
                 boolean serviceRuntimeActive,
@@ -51,6 +57,10 @@ public final class ProtectionStatusEvaluator {
             this.monitoringEnabled = monitoringEnabled;
             this.supportedRuntime = supportedRuntime;
             this.hasTargets = hasTargets;
+            this.runtimeTargetsMatchPersisted = runtimeTargetsMatchPersisted;
+            this.runtimeMonitoringEnabledMatchesPersisted =
+                    runtimeMonitoringEnabledMatchesPersisted;
+            this.runtimeLimitMinutesMatchesPersisted = runtimeLimitMinutesMatchesPersisted;
             this.hasUsageStats = hasUsageStats;
             this.hasOverlay = hasOverlay;
             this.serviceRuntimeActive = serviceRuntimeActive;
@@ -142,6 +152,15 @@ public final class ProtectionStatusEvaluator {
                     ? Status.DEGRADED
                     : Status.STARTING_OR_UNCONFIRMED;
             reason = runtimeHealth.reason;
+        } else if (!input.runtimeTargetsMatchPersisted) {
+            status = Status.DEGRADED;
+            reason = "TARGET_SET_MISMATCH";
+        } else if (!input.runtimeMonitoringEnabledMatchesPersisted) {
+            status = Status.DEGRADED;
+            reason = "MONITORING_STATE_MISMATCH";
+        } else if (!input.runtimeLimitMinutesMatchesPersisted) {
+            status = Status.DEGRADED;
+            reason = "LIMIT_MINUTES_MISMATCH";
         } else if (input.strongBlockingRequested
                 && !input.accessibilityEnabledInSettings) {
             status = Status.DEGRADED;
@@ -156,7 +175,10 @@ public final class ProtectionStatusEvaluator {
         }
 
         boolean coreOperational = prerequisites.isAllowed()
-                && runtimeHealth.isHealthy();
+                && runtimeHealth.isHealthy()
+                && input.runtimeTargetsMatchPersisted
+                && input.runtimeMonitoringEnabledMatchesPersisted
+                && input.runtimeLimitMinutesMatchesPersisted;
         boolean strongOperational = !input.strongBlockingRequested
                 || (coreOperational
                 && input.accessibilityEnabledInSettings

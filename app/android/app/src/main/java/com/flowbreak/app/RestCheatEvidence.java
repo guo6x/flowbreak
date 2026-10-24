@@ -60,7 +60,9 @@ final class RestCheatEvidence {
 
     /** Replay data is REST anti-cheat evidence only when REST was active. */
     static boolean shouldRecordHistoricalReplay(boolean wasResting, long verifiedTargetMs) {
-        return wasResting && verifiedTargetMs > 0L;
+        // A successful replay with zero target time is still useful provenance:
+        // it proves that history was reconciled without attributing time to REST.
+        return wasResting && verifiedTargetMs >= 0L;
     }
 
     synchronized void recordHistoricalReplay(

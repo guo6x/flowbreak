@@ -24,6 +24,9 @@ public abstract class FlowDao {
     @Insert
     abstract long insertEvent(FlowEventEntity event);
 
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    abstract long insertEventIfAbsent(FlowEventEntity event);
+
     @Query("SELECT * FROM daily_usage WHERE date = :date ORDER BY seconds DESC")
     abstract List<DailyUsageEntity> usageForDay(String date);
 
@@ -116,6 +119,13 @@ public abstract class FlowDao {
     }
 
     @Transaction
+    public void recordPostRestReturnOnce(String date, FlowEventEntity event) {
+        if (insertEventIfAbsent(event) == -1L) return;
+        insertSummary(emptySummary(date));
+        incrementPostRestReturn(date);
+    }
+
+    @Transaction
     public void recordPullbackOutcome(
             String date,
             boolean success,
@@ -125,6 +135,18 @@ public abstract class FlowDao {
         insertSummary(emptySummary(date));
         incrementPullbackOutcome(date, success ? 1 : 0, Math.max(0L, targetSeconds));
         insertEvent(event);
+    }
+
+    @Transaction
+    public void recordPullbackOutcomeOnce(
+            String date,
+            boolean success,
+            long targetSeconds,
+            FlowEventEntity event
+    ) {
+        if (insertEventIfAbsent(event) == -1L) return;
+        insertSummary(emptySummary(date));
+        incrementPullbackOutcome(date, success ? 1 : 0, Math.max(0L, targetSeconds));
     }
 
     @Transaction

@@ -120,6 +120,23 @@ function seedNativeRest(now: number) {
   });
 }
 
+function nonRestingBeginState(status: 'ACCEPTED' | 'REJECTED' = 'ACCEPTED') {
+  return {
+    state: 'IDLE',
+    sessionSeconds: 0,
+    graceUntil: 0,
+    blockedPackage: '',
+    restStartedAt: 0,
+    restRequiredSeconds: 0,
+    restSessionId: 0,
+    restClockValid: false,
+    restRemainingMs: 0,
+    restBeginRequestToken: 'begin-request-101',
+    restBeginRequestStatusToken: 'begin-request-101',
+    restBeginRequestStatus: status,
+  };
+}
+
 // Flush microtasks (pending promise continuations) without advancing
 // fake timers. This lets the native bootstrap (beginRest + getBlockState)
 // and the handleComplete async path settle between controlled timer
@@ -138,6 +155,8 @@ beforeEach(() => {
   mockBeginRest.mockReset();
   mockGetBlockState.mockReset();
   mockCancelRest.mockReset();
+  mockCancelRest.mockResolvedValue(undefined);
+  mockStore.profile.restDuration = 2;
   mockStore.achievements = [];
   mockStore.points = 0;
   mockStore.streak = 0;
@@ -148,6 +167,203 @@ afterEach(() => {
 });
 
 describe('RestMode completion flow (native concurrency)', () => {
+  it('does not show a countdown or completion controls before native RESTING is confirmed', async () => {
+    mockBeginRest.mockResolvedValue({ beginRequestToken: 'begin-request-101' });
+    mockGetBlockState.mockReturnValue(new Promise(() => {}));
+
+    const { unmount } = render(withRouter(<RestMode />));
+    await act(async () => { await flushMicrotasks(); });
+
+    expect(screen.getByText('等待设备确认休息已启动')).toBeInTheDocument();
+    expect(screen.queryByRole('timer', { name: '剩余休息时间' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('progressbar', { name: '休息进度' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /完成休息|重试解锁|提前结束/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '取消启动并返回' })).toBeInTheDocument();
+
+    unmount();
+  });
+
+  it('keeps a stable non-RESTING snapshot without presenting it as an active rest session', async () => {
+    mockBeginRest.mockResolvedValue({ beginRequestToken: 'begin-request-101' });
+    mockGetBlockState
+      .mockResolvedValueOnce(nonRestingBeginState())
+      .mockResolvedValueOnce(nonRestingBeginState());
+
+    render(withRouter(<RestMode />));
+    await act(async () => { await flushMicrotasks(); });
+
+    expect(screen.getByRole('alert')).toHaveTextContent('已接受休息请求，但当前休息状态随后结束或发生变化');
+    expect(screen.getByText('休息尚未确认')).toBeInTheDocument();
+    expect(screen.queryByRole('timer', { name: '剩余休息时间' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('progressbar', { name: '休息进度' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /完成休息|重试解锁|提前结束/ })).not.toBeInTheDocument();
+    expect(mockGetBlockState).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows the actual beginRest rejection without a fabricated timer or early-exit claim', async () => {
+    mockBeginRest.mockRejectedValue(new Error('PROTECTION_RUNTIME_UNHEALTHY'));
+
+    render(withRouter(<RestMode />));
+    await act(async () => { await flushMicrotasks(); });
+
+    expect(screen.getByRole('alert')).toHaveTextContent('保护服务状态已变化，休息没有启动');
+    expect(screen.getByText('休息尚未确认')).toBeInTheDocument();
+    expect(screen.queryByRole('timer', { name: '剩余休息时间' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('progressbar', { name: '休息进度' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /完成休息|重试解锁|提前结束/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '返回面板' })).toBeInTheDocument();
+  });
+
+  it('stops an unconfirmed native start and cancels if its token arrives later', async () => {
+    let resolveBegin!: (value: { beginRequestToken: string }) => void;
+    mockBeginRest.mockReturnValue(new Promise(resolve => { resolveBegin = resolve; }));
+    mockGetBlockState.mockReturnValue(new Promise(() => {}));
+
+    render(withRouter(<RestMode />));
+    await act(async () => { await flushMicrotasks(); });
+    expect(screen.getByText('正在连接设备保护服务')).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+
+    expect(screen.getByText('休息尚未确认')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('设备尚未确认休息是否启动');
+    expect(screen.getByRole('button', { name: '返回面板' })).toBeInTheDocument();
+    expect(screen.queryByRole('timer', { name: '剩余休息时间' })).not.toBeInTheDocument();
+    expect(mockCancelRest).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveBegin({ beginRequestToken: 'begin-late-token' });
+      await flushMicrotasks();
+    });
+    expect(mockCancelRest).toHaveBeenCalledWith({ beginRequestToken: 'begin-late-token' });
+  });
+
+  it('returns after timeout auto-cancel without sending a duplicate native cancellation', async () => {
+    mockBeginRest.mockResolvedValue({ beginRequestToken: 'begin-request-101' });
+    mockGetBlockState.mockReturnValue(new Promise(() => {}));
+
+    render(withRouter(<RestMode />));
+    await act(async () => { await flushMicrotasks(); });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+      await flushMicrotasks();
+    });
+
+    expect(mockCancelRest).toHaveBeenCalledTimes(1);
+    expect(mockCancelRest).toHaveBeenCalledWith({ beginRequestToken: 'begin-request-101' });
+    fireEvent.click(screen.getByRole('button', { name: '返回面板' }));
+    expect(screen.getByRole('group', { name: '设备尚未确认休息' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '取消启动并返回' }));
+    await act(async () => { await flushMicrotasks(); });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/dashboard');
+    expect(mockCancelRest).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides zero-time and exit-completion states while a confirmed RESTING clock is recovering', async () => {
+    mockBeginRest.mockResolvedValue({ beginRequestToken: 'begin-request-101' });
+    mockGetBlockState.mockResolvedValue({
+      state: 'RESTING',
+      sessionSeconds: 2,
+      graceUntil: 0,
+      blockedPackage: '',
+      restStartedAt: Date.now() - 2_000,
+      restRequiredSeconds: 2,
+      restSessionId: 101,
+      restClockValid: false,
+      restRemainingMs: 0,
+    });
+
+    render(withRouter(<RestMode />));
+    await act(async () => { await flushMicrotasks(); });
+
+    expect(screen.getByText('正在恢复休息计时')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('休息计时暂时无法确认');
+    expect(screen.queryByRole('timer', { name: '剩余休息时间' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('progressbar', { name: '休息进度' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /完成休息|重试解锁|提前结束/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '结束休息并返回' }));
+    expect(screen.getByRole('group', { name: '计时正在恢复核验' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '结束休息并返回' })).toBeInTheDocument();
+  });
+
+  it('hides the timer when a confirmed RESTING clock becomes invalid and restores it after a valid sample', async () => {
+    const now = Date.now();
+    mockStore.profile.restDuration = 60;
+    const snapshot = (restClockValid: boolean, restRemainingMs: number) => ({
+      state: 'RESTING',
+      sessionSeconds: 2,
+      graceUntil: 0,
+      blockedPackage: '',
+      restStartedAt: now - 2_000,
+      restRequiredSeconds: 60,
+      restSessionId: 101,
+      restClockValid,
+      restRemainingMs,
+    });
+    mockBeginRest.mockResolvedValue({ beginRequestToken: 'begin-request-101' });
+    mockGetBlockState
+      .mockResolvedValueOnce(snapshot(true, 40_000))
+      .mockResolvedValueOnce(snapshot(false, 0))
+      .mockResolvedValueOnce(snapshot(true, 35_000));
+
+    render(withRouter(<RestMode />));
+    await act(async () => { await flushMicrotasks(); });
+
+    expect(screen.getByRole('timer', { name: '剩余休息时间' })).toHaveTextContent('0:40');
+    expect(screen.getByRole('progressbar', { name: '休息进度' })).toHaveAttribute('aria-valuenow', '33');
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+      await flushMicrotasks();
+    });
+
+    expect(screen.getByText('正在恢复休息计时')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('休息计时暂时无法确认');
+    expect(screen.queryByRole('timer', { name: '剩余休息时间' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('progressbar', { name: '休息进度' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /完成休息|重试解锁|提前结束/ })).not.toBeInTheDocument();
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+      await flushMicrotasks();
+    });
+
+    expect(screen.getByRole('timer', { name: '剩余休息时间' })).toHaveTextContent('0:35');
+    expect(screen.getByRole('progressbar', { name: '休息进度' })).toHaveAttribute('aria-valuenow', '42');
+    expect(screen.queryByText('正在恢复休息计时')).not.toBeInTheDocument();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+
+    expect(screen.getByRole('timer', { name: '剩余休息时间' })).toHaveTextContent('0:34');
+    expect(screen.getByRole('progressbar', { name: '休息进度' })).toHaveAttribute('aria-valuenow', '43');
+    expect(mockGetBlockState).toHaveBeenCalledTimes(3);
+  });
+
+  it('allows safe exit before the begin token arrives and cancels once it does', async () => {
+    let resolveBegin!: (value: { beginRequestToken: string }) => void;
+    mockBeginRest.mockReturnValue(new Promise(resolve => { resolveBegin = resolve; }));
+    const { unmount } = render(withRouter(<RestMode />));
+
+    await act(async () => { await flushMicrotasks(); });
+    fireEvent.click(screen.getByRole('button', { name: '取消启动并返回' }));
+    expect(screen.getByRole('group', { name: '设备尚未确认休息' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '取消启动并返回' }));
+    expect(mockNavigate).toHaveBeenCalledWith('/dashboard');
+
+    unmount();
+    await act(async () => {
+      resolveBegin({ beginRequestToken: 'begin-request-101' });
+      await flushMicrotasks();
+    });
+    expect(mockCancelRest).toHaveBeenCalledWith({ beginRequestToken: 'begin-request-101' });
+  });
+
   it('fires completeRestAndUnlock exactly once even if the button is clicked twice while pending', async () => {
     const now = Date.now();
     seedNativeRest(now);

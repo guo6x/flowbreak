@@ -11,7 +11,7 @@ vi.mock('../../backend/storage', () => ({ getWeekStats: mocks.week, getReflectio
 const summary = { days: 7, restCount: 3, outcomeCount: 2, successfulPullbackCount: 1, postRestReturnCount: 1, postRestTargetSeconds: 60, helpedDays: 2, neutralDays: 1, notHelpedDays: 0 };
 const diagnostics = {
   versionName: '1.1.0', versionCode: 1, channel: 'domestic', packageName: 'com.flowbreak.app.cn',
-  databaseVersion: 3, serviceAlive: true, serviceHeartbeatAt: 100, state: 'IDLE',
+  databaseVersion: 4, databaseSchemaCurrent: true, serviceAlive: true, serviceHeartbeatAt: 100, state: 'IDLE',
   monitoringConfigured: true, monitoringEnabled: true, protectionRuntimeAvailable: true, targetCount: 2,
   permissions: { hasUsageStats: true, hasOverlay: true },
   runtimeTracking: { monitorThreadAlive: true, monitorLooperIsMain: false },
@@ -37,6 +37,21 @@ describe('ValidationAndDiagnostics', () => {
     expect(screen.queryByText('Room v0')).not.toBeInTheDocument();
     expect(screen.getByTestId('export-diagnostics')).toBeDisabled();
     expect(mocks.diagnostics).not.toHaveBeenCalled();
+  });
+
+  it('reports Room v4 as healthy when the native schema is current', async () => {
+    render(<ValidationAndDiagnostics />);
+    expect(await screen.findByText('Room v4 · 正常')).toBeInTheDocument();
+  });
+
+  it('flags a stale Room schema without hard-coding v3 as healthy', async () => {
+    mocks.diagnostics.mockResolvedValueOnce({
+      ...diagnostics,
+      databaseVersion: 3,
+      databaseSchemaCurrent: false,
+    });
+    render(<ValidationAndDiagnostics />);
+    expect(await screen.findByText('Room v3 · 需检查')).toBeInTheDocument();
   });
 
   it('keeps the real summary when diagnostics cannot be read', async () => {

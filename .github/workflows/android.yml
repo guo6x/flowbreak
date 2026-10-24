@@ -267,6 +267,7 @@ jobs:
           test -f "$schema_dir/com.flowbreak.app.FlowDatabase/1.json"
           test -f "$schema_dir/com.flowbreak.app.FlowDatabase/2.json"
           test -f "$schema_dir/com.flowbreak.app.FlowDatabase/3.json"
+          test -f "$schema_dir/com.flowbreak.app.FlowDatabase/4.json"
       - name: Verify channel manifests
         working-directory: app/android
         shell: bash

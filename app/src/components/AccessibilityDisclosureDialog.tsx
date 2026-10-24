@@ -17,7 +17,9 @@ type Props = {
 export default function AccessibilityDisclosureDialog({
   open, busy, onDecline, onConfirm, error,
 }: Props) {
+  const overlayRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
   const onDeclineRef = useRef(onDecline);
   const busyRef = useRef(busy);
   onDeclineRef.current = onDecline;
@@ -29,39 +31,130 @@ export default function AccessibilityDisclosureDialog({
     const previousFocus = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
-    dialogRef.current?.querySelector<HTMLButtonElement>("button:not([disabled])")?.focus();
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+
+    // Keep every branch outside the overlay inert while the disclosure is open.
+    // aria-modal remains the semantic fallback for assistive technologies.
+    const inertedElements: Array<{ element: HTMLElement; wasInert: boolean }> = [];
+    let branch: HTMLElement | null = overlayRef.current;
+    while (branch?.parentElement) {
+      const ancestor = branch.parentElement;
+      for (const sibling of Array.from(ancestor.children)) {
+        if (sibling !== branch && sibling instanceof HTMLElement) {
+          inertedElements.push({ element: sibling, wasInert: sibling.hasAttribute("inert") });
+          sibling.setAttribute("inert", "");
+        }
+      }
+      if (ancestor === document.body) break;
+      branch = ancestor;
+    }
+
+    const focusableSelector = [
+      "a[href]",
+      "area[href]",
+      "button:not([disabled])",
+      "input:not([disabled]):not([type='hidden'])",
+      "select:not([disabled])",
+      "textarea:not([disabled])",
+      "[tabindex]:not([tabindex='-1'])",
+    ].join(",");
+    let lastFocusedElement: HTMLElement = titleRef.current ?? dialog;
+
+    const getFocusableElements = () => Array.from(
+      dialog.querySelectorAll<HTMLElement>(focusableSelector),
+    ).filter((element) => (
+      element.tabIndex >= 0
+      && !element.matches(":disabled")
+      && !element.closest("[hidden], [inert], [aria-hidden='true']")
+    ));
+    const isAvailableFocusTarget = (element: HTMLElement) => (
+      dialog.contains(element)
+      && !element.matches(":disabled")
+      && !element.closest("[hidden], [inert], [aria-hidden='true']")
+    );
+
+    const handleFocusIn = (event: FocusEvent) => {
+      const target = event.target;
+      if (target instanceof HTMLElement && dialog.contains(target)) {
+        lastFocusedElement = target;
+        return;
+      }
+
+      const fallback = isAvailableFocusTarget(lastFocusedElement)
+        ? lastFocusedElement
+        : titleRef.current ?? dialog;
+      fallback.focus();
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (!busyRef.current) onDeclineRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const focusableElements = getFocusableElements();
+      if (focusableElements.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      const activeIndex = focusableElements.indexOf(document.activeElement as HTMLElement);
+      if (event.shiftKey && activeIndex <= 0) {
+        event.preventDefault();
+        focusableElements[focusableElements.length - 1].focus();
+      } else if (!event.shiftKey && activeIndex === -1) {
+        event.preventDefault();
+        focusableElements[0].focus();
+      } else if (!event.shiftKey && activeIndex === focusableElements.length - 1) {
+        event.preventDefault();
+        focusableElements[0].focus();
+      }
+    };
 
     const declineIfIdle = () => {
       if (!busyRef.current) onDeclineRef.current();
     };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        declineIfIdle();
-      }
-    };
 
+    document.addEventListener("focusin", handleFocusIn);
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("popstate", declineIfIdle);
+    (titleRef.current ?? dialog).focus();
     return () => {
+      document.removeEventListener("focusin", handleFocusIn);
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("popstate", declineIfIdle);
-      previousFocus?.focus();
+      for (const { element, wasInert } of inertedElements) {
+        if (wasInert) element.setAttribute("inert", "");
+        else element.removeAttribute("inert");
+      }
+      if (previousFocus?.isConnected) previousFocus.focus();
     };
   }, [open]);
 
   if (!open) return null;
   return (
     <div
+      ref={overlayRef}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-5"
       role="presentation"
       onClick={(event) => {
         if (event.target === event.currentTarget && !busy) onDecline();
       }}
     >
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="accessibility-disclosure-title" className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="accessibility-disclosure-title"
+        tabIndex={-1}
+        className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl"
+      >
         <div className="flex items-start justify-between gap-3 mb-3">
-          <h2 id="accessibility-disclosure-title" className="text-[17px] font-bold text-gray-900">
+          <h2 ref={titleRef} id="accessibility-disclosure-title" tabIndex={-1} className="text-[17px] font-bold text-gray-900">
             开启无障碍强阻断前，请了解用途
           </h2>
           <button

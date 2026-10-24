@@ -26,6 +26,34 @@ import { useRestAudio } from './rest-mode/useRestAudio';
 import RestActivityView from './rest-mode/RestActivityView';
 import RestCompleteView from './rest-mode/RestCompleteView';
 
+const NATIVE_BEGIN_CONFIRMATION_TIMEOUT_MS = 30_000;
+
+function cancelNativeRestOnce(
+  beginRequestToken: string,
+  cancelledRestRef: { current: boolean },
+  cancellationPromiseRef: { current: Promise<void> | null },
+): Promise<void> {
+  if (cancelledRestRef.current) return Promise.resolve();
+  if (cancellationPromiseRef.current) return cancellationPromiseRef.current;
+
+  const cancellation = NativeFlow.cancelRest({ beginRequestToken });
+  cancellationPromiseRef.current = cancellation;
+  void cancellation.then(
+    () => {
+      cancelledRestRef.current = true;
+      if (cancellationPromiseRef.current === cancellation) {
+        cancellationPromiseRef.current = null;
+      }
+    },
+    () => {
+      if (cancellationPromiseRef.current === cancellation) {
+        cancellationPromiseRef.current = null;
+      }
+    },
+  );
+  return cancellation;
+}
+
 export default function RestMode() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -43,6 +71,9 @@ export default function RestMode() {
   const [restClockValid, setRestClockValid] = useState(!isNative);
   const [restReady, setRestReady] = useState(!isNative);
   const [nativeRestConfirmed, setNativeRestConfirmed] = useState(false);
+  const [nativeRestObserved, setNativeRestObserved] = useState(false);
+  const [nativeStartPending, setNativeStartPending] = useState(isNative);
+  const [nativeBeginTokenAvailable, setNativeBeginTokenAvailable] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [stepIdx, setStepIdx] = useState(0);
@@ -72,6 +103,7 @@ export default function RestMode() {
   // component or leak pending callbacks.
   const fanfareTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const cancelledRestRef = useRef(false);
+  const restCancellationPromiseRef = useRef<Promise<void> | null>(null);
   const beginRequestRejectedRef = useRef(false);
   const beginRequestTokenRef = useRef<string | null>(null);
   const restSessionIdRef = useRef<number | null>(null);
@@ -97,11 +129,33 @@ export default function RestMode() {
   useEffect(() => {
     if (!isNative) return;
     let active = true;
+    let startupFinished = false;
+    let observedResting = false;
     let beginRequestToken: string | null = null;
     let cancelWhenBeginResolves = false;
-    const cancelBoundRequest = (token: string) => {
-      void NativeFlow.cancelRest({ beginRequestToken: token }).catch(() => {});
+    let startupTimeout: number;
+    const finishStartup = () => {
+      startupFinished = true;
+      window.clearTimeout(startupTimeout);
     };
+    const cancelBoundRequest = (token: string) => {
+      void cancelNativeRestOnce(
+        token,
+        cancelledRestRef,
+        restCancellationPromiseRef,
+      ).catch(() => {});
+    };
+    startupTimeout = window.setTimeout(() => {
+      if (!active || startupFinished) return;
+      startupFinished = true;
+      active = false;
+      setNativeStartPending(false);
+      setOperationError(observedResting
+        ? '设备已报告休息进行中，但计时持续无法确认；完成入口仍保持关闭。请返回面板核对保护状态。'
+        : '设备尚未确认休息是否启动，计时没有开始。请返回面板核对保护状态后再试。');
+      if (beginRequestToken) cancelBoundRequest(beginRequestToken);
+      else cancelWhenBeginResolves = true;
+    }, NATIVE_BEGIN_CONFIRMATION_TIMEOUT_MS);
     const restoreOrStartRest = async () => {
       try {
         // beginRest() only enqueues a service command. Its promise resolution
@@ -113,6 +167,7 @@ export default function RestMode() {
           if (cancelWhenBeginResolves) cancelBoundRequest(beginRequestToken);
           return;
         }
+        setNativeBeginTokenAvailable(true);
         let attempt = 0;
         let graceObservedAt: number | null = null;
         let observedInvalidRestClock = false;
@@ -124,8 +179,10 @@ export default function RestMode() {
           if (!active) return;
           if (state.restBeginRequestToken
               && state.restBeginRequestToken !== beginRequestToken) {
+            finishStartup();
             beginRequestRejectedRef.current = true;
             cancelledRestRef.current = true;
+            setNativeStartPending(false);
             setBlockState(state.state, state.graceUntil, state.blockedPackage);
             setRestReady(false);
             setOperationError('当前休息请求已被新的页面请求接管，请返回面板确认最新状态。');
@@ -133,8 +190,10 @@ export default function RestMode() {
           }
           if (state.restBeginRequestStatusToken === beginRequestToken
               && state.restBeginRequestStatus === 'REJECTED') {
+            finishStartup();
             beginRequestRejectedRef.current = true;
             cancelledRestRef.current = true;
+            setNativeStartPending(false);
             setBlockState(state.state, state.graceUntil, state.blockedPackage);
             setRestReady(false);
             const rejectionMessage = state.restBeginRequestErrorCode === 'UNSUPPORTED_DEVICE'
@@ -156,8 +215,10 @@ export default function RestMode() {
             if (!active) return;
             if (confirmedState.restBeginRequestToken
                 && confirmedState.restBeginRequestToken !== beginRequestToken) {
+              finishStartup();
               beginRequestRejectedRef.current = true;
               cancelledRestRef.current = true;
+              setNativeStartPending(false);
               setBlockState(
                 confirmedState.state,
                 confirmedState.graceUntil,
@@ -169,8 +230,10 @@ export default function RestMode() {
             }
             if (confirmedState.restBeginRequestStatusToken === beginRequestToken
                 && confirmedState.restBeginRequestStatus === 'REJECTED') {
+              finishStartup();
               beginRequestRejectedRef.current = true;
               cancelledRestRef.current = true;
+              setNativeStartPending(false);
               setBlockState(
                 confirmedState.state,
                 confirmedState.graceUntil,
@@ -184,8 +247,10 @@ export default function RestMode() {
             if (state.state !== 'RESTING'
                 && state.restBeginRequestStatusToken === beginRequestToken
                 && state.restBeginRequestStatus === 'ACCEPTED') {
+              finishStartup();
               beginRequestRejectedRef.current = true;
               cancelledRestRef.current = true;
+              setNativeStartPending(false);
               setBlockState(state.state, state.graceUntil, state.blockedPackage);
               setRestReady(false);
               setOperationError(
@@ -194,11 +259,16 @@ export default function RestMode() {
               return;
             }
           }
+          if (state.state === 'RESTING') {
+            observedResting = true;
+            setNativeRestObserved(true);
+          }
           if (state.state === 'RESTING'
               && (state.restClockValid !== true
                   || typeof state.restRemainingMs !== 'number'
                   || !Number.isFinite(state.restRemainingMs))) {
             observedInvalidRestClock = true;
+            setNativeStartPending(false);
             setRestClockValid(false);
             setNativeRemainingMs(0);
             setTimeLeft(0);
@@ -208,6 +278,7 @@ export default function RestMode() {
             continue;
           }
           if (observedInvalidRestClock && state.state !== 'RESTING') {
+            finishStartup();
             cancelledRestRef.current = true;
             setBlockState(state.state, state.graceUntil, state.blockedPackage);
             navigate('/dashboard', { replace: true });
@@ -218,8 +289,10 @@ export default function RestMode() {
               && state.restRequiredSeconds > 0
               && typeof state.restSessionId === 'number'
               && state.restSessionId > 0) {
+            finishStartup();
             restSessionIdRef.current = state.restSessionId;
             const remainingMs = state.restRemainingMs as number;
+            setNativeStartPending(false);
             setRestClockValid(true);
             setNativeRemainingMs(remainingMs);
             setTimeLeft(Math.max(0, Math.ceil(remainingMs / 1000)));
@@ -234,6 +307,7 @@ export default function RestMode() {
             // the rest screen and let the dashboard render the grace window.
             graceObservedAt ??= Date.now();
             if (Date.now() - graceObservedAt >= 6_000) {
+              finishStartup();
               setBlockState(state.state, state.graceUntil, state.blockedPackage);
               navigate('/dashboard', { replace: true });
               return;
@@ -250,10 +324,13 @@ export default function RestMode() {
         }
       } catch (error) {
         if (!active) return;
+        finishStartup();
+        setNativeStartPending(false);
         const requestRejectedBeforeToken = beginRequestToken === null;
         if (requestRejectedBeforeToken) {
           beginRequestRejectedRef.current = true;
           cancelledRestRef.current = true;
+          setNativeStartPending(false);
         }
         if (error instanceof Error && error.message.includes('PROTECTION_RUNTIME_UNHEALTHY')) {
           setOperationError('保护服务状态已变化，休息没有启动。请返回面板检查后重试。');
@@ -267,6 +344,7 @@ export default function RestMode() {
     void restoreOrStartRest();
     return () => {
       active = false;
+      window.clearTimeout(startupTimeout);
       if (!completedRestRef.current && !cancelledRestRef.current) {
         if (beginRequestToken) cancelBoundRequest(beginRequestToken);
         else cancelWhenBeginResolves = true;
@@ -519,11 +597,15 @@ export default function RestMode() {
       if (isNative) {
         if (!beginRequestRejectedRef.current) {
           const beginRequestToken = beginRequestTokenRef.current;
-          if (!beginRequestToken) {
-            throw new Error('休息请求尚未确认，请稍后重试。');
+          if (beginRequestToken) {
+            await cancelNativeRestOnce(
+              beginRequestToken,
+              cancelledRestRef,
+              restCancellationPromiseRef,
+            );
           }
-          await NativeFlow.cancelRest({ beginRequestToken });
-          cancelledRestRef.current = true;
+          // If BEGIN_REST has not returned a token yet, navigating away lets
+          // the effect cleanup cancel the request as soon as the token arrives.
         }
       } else {
         // Web 端：已休息 30 秒以上时记录部分休息
@@ -579,6 +661,10 @@ export default function RestMode() {
       isPaused={isPaused}
       isNative={isNative}
       restClockValid={restClockValid}
+      restTimerReady={restReady}
+      nativeRestObserved={nativeRestObserved}
+      nativeStartPending={nativeStartPending}
+      nativeBeginTokenAvailable={nativeBeginTokenAvailable}
       operationError={operationError}
       completing={completing}
       confirmingEarlyExit={confirmingEarlyExit}

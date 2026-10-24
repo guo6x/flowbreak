@@ -365,6 +365,13 @@ public class NativeFlowPlugin extends Plugin {
             SharedPreferences preferences = prefs();
             Set<String> targets = PreferenceUtils.getMigratedTargetApps(preferences);
             boolean monitoringEnabled = preferences.getBoolean("monitoringEnabled", true);
+            int limitMinutes = Math.max(1, preferences.getInt("limitMinutes", 25));
+            FlowForegroundService.RuntimeConfigurationMatch runtimeConfigurationMatch =
+                    FlowForegroundService.compareRuntimeConfiguration(
+                            targets,
+                            monitoringEnabled,
+                            limitMinutes
+                    );
             ProtectionRuntimeHealthEvaluator.Result runtimeHealth =
                     FlowForegroundService.getCurrentProtectionRuntimeHealth();
             long currentHeartbeatWall = FlowForegroundService.getLastCompletedMonitorTickWallMs();
@@ -386,6 +393,9 @@ public class NativeFlowPlugin extends Plugin {
                             monitoringEnabled,
                             supportedRuntime,
                             !targets.isEmpty(),
+                            runtimeConfigurationMatch.targetSetMatchesPersisted,
+                            runtimeConfigurationMatch.monitoringEnabledMatchesPersisted,
+                            runtimeConfigurationMatch.runtimeLimitMinutesMatchesPersisted,
                             hasUsageStats,
                             hasOverlay,
                             serviceRuntimeActive,
@@ -409,6 +419,12 @@ public class NativeFlowPlugin extends Plugin {
             result.put("monitoringConfigured", preferences.getBoolean("serviceConfigured", false));
             result.put("monitoringEnabled", monitoringEnabled);
             result.put("targetCount", targets.size());
+            result.put("runtimeTargetsMatchPersisted",
+                    runtimeConfigurationMatch.targetSetMatchesPersisted);
+            result.put("runtimeMonitoringEnabledMatchesPersisted",
+                    runtimeConfigurationMatch.monitoringEnabledMatchesPersisted);
+            result.put("runtimeLimitMinutesMatchesPersisted",
+                    runtimeConfigurationMatch.runtimeLimitMinutesMatchesPersisted);
             result.put("serviceRuntimeActive", serviceRuntimeActive);
             result.put("monitorThreadAlive", monitorThreadAlive);
             result.put("heartbeatFresh", status.runtimeHealth.heartbeatFresh);

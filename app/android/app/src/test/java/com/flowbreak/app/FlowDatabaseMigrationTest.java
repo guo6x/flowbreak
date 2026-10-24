@@ -389,10 +389,10 @@ public class FlowDatabaseMigrationTest {
     }
 
     /**
-     * Fresh v3 install has the correct schema and working DAO.
+     * Fresh v4 install has the correct schema and working DAO.
      */
     @Test
-    public void freshInstallV3_hasCorrectSchemaAndDaoWorks() throws Exception {
+    public void freshInstallV4_hasCorrectSchemaAndDaoWorks() throws Exception {
         Context context = ApplicationProvider.getApplicationContext();
         context.deleteDatabase(TEST_DB);
         FlowDatabase database = FlowDatabase.builder(context, TEST_DB)
@@ -401,9 +401,10 @@ public class FlowDatabaseMigrationTest {
         try {
             FlowDao dao = database.flowDao();
             SupportSQLiteDatabase db = database.getOpenHelper().getWritableDatabase();
-            assertEquals(3, getUserVersion(db));
+            assertEquals(4, getUserVersion(db));
             assertEquals(4, countUserTables(db));
             assertEquals(12, countColumns(db, "daily_summary"));
+            assertEquals(8, countColumns(db, "flow_events"));
             dao.addUsage("2026-01-12", "com.example.test", 100);
             List<DailyUsageEntity> usage = dao.allUsage();
             assertFalse(usage.isEmpty());
@@ -451,12 +452,12 @@ public class FlowDatabaseMigrationTest {
     }
 
     /**
-     * Room must detect a v1 database and execute both MIGRATION_1_2 and MIGRATION_2_3.
+     * Room must detect a v1 database and execute migrations through schema version 4.
      * This test does <b>not</b> call {@code Migration.migrate()} or {@code PRAGMA user_version}
      * manually — the production {@code FlowDatabase.builder()} is the sole driver.
      */
     @Test
-    public void productionBuilder_migratesV1ToV3() throws Exception {
+    public void productionBuilder_migratesV1ToV4() throws Exception {
         prepareAndCloseLegacyDatabase(1, "2026-01-20", "com.example.v1app", 999,
                 111111L, "rest_complete");
 
@@ -468,8 +469,8 @@ public class FlowDatabaseMigrationTest {
             FlowDao dao = database.flowDao();
             SupportSQLiteDatabase db = database.getOpenHelper().getWritableDatabase();
 
-            // Room should have executed 1→2→3 automatically.
-            assertEquals(3, getUserVersion(db));
+            // Room should have executed 1→2→3→4 automatically.
+            assertEquals(4, getUserVersion(db));
 
             // Original three tables: data intact.
             List<DailyUsageEntity> usage = dao.allUsage();
@@ -490,6 +491,7 @@ public class FlowDatabaseMigrationTest {
 
             // daily_summary exists with 12 columns (6 original + 6 new).
             assertEquals(12, countColumns(db, "daily_summary"));
+            assertEquals(8, countColumns(db, "flow_events"));
             assertEquals(4, countUserTables(db));
 
             // New v3 fields default to 0.
@@ -518,11 +520,11 @@ public class FlowDatabaseMigrationTest {
     }
 
     /**
-     * Room must detect a v2 database and execute MIGRATION_2_3 automatically.
+     * Room must detect a v2 database and execute migrations through schema version 4.
      * No manual migration calls, no manual {@code PRAGMA user_version}.
      */
     @Test
-    public void productionBuilder_migratesV2ToV3() throws Exception {
+    public void productionBuilder_migratesV2ToV4() throws Exception {
         prepareAndCloseLegacyDatabase(2, "2026-01-21", "com.example.v2app", 500,
                 222222L, "block");
 
@@ -534,7 +536,7 @@ public class FlowDatabaseMigrationTest {
             FlowDao dao = database.flowDao();
             SupportSQLiteDatabase db = database.getOpenHelper().getWritableDatabase();
 
-            assertEquals(3, getUserVersion(db));
+            assertEquals(4, getUserVersion(db));
 
             // Original data preserved.
             List<DailyUsageEntity> usage = dao.allUsage();
@@ -561,6 +563,7 @@ public class FlowDatabaseMigrationTest {
             assertEquals(0L, summary.reflectionUpdatedAt);
 
             assertEquals(12, countColumns(db, "daily_summary"));
+            assertEquals(8, countColumns(db, "flow_events"));
             assertEquals(4, countUserTables(db));
 
             // DAO writes work.
@@ -573,6 +576,60 @@ public class FlowDatabaseMigrationTest {
             DailySummaryEntity reflected = dao.summaryForDay("2026-01-21");
             assertEquals(1, reflected.reflectionValue);
             assertEquals(777777L, reflected.reflectionUpdatedAt);
+        } finally {
+            database.close();
+        }
+    }
+
+    /**
+     * Room upgrades v3 without losing old events, and replayed session edges update
+     * both the event log and summary exactly once.
+     */
+    @Test
+    public void productionBuilder_migratesV3AndPullbackEdgesAreIdempotent() throws Exception {
+        db = createDatabaseAtVersion(3);
+        db.execSQL("INSERT INTO flow_events (timestamp,type,packageName,activity,durationSeconds,metadata) "
+                + "VALUES (123456789,'rest_complete','','',180,'{}')");
+        closeLegacyResources();
+
+        Context context = ApplicationProvider.getApplicationContext();
+        FlowDatabase database = FlowDatabase.builder(context, TEST_DB)
+                .allowMainThreadQueries()
+                .build();
+        try {
+            FlowDao dao = database.flowDao();
+            SupportSQLiteDatabase migrated = database.getOpenHelper().getWritableDatabase();
+            assertEquals(4, getUserVersion(migrated));
+            assertEquals(8, countColumns(migrated, "flow_events"));
+            assertEquals(1, dao.eventCount());
+            assertEquals("rest_complete", dao.allEvents().get(0).type);
+            assertEquals(null, dao.allEvents().get(0).idempotencyKey);
+
+            FlowEventEntity returned = new FlowEventEntity(
+                    1_800_000_000_000L, "post_rest_return", "", "", 0L,
+                    "{\"sessionId\":42}", "pullback:42:return"
+            );
+            FlowEventEntity outcome = new FlowEventEntity(
+                    1_800_000_000_001L, "pullback_success", "", "", 12L,
+                    "{\"sessionId\":42}", "pullback:42:outcome"
+            );
+            dao.recordPostRestReturnOnce("2026-10-25", returned);
+            dao.recordPostRestReturnOnce("2026-10-25", returned);
+            dao.recordPullbackOutcomeOnce("2026-10-25", true, 12L, outcome);
+            dao.recordPullbackOutcomeOnce("2026-10-25", true, 12L, outcome);
+
+            DailySummaryEntity summary = dao.summaryForDay("2026-10-25");
+            assertNotNull(summary);
+            assertEquals(1, summary.postRestReturnCount);
+            assertEquals(1, summary.pullbackOutcomeCount);
+            assertEquals(1, summary.successfulPullbackCount);
+            assertEquals(12L, summary.postRestTargetSeconds);
+            assertEquals(3, dao.eventCount());
+            try (Cursor c = migrated.query(
+                    "SELECT COUNT(*) FROM flow_events WHERE idempotencyKey LIKE 'pullback:42:%'")) {
+                assertTrue(c.moveToFirst());
+                assertEquals(2, c.getInt(0));
+            }
         } finally {
             database.close();
         }

@@ -77,6 +77,28 @@ public final class FlowRepository {
         ));
     }
 
+    /**
+     * Persist a post-rest return before the service commits its tracker snapshot.
+     * The unique session key makes a replay safe if the process dies between these writes.
+     * Must be called from a background thread; this intentionally bypasses the async queue.
+     */
+    public void recordPostRestReturnOnce(long sessionId) {
+        if (sessionId <= 0L) throw new IllegalArgumentException("sessionId must be positive");
+        long timestamp = System.currentTimeMillis();
+        dao.recordPostRestReturnOnce(
+                dateFor(timestamp),
+                new FlowEventEntity(
+                        timestamp,
+                        "post_rest_return",
+                        "",
+                        "",
+                        0L,
+                        "{\"sessionId\":" + sessionId + "}",
+                        "pullback:" + sessionId + ":return"
+                )
+        );
+    }
+
     public void recordPullbackOutcome(boolean success, long targetSeconds, long sessionId) {
         executor.execute(() -> dao.recordPullbackOutcome(
                 today(),
@@ -93,12 +115,41 @@ public final class FlowRepository {
         ));
     }
 
+    /**
+     * Persist a pullback outcome before the service commits its tracker snapshot.
+     * Replayed session edges are ignored by the database's unique idempotency key.
+     * Must be called from a background thread; this intentionally bypasses the async queue.
+     */
+    public void recordPullbackOutcomeOnce(boolean success, long targetSeconds, long sessionId) {
+        if (sessionId <= 0L) throw new IllegalArgumentException("sessionId must be positive");
+        long normalizedTargetSeconds = Math.max(0L, targetSeconds);
+        long timestamp = System.currentTimeMillis();
+        dao.recordPullbackOutcomeOnce(
+                dateFor(timestamp),
+                success,
+                normalizedTargetSeconds,
+                new FlowEventEntity(
+                        timestamp,
+                        success ? "pullback_success" : "pullback_unresolved",
+                        "",
+                        "",
+                        normalizedTargetSeconds,
+                        "{\"sessionId\":" + sessionId + "}",
+                        "pullback:" + sessionId + ":outcome"
+                )
+        );
+    }
+
     public void clearAllBlocking() throws Exception {
         Future<?> clear = executor.submit(dao::clearAll);
         clear.get();
     }
 
     public static String today() {
-        return new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
+        return dateFor(System.currentTimeMillis());
+    }
+
+    private static String dateFor(long timestamp) {
+        return new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date(timestamp));
     }
 }

@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase;
 
 @Database(
         entities = {DailyUsageEntity.class, FlowEventEntity.class, ProgressEntity.class, DailySummaryEntity.class},
-        version = 3,
+        version = FlowDatabaseSchema.VERSION,
         exportSchema = true
 )
 public abstract class FlowDatabase extends RoomDatabase {
@@ -32,6 +32,16 @@ public abstract class FlowDatabase extends RoomDatabase {
         }
     };
 
+    static final Migration MIGRATION_3_4 = new Migration(3, 4) {
+        @Override public void migrate(SupportSQLiteDatabase database) {
+            database.execSQL("ALTER TABLE `flow_events` ADD COLUMN `idempotencyKey` TEXT");
+            database.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_flow_events_idempotencyKey` "
+                            + "ON `flow_events` (`idempotencyKey`)"
+            );
+        }
+    };
+
     public abstract FlowDao flowDao();
 
     static RoomDatabase.Builder<FlowDatabase> builder(
@@ -42,7 +52,7 @@ public abstract class FlowDatabase extends RoomDatabase {
                 context.getApplicationContext(),
                 FlowDatabase.class,
                 databaseName
-        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3);
+        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4);
     }
 
     public static FlowDatabase get(Context context) {

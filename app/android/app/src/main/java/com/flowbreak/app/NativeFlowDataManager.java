@@ -39,6 +39,7 @@ public final class NativeFlowDataManager {
             "channel",
             "packageName",
             "databaseVersion",
+            "databaseSchemaCurrent",
             "serviceAlive",
             "coreRuntimeHealthy",
             "coreRuntimeHealthReason",
@@ -63,7 +64,9 @@ public final class NativeFlowDataManager {
 
     /** 诊断 JSON 对象，包含 formatVersion=1 和所有运行状态字段。 */
     public JSObject diagnostics(SharedPreferences prefs) {
-        FlowDao dao = FlowDatabase.get(context).flowDao();
+        FlowDatabase database = FlowDatabase.get(context);
+        FlowDao dao = database.flowDao();
+        int databaseVersion = database.getOpenHelper().getWritableDatabase().getVersion();
         ProtectionRuntimeHealthEvaluator.Result runtimeHealth =
                 FlowForegroundService.getCurrentProtectionRuntimeHealth();
         long currentHeartbeat = FlowForegroundService.getLastCompletedMonitorTickWallMs();
@@ -73,7 +76,8 @@ public final class NativeFlowDataManager {
         result.put("versionCode", BuildConfig.VERSION_CODE);
         result.put("channel", BuildConfig.CHANNEL);
         result.put("packageName", context.getPackageName());
-        result.put("databaseVersion", 3);
+        result.put("databaseVersion", databaseVersion);
+        result.put("databaseSchemaCurrent", databaseVersion == FlowDatabaseSchema.VERSION);
         result.put("serviceAlive", serviceAlive);
         result.put("serviceHeartbeatAt", currentHeartbeat);
         result.put("persistedServiceHeartbeatAt", prefs.getLong("serviceHeartbeatAt", 0L));
