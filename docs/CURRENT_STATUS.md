@@ -1,28 +1,28 @@
 # CURRENT_STATUS — 项目当前状态
 
-> 这是「项目现在在哪」的当前视图：本文记录门禁结论，`TESTING.md` 记录可复验的本地验证快照，`RELEASE.md` 汇总发布边界。HEAD 与 hosted CI 会变化；PR 检查页是云端最新 SHA 和结果的权威来源。
+> 本文是当前门禁、候选 SHA 与云端状态的单一事实源；`TESTING.md` 保存绑定到明确源码/Run 的验证证据，`RELEASE.md` 说明发布门禁及限制。HEAD 与 hosted CI 会变化；PR 检查页是云端最新 SHA 和结果的权威来源。
 > 2026-08-12 的「真机验收 FAILED / RELEASE BLOCKED」快照已降级为历史记录（见下方「历史状态」），不再代表当前状态。
 
-## PR #29 保护完整性候选与验证状态（2026-10-25）
+## PR #29 保护完整性候选与验证状态（2026-10-25；推送前快照）
 
-本轮本地代码验证源为隔离候选工作树的提交 `fd9045a3b916486588b93e477935070e640440e5`（父提交 `0cc7a0636102fdd0c0ef1f9c3f4c428cf8a69ee3`）；测试命令在该代码状态下执行，PR #29 尚未收到此 SHA 的 hosted CI。目标远端分支为 `fix/fb-p1-08-protection-integrity`。本地收口前 PR #29 云端为 OPEN、HEAD=`b00b9cc75073e77759e28ba5b71f960033cbf1d5`；Run `38053414311` 的 `verify=FAILURE` / `release=SKIPPED` 只属于该旧 SHA。旧 verify 在生产依赖审计发现 1 个 critical（`@capacitor/android` 受影响版本 8.0.0–8.3.4，GHSA-rvm3-566m-v7fv）后终止；不得把该旧失败归属到本地候选。推送后的 PR head 和检查结果须以 [PR #29](https://github.com/guo6x/flowbreak/pull/29) / [Checks](https://github.com/guo6x/flowbreak/pull/29/checks) 的精确 SHA 为准。候选历史含 `77c1e749` 对当时 `origin/master=67d1b7c` 的普通分支内合并，**没有合并到 master**。原工作目录 `D:\AI_code\flowbreak` 未清理或覆盖。
+前序代码修复提交为 `fd9045a3b916486588b93e477935070e640440e5`（父提交 `0cc7a0636102fdd0c0ef1f9c3f4c428cf8a69ee3`）；其后推送的文档基线 `29573ee115ee8ba25120a3b61ce7ae87b0535fde` 对应 Run `40145072882`，结果是 `verify=SUCCESS`、`release=SKIPPED`，CI npm audit 生产依赖与全依赖 critical 均为 0 vulnerabilities。当前本地代码与测试已提交为 `0996ca32b8cc471236b8724665dd32a683a72067`（基于 `29573ee…`）；差异包括 REST 启动超时继续对账、基于原生拒绝收据安全退出及当前请求 token 校验，以及 v3→v4 pullback 历史幂等键回填。本轮后续文档收口不改变该运行时代码提交。**Run `40145072882` 只覆盖 `29573ee…`，不覆盖 `0996ca3…` 或后续文档提交。** 本地复验已绑定到代码/测试提交 `0996ca3…`；最终推送 HEAD 仍须由自身 hosted CI 验证。目标分支为 `fix/fb-p1-08-protection-integrity`，远端状态以 [PR #29 checks](https://github.com/guo6x/flowbreak/pull/29/checks) 为准。旧 HEAD `b00b9cc75073e77759e28ba5b71f960033cbf1d5` 的 Run `38053414311` 因 `@capacitor/android` 旧版本发现 1 个 critical（GHSA-rvm3-566m-v7fv）而失败；只属于该旧 SHA。候选历史含 `77c1e749` 对当时 `origin/master=67d1b7c` 的普通分支内合并，**没有合并到 master**。原工作目录 `D:\AI_code\flowbreak` 未清理或覆盖。
 
 | 项 | 当前可核验状态 |
 | ---- | ---- |
-| 本轮改动 | 修复设置/目标应用已持久化但服务重载失败时的原生状态对账与真实错误；保护 REST 回放和 Pullback 统计的幂等恢复；诊断读取 Room 实际 schema 版本；告知弹窗增加键盘焦点约束；Overlay 迟到回调隔离；BEGIN_REST 恢复改用单调时钟并防止同 token 终态收据被覆盖。 |
-| 本地自动化 | Vitest **319/319**（28 files）；TypeScript/Vite build PASS；UI smoke **44/44**；品牌 **36/36**；Provenance **20/20**；Release policy **8/8**；Privacy static **15/15**。 |
-| Android | Play JVM **488/488**、Domestic JVM **521/521**，0 failure/error/skipped；双渠道 lint、Debug、Play AndroidTest APK 构建与 unsigned Release build PASS。AndroidTest APK 是构建结果，不代表 instrumentation 真机执行。Room schema v4 与 1→2→3→4 迁移通过 JVM 验证。 |
-| 本地产物溯源 | source `fd9045a3…` 的 dist→Android Web assets **50/50 SHA-256 匹配**；Play AAB / Domestic APK 内 provenance 和独立版本信息、双渠道 R8 mapping、unsigned artifact manifest 与 SHA-256 清单已复核。仅是未签名工程产物，不等于最终 PR HEAD hosted artifact 或发布验收。 |
-| npm audit（官方 registry，本地候选） | **PASS — 0 vulnerabilities**（`https://registry.npmjs.org`，生产依赖 high 与全依赖 critical 两项门槛）。 |
-| npm audit（本地镜像） | **BLOCKED / NOT_PASS** — 配置的 `https://registry.npmmirror.com` 返回 404/`NOT_IMPLEMENTED`；不得写成 0 漏洞或 PASS，也不覆盖官方 registry 的独立结果。 |
-| hosted CI | 旧 HEAD `b00b9cc…` 的 Run `38053414311` 因生产依赖 audit 失败，`release=SKIPPED`；该结果不验证新候选。当前 PR HEAD 与 Actions 状态会变化，须以 [PR #29 checks](https://github.com/guo6x/flowbreak/pull/29/checks) 页面显示的最新精确 SHA 和结果为准，不沿用旧 Run 结论。 |
+| 本轮改动 | 修复设置/目标应用已持久化但服务重载失败时的原生状态对账与真实错误；保护 REST 回放和 Pullback 统计的幂等恢复；诊断读取 Room 实际数据库版本；告知弹窗键盘焦点约束；Overlay 迟到回调隔离；BEGIN_REST 单调时钟恢复与同 token 终态收据保护；RESTING 时钟超时后继续对账、拒绝回执安全退出；v3→v4 回填历史 pullback 幂等键。 |
+| 本地自动化（当前隔离候选工作树） | Vitest **326/326**（28 files）；TypeScript/Vite build PASS；UI smoke **44/44**（WEB_PREVIEW_ONLY）；品牌 **36/36**；Provenance **20/20**；Release policy **8/8**；Privacy static **15/15**；Portable signing security regression PASS。 |
+| Android（当前隔离候选工作树） | Play JVM **489/489**、Domestic JVM **522/522**，JUnit 汇总 0 failure/error/skipped；双渠道 lint 无 error/fatal（Play 44、Domestic 45 warnings）；双渠道 Debug、Play AndroidTest APK、Play AAB 与 Domestic unsigned Release APK 构建 PASS。AndroidTest APK 只是组装结果，不代表 instrumentation 真机执行。Room schema v4、v3→v4 幂等键回填及重复/畸形事件迁移均由 JVM 覆盖。 |
+| 本地产物溯源 | 代码提交 `0996ca32b8cc471236b8724665dd32a683a72067` 的 provenance 与 `SOURCE_COMMIT_SHA` 完整匹配，`dist → Android assets` **50/50 SHA-256 匹配**；Play AAB 与 Domestic APK 的内嵌 provenance/版本均复核通过，双渠道 R8 mapping 与 runtime dependency inventory 齐全，unsigned manifest/SHA-256 清单 **7/7 匹配**。工件 `signed=false` 且不是发布包。另有 hosted artifact `12580044816`（Run `40145072882`、source `29573ee…`）的旧 SHA 清单匹配；不覆盖当前本地候选。 |
+| npm audit（本地官方 registry） | **PASS — 0 vulnerabilities**（`https://registry.npmjs.org`，生产依赖 high 与全依赖 critical 两项门槛）。 |
+| npm audit（本地镜像） | **BLOCKED / NOT_PASS** — `https://registry.npmmirror.com` 的审计端点返回 404/`NOT_IMPLEMENTED`；不得写成 0 漏洞或 PASS，也不覆盖官方 registry 的独立结果。 |
+| GitHub CI（推送前基线） | Run `40145072882` / SHA `29573ee…`：verify **SUCCESS**；生产依赖与全依赖 critical 审计均 **0 vulnerabilities**；`release=SKIPPED` 是 PR 策略。它只覆盖该已推送 SHA，不覆盖当前候选改动。旧 Run `38053414311` 的失败只属于旧 SHA；最终 SHA 的结论以 [PR #29 checks](https://github.com/guo6x/flowbreak/pull/29/checks) 为准。 |
 | iQOO V2073A / Android 13 | 识别为 vivo/iQOO 不支持型号。此前对旧候选的 Play Debug 安装命令返回 `INSTALL_FAILED_ABORTED: User rejected permissions`；字面错误不足以判断拒绝来源，安装未完成，未启动或改变权限，既有 `com.flowbreak.app.cn` 未触碰。本轮候选未在设备上安装或运行；iQOO 也不能替代 Redmi Gate F。 |
 | Gate F | **FAIL / NOT_CLOSED** — Redmi 新候选短时 Bilibili 定向复测未执行；历史约 33 秒异常仍未重现/排根因；24 小时稳定性 `NOT_EXECUTED`。AVD、JVM 或不支持的 iQOO 设备均不能关闭此门。 |
 | Gate G | **PENDING** — 跨机器签名恢复 `NOT_YET_TESTED`，真实 lower-version → current-version 签名升级 `NOT_TESTED`；本候选没有签名发布包。 |
 | Gate H / I | **PENDING** — 发行主体、公开政策 URL/联系方式、备案与商店材料未完成；真实小规模 Beta 尚未开始。 |
 | 发布边界 | `STORE_READY=NO`；`PRODUCTION_RELEASE_APPROVED=NO`。不合并 master、不使用生产签名、不创建正式 tag 或发布应用。 |
 
-当前工程验证不代表设备验收或正式发布批准。Gate F 仍需受支持 Redmi 的短时定向复测和独立 24 小时稳定性证据；不要求用户连续交出日常手机，不能用不支持的 iQOO 或自动化冒充。
+当前工程验证不代表设备验收或正式发布批准。本轮没有安装或操作真实手机。Gate F 仍需受支持 Redmi 的短时定向复测和独立 24 小时稳定性证据；不要求用户连续交出日常手机，不能用不支持的 iQOO、AVD 或自动化冒充。
 
 ## 体验分支历史快照（非当前候选）
 
