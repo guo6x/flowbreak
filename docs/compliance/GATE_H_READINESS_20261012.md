@@ -2,6 +2,8 @@
 
 **调查/文件准备日期：2026-10-12 · 状态复核日期：2026-10-18 · DOCUMENTATION_PREPARED / STORE_SUBMISSION_NOT_APPROVED。**
 
+**发行资料补记（2026-10-25，不是政策实时复核）：** 负责人提供的支持邮箱为 `15015091629@163.com`，尚未执行收发验证；主体、开发者账号与公开政策网页地址仍未确认。实际国内办理步骤见 [国内发行指南](DOMESTIC_PUBLISHING_GUIDE.md)。当前只准备供负责人决定的资料，没有注册、认证、付费、备案或商店提交。
+
 本文件是审查用工作底稿，不构成法律意见或商店审批。**GATE H 仍为 PENDING。** 开发/自动化能完成的事实核查与文案草拟与必须由发行主体提交的资质、商店后台操作严格分开；任何未证实的事实保留为 **UNVERIFIED**。
 
 ## 1. 从代码提取、待最终打包复核的发行边界
@@ -12,12 +14,12 @@
 | 核心用途 | 用户选择应用，基于 Android 使用情况事件估算前台时长，超时提示/拦截，经休息恢复访问；统计存设备本地；`docs/PRODUCT.md`、`PRIVACY.md` | CONFIRMED_SOURCE；不宣传系统限制下的实时绝对保证 |
 | 账号/广告/云同步 | 当前公开隐私声明为不设账号、不接广告/第三方统计、不主动向服务器上传本地使用数据；`PRIVACY.md` | SOURCE_CLAIM；最终 AAB/APK 的 SDK 行为和网络动态检查 **PENDING** |
 | 本地使用信息 | 受限应用包名、聚合使用时长、休息和阻断事件、用户选择的日反馈、积分、成就、设置；Room/SharedPreferences。完整 JSON 导出包含所有现存 SharedPreferences 键值，因此也可能包含 REST 启动时前台包名 `restStartForegroundPackage` | ON_DEVICE_PROCESSING，未证实离端传输；用户可主动导出完整 JSON；分享前应检查内容 |
-| 脱敏诊断 | `shareDiagnostics` 先按固定字段白名单构造 JSON；不包含详细 `runtimeTracking`，当前源码也没有实现 `restCheatEvidence` 字段；不导出目标包名/UsageEvents 明细。仍可能包含设备环境、状态原因、查询失败计数及导出时间 | “脱敏”不等于不可关联或绝对无敏感信息；用户主动分享后接收方可能获得白名单中的运行状态 |
+| 脱敏诊断 | 当前本机运行时诊断对象包含 `runtimeTracking.restCheatEvidence`；`shareDiagnostics` 按固定字段白名单构造分享 JSON，排除整个 `runtimeTracking`，因此该字段不进入脱敏分享 JSON；不导出目标包名/UsageEvents 明细。仍可能包含设备环境、状态原因、查询失败计数及导出时间 | “脱敏”不等于不可关联或绝对无敏感信息；用户主动分享后接收方可能获得白名单中的运行状态 |
 | Android Manifest | 通用 INTERNET、PACKAGE_USAGE_STATS、SYSTEM_ALERT_WINDOW、RECEIVE_BOOT_COMPLETED、FOREGROUND_SERVICE、FOREGROUND_SERVICE_SPECIAL_USE、POST_NOTIFICATIONS、VIBRATE；`app/android/app/src/main/AndroidManifest.xml` | 声明与实际用途逐项复核；INTERNET 存在不等于确有数据上传 |
 | FGS | `FlowForegroundService` 声明 `specialUse`，manifest 的 subtype 字符串为“健康提醒：监控连续使用时长” | 须提供 Play 特殊用途说明、用户可感知通知、演示视频、任务推迟/中断影响；**PLAY_APPROVAL=UNVERIFIED** |
 | Accessibility | **仅 Domestic manifest** 声明 FlowAccessibilityService；Play manifest 应当完全不包含该 service。实际 service 读取窗口切换事件中的 `packageName` 与必要的 `className`；针对微信视频号从类名派生 `wechatInVideoChannel` 布尔值并在 SharedPreferences 保留检测时间戳（不获取页面文字、聊天内容或输入文本） | 国内版须独立明确披露窗口类名及本地派生信号；不能把辅助阻断表述为残障辅助工具；最终两渠道 manifest CI 审核 |
 | 设备支持边界 | v1.1.0 Redmi/Xiaomi 为已测参考；vivo/iQOO 明确 fail-closed 不支持；其他 OEM 无全面支持承诺 | 商店文案不得宣称支持全部 Android 手机/后台始终运行 |
-| 隐私政策 | 仓库 `PRIVACY.md` 已有中文文稿，但**公开可访问 URL 与公开支持邮箱均缺失** | 必须补齐发行主体核验、公开 URL 和联系方式，再填 Console |
+| 隐私政策 | 仓库 `PRIVACY.md` 已有中文文稿；支持邮箱 `15015091629@163.com` 已由负责人提供，收发尚未验证；**公开可访问政策 URL 未配置** | 补齐发行主体与公开 URL，验证邮箱能收信，再确认实际表单 |
 | 合规资质 | APP 主办者、账号/实体、版权授权、备案编号、渠道材料均未由当前仓库提供 | **OWNER_REQUIRED**；不得伪造备案号、应用资质、主体或审核截图 |
 
 仅代码审查不能证明某个第三方 SDK 或生成后的 APK 从不联网。正式 Data safety 表需要结合 **最终 AAB 实际依赖扫描 + 运行时离端流量验证 + 所有分发渠道实际 SDK 清单** 确认。
@@ -36,7 +38,7 @@
 ### 前台服务声明（specialUse）
 
 - 当前声明目的：在用户主动启用后，持续观察用户选择的应用使用情况，提示长时间使用并维持正在运行的保护状态通知。
-- 不能承诺“永久后台运行/永不被系统杀死”；Android/OEM 限制会使前台服务延迟、中断。**当前 master 的 Dashboard 可仍基于监控意图显示“监控中”，并未证明实时 worker/heartbeat 健康提示。** 该完整性属于未合并的 PR #29 和 Gate F 物理验收，因此提交 FGS 声明前不得把“每次恢复时自动准确报告故障”作为已交付能力。
+- 不能承诺“永久后台运行/永不被系统杀死”；Android/OEM 限制会使前台服务延迟、中断。当前已实现能力及其验证状态以 [`CURRENT_STATUS.md`](../CURRENT_STATUS.md) 和提交时核验的最终发行候选为准；在最终候选与 Gate F 实机证据确认前，不得把“每次恢复时自动准确报告故障”作为已验证能力。
 - Play Console 中要解释为何这项任务需要前台服务、任务延迟或中断的实际影响，并提供操作演示视频（由**真实可发行包/模拟器录屏**，不能将静态图冒充视频）。
 - `specialUse` 是需 Google Play 审查的类型，不因为项目的 Manifest/CI PASS 就代表获批。
 - Google Play 版应维持**无 AccessibilityService 申报**，与实际打包 Manifest 对照。
@@ -63,8 +65,8 @@
 | 规则/代码对照及申报草案 | 读取现有 Manifest、隐私政策、发行机制；本文件与商店文案 | PREPARED | 非手机的安全/法务复核 |
 | Google Play Data safety 草表 | 本地/离端判定准则及可复查清单 | DRAFT_UNVERIFIED | 最终 AAB 网络/SDK证据后人工提交 |
 | FGS `specialUse` 说明 | 理由与中断影响及录屏脚本 | DRAFT_UNVERIFIED | 录制/上传真实视频、Play 审查 |
-| 用户隐私政策 | 现有政策已写，发布审核差异清单 | REVIEW_REQUIRED | 发行方提供公开联系方式与 URL |
-| 网络表面审计 | PR #39 仍 OPEN；其当前头部自动验证通过，但 release job 按策略跳过；可见 Codex review comment 针对较早提交 | CURRENT_HEAD_INDEPENDENT_REVIEW_PENDING | 完成当前头部复审、最终 merged-manifest/依赖核查与真实运行时流量观察；静态扫描不证明零网络流量 |
+| 用户隐私政策 | 政策草稿已写、支持邮箱已由负责人提供 | REVIEW_REQUIRED | 核验邮箱收信，确认发行主体并准备/验证公开政策 URL |
+| 网络表面审计 | PR #39 已关闭且未合并（2026-10-25 状态核实）；其检查结果不代表当前基线或最终发行候选已完成审计 | CURRENT_CANDIDATE_INDEPENDENT_REVIEW_PENDING | 对当前状态文档所指版本及最终发行候选复核 Manifest、依赖与真实运行时流量；静态扫描不证明零网络流量 |
 | Store listing 文案与画面清单 | 文稿与逐屏取材说明 | DRAFT | 合法商店后台与真实截图 |
 | 国内版无障碍披露 | PR #33 已合并共享的独立告知及明确选择，含窗口类名用途 | IMPLEMENTED_IN_MERGED_SOURCE; final candidate verification pending | 在最终 Domestic 候选核验两个入口及授权路径；不等于国内商店审核批准 |
 | APP 备案、主体、版权、资质 | 官方要求与待提交材料清单 | OWNER_REQUIRED | 发行主体/渠道决定并提供真实证据 |

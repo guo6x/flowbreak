@@ -128,7 +128,7 @@
     }
     @media (max-width: 520px) {
       .shell { width: min(100% - 24px, 1120px); }
-      .masthead { padding: 15px 0; }
+      .masthead { padding: 15px 0; flex-wrap: wrap; gap: 12px; }
       .brand-note { display: none; }
       .hero { border-radius: 21px; padding: 28px 23px; }
       .overview { gap: 8px; margin-bottom: 35px; }
@@ -173,9 +173,9 @@
         <h1 id="report-title">让保护承诺，<br>始终不超过真实能力。</h1>
         <p class="hero-copy">这份简报整理当前集成候选的证据边界与剩余发布门禁。它是供团队审阅的离线草稿，不是产品通过证书，也不替代项目状态与测试单一事实源。</p>
         <div class="hero-meta">
-          <span>复核日期 <strong>2026-10-23</strong></span>
-          <span>候选身份 <strong>工程就绪 · 待设备验收</strong></span>
-          <span>已验证文档快照 <strong>afe404f</strong></span>
+          <span>复核日期 <strong>2026-10-25</strong></span>
+          <span>候选身份 <strong>本地复验通过 · 真机问题未关闭</strong></span>
+          <span>代码测试锚点 <strong>a15b54d</strong></span>
         </div>
       </div>
     </section>
@@ -198,14 +198,14 @@
             <h3>仍需处理的最高优先级问题</h3>
             <p class="lead">Issue #28 / FB-P1-08 保持 OPEN，Gate F 保持 FAIL。</p>
             <p>历史真实设备摘要记录：REST 期间 Bilibili 前台约 33 秒后，页面仍显示倒计时。现有摘要没有对应的原生持久状态、服务 tick、前台分类器和取消判定，尚不能判断是原生状态未取消，还是页面显示过期。</p>
-            <div class="evidence-note"><span class="note-icon" aria-hidden="true">!</span><span><strong>24 小时稳定性运行：NOT EXECUTED。</strong><br>虚拟设备可以验证受控功能，但不能模拟 Redmi/HyperOS 调度，也不能关闭此门禁。</span></div>
+            <div class="evidence-note"><span class="note-icon" aria-hidden="true">!</span><span><strong>固定 24 小时验收已取消。</strong><br>按负责人 2026-10-25 决定改为日常使用反馈；历史未执行不改为通过，核心状态问题仍须修复与复验。</span></div>
           </article>
 
           <article class="card">
             <h3>发布门禁状态</h3>
             <ul class="gate-list">
               <li><span class="gate-code">A–E</span><span class="gate-desc">历史基线 / 支持范围证据</span><span class="pill pill-historic">非本候选验收</span></li>
-              <li><span class="gate-code">F</span><span class="gate-desc">Protection Integrity + 24h 稳定性</span><span class="pill pill-fail">FAIL</span></li>
+              <li><span class="gate-code">F</span><span class="gate-desc">Protection Integrity + 核心短测</span><span class="pill pill-fail">FAIL</span></li>
               <li><span class="gate-code">G</span><span class="gate-desc">签名恢复与真实版本升级</span><span class="pill pill-pending">PENDING</span></li>
               <li><span class="gate-code">H</span><span class="gate-desc">商店、主体与合规申报</span><span class="pill pill-pending">PENDING</span></li>
               <li><span class="gate-code">I</span><span class="gate-desc">真实小规模 Beta</span><span class="pill pill-pending">未开始</span></li>
@@ -222,31 +222,31 @@
         <div class="candidate-panel">
           <article class="identity">
             <h3>区分功能来源与后续提交</h3>
-            <p>功能修复源为 f7abbad；本次修补前已验证的文档快照为 afe404f。新修补的精确 HEAD、CI 和合并决定见 PR #42，旧证据不自动转移。工程合并不代表设备或发布门禁通过。</p>
+            <p>本轮源码与测试提交为 a15b54d，目标是 PR #29；PR #42 是已合并的历史集成。后继资料提交不改变运行时代码，但最终 HEAD 必须独立通过自己的 CI，精确结果见 PR #29 checks。工程交付不代表设备或发布门禁通过。</p>
             <div class="identity-lines">
-              <div class="identity-line"><span>已验证文档快照</span><strong>afe404fe094b…</strong></div>
-              <div class="identity-line"><span>该快照 CI / unsigned</span><strong>39303124166 · 已核验</strong></div>
+              <div class="identity-line"><span>代码测试锚点</span><strong>a15b54d5e88e…</strong></div>
+              <div class="identity-line"><span>本地 Web 同步 / 产物清单</span><strong>51/51 · 7/7 一致</strong></div>
               <div class="identity-line"><span>发布决定</span><strong>STORE READY = NO</strong></div>
             </div>
           </article>
           <div class="evidence-stack" aria-label="证据核验清单">
-            <div class="evidence-item"><strong>源代码与测试必须同 SHA</strong><span>Run 39301143402 的 provenance 和二进制哈希归属功能修复源 f7abbad7…；Run 39303124166 另行验证文档快照 afe404fe…。它们都不能冒充后续修补的最新 HEAD。</span></div>
-            <div class="evidence-item"><strong>虚拟设备证据有清晰边界</strong><span>可覆盖页面、权限、状态和受控 REST 流程；不代表真实设备 OEM 行为。</span></div>
+            <div class="evidence-item"><strong>源代码与测试必须同 SHA</strong><span>本轮 a15b54d… 的前端 336 项、双渠道 JVM 495/528 项与 unsigned 产物已本地复验；详细指纹见 TESTING.md。旧 SHA 的绿色 CI 不认证最终推送 HEAD。</span></div>
+            <div class="evidence-item"><strong>虚拟设备证据有清晰边界</strong><span>API 36 AVD 两渠道各 2 项安装身份测试通过，拉取包与同批 Debug APK 哈希一致；没有据此证明 OEM 计时、阻断或后台恢复。</span></div>
             <div class="evidence-item"><strong>REST 完成完整性 · 候选复审范围</strong><span>原生完成命令绑定 restSessionId，在 monitor Handler 上回放完整 REST UsageEvents；查询/coverage 失败时 DEFER，完整目标历史 ≥5 秒才允许取消。BEGIN/CANCEL 采用 UUID token，并处理 BEGIN 未确认时页面卸载的取消竞态。基线已完成代码差异复核，后续修补按新 HEAD 单独验证。</span></div>
-            <div class="evidence-item"><strong>不要编造产物或真人证据</strong><span>AVD 受控页面证据与 unsigned provenance 已记录；没有新的 Redmi/HyperOS 真机复测、24 小时稳定性或正式签名发布证据。</span></div>
+            <div class="evidence-item"><strong>不要编造产物或真人证据</strong><span>本轮未操作真实手机、生产签名或商店后台。固定 24 小时任务已取消；Gate F 的真实缺陷和 G/H/I 的未完成条件仍如实保留。</span></div>
           </div>
         </div>
       </section>
 
       <section class="timeline" aria-label="尚待完成的工作">
-        <article class="timeline-item"><span class="timeline-number">01</span><h3>按精确提交复审与合并</h3><p>基线证据已记录；2026-10-23 跟进修补需通过新 HEAD 的 CI 后再工程合并，不绕过保护规则。</p><small>候选来源 · 自动化 · 产物溯源</small></article>
-        <article class="timeline-item"><span class="timeline-number">02</span><h3>关闭独立发布门禁</h3><p>G 的跨机恢复与真实版本升级是两个独立事项；H 还需发行主体、公开联系方式/URL 和平台材料。</p><small>GATE G · GATE H</small></article>
-        <article class="timeline-item"><span class="timeline-number">03</span><h3>保持诚实的设备边界</h3><p>无手机期间继续用 AVD 做受控验证，但 Gate F 失败与 24h 未执行状态不变。</p><small>GATE F · GATE I</small></article>
+        <article class="timeline-item"><span class="timeline-number">01</span><h3>按精确提交交付与复审</h3><p>最终 PR #29 HEAD 必须通过自己的 CI；仅交付现有分支，合并另由负责人决定，不绕过保护规则。</p><small>候选来源 · 自动化 · 产物溯源</small></article>
+        <article class="timeline-item"><span class="timeline-number">02</span><h3>关闭独立发布门禁</h3><p>G 的跨机恢复与真实版本升级是两个独立事项；H 的支持邮箱已指定但收发未验证，主体、政策 URL 和平台资料仍未齐备。</p><small>GATE G · GATE H</small></article>
+        <article class="timeline-item"><span class="timeline-number">03</span><h3>核心复验与日常反馈</h3><p>固定 24 小时要求已取消，不要求提供日常 Redmi；AVD 验证受控场景，真实兼容结果按实际设备记录，已知缺陷不因范围调整关闭。</p><small>GATE F · GATE I</small></article>
       </section>
 
       <aside class="notice" aria-labelledby="notice-title">
         <span class="notice-mark" aria-hidden="true">i</span>
-        <div><h3 id="notice-title">这不是发布批准</h3><p>PR #33 已合并的是无手机合规准备与告知实现，不代表完成商店申报。PR #42 的最新 HEAD、checks 与合并状态以云端记录为准；代码合并不关闭设备或发布门禁。静态网络审计、自动化、AVD 与旧签名包都不能证明最终运行包的零网络流量或 Gate F 通过。</p></div>
+        <div><h3 id="notice-title">这不是发布批准</h3><p>已合并的 PR #33 / #42 是历史合规与体验来源，不代表完成商店申报。当前 PR #29 的精确 HEAD、checks 与合并状态以云端记录为准；代码交付不关闭设备或发布门禁。静态网络审计、自动化、AVD 与旧签名包都不能证明最终运行包的零网络流量或 Gate F 通过。</p></div>
       </aside>
 
       <section class="sources" aria-labelledby="sources-title">

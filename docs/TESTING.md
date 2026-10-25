@@ -2,7 +2,59 @@
 
 > 定义自动化测试层级、CI 范围、真机测试矩阵与证据标准。当前门禁和易变 HEAD/CI 状态以 [CURRENT_STATUS.md](CURRENT_STATUS.md) 为准；本文件保留明确绑定到源码 SHA 或 workflow Run 的验证证据。更早的验证记录在 `docs/archive/progress/`（含 `VERIFICATION.md` 的 Beta 1.1 记录）。
 
-## PR #29 本地与首个推送候选验证快照（2026-10-25）
+## 现行验收范围（2026-10-25）
+
+负责人已移除固定 24 小时连续运行验收，`FIXED_24H_ACCEPTANCE=NOT_REQUIRED`；稳定性改为日常使用反馈，不设置最低时长，不要求提供日常 Redmi。核心计时/提醒/休息/恢复、安全关闭、状态真实性与隐私仍要复验。以下历史快照中的 `24h NOT_EXECUTED` 不改成 PASS，也不再作为当前待补的固定时长任务。取消要求不关闭 `FB-P1-08` / `FB-P1-05`，不把模拟器结果升级为真机证据。
+
+## 本轮代码、页面与工程复验（2026-10-25）
+
+源码/测试锚点：`a15b54d5e88ea59245a724c3cb29eb4820583ca9`，基于 `edf5def5af41e3daa9eceb318c55b8ada8bfd93f`。后继资料提交不改变运行时代码；本地检查仅证明列明范围，最终推送 HEAD 的 hosted 结果以 [PR #29 checks](https://github.com/guo6x/flowbreak/pull/29/checks) 精确 SHA 为准。历史 Run 不认证新 HEAD。
+
+| 检查 | 本轮结果 |
+| --- | --- |
+| Vitest / TypeScript / Vite | **336/336 PASS**，28 files；`npm run build` PASS。新增测试包括 support mailto、慢查询单飞/快速 reject 后等待其他查询、无激活/无 API/抛错振动路径。测试环境已有 act/Recharts/AudioContext 提示与真实浏览器 console gate 分开记录，不称测试 stderr 为空。 |
+| UI smoke | **45/45 PASS — WEB_PREVIEW_ONLY**；13 路由 × 320/393/1280px，另含导航、合成统计、Web 休息操作与完成态、小屏退出按钮可达性；0 `pageErrors`、0 `consoleErrors`、0 非本地请求、0 失败资源。帮助/隐私的六个视口场景均只包含精确无 query 的支持 mailto。 |
+| Play / Domestic JVM | **495/495 / 528/528 PASS**；49/50 suites，JUnit XML 0 failure、0 error、0 skipped。新增 Activity 未附着时的异步成功/拒绝/延迟四项，以及 vivo/iQOO 保存而不调起服务两项。 |
+| Lint / Debug / AndroidTest assemble | Play/Domestic Lint 均无 error/fatal，44/45 warnings；两个渠道 Debug 和 AndroidTest APK 均组装 PASS。仅组装不表示 instrumentation 已执行；实际安装执行另记。 |
+| Brand / Provenance / Release / Privacy static | **36/36 / 20/20 / 8/8 / 15/15 PASS**；第一方静态审计 143 files / 0 violations，声明 INTERNET；不能据此推出最终二进制零联网。 |
+| Portable signing security | **8/8 PASS**；测试密码不入 argv/log、不可信归档器被拒、无安全后端则 fail closed；没有读取或恢复实际生产 vault，不关闭 Gate G。 |
+| 官方 npm audit（本地） | 显式 `--registry=https://registry.npmjs.org`，`--omit=dev --audit-level=high` 与 `--audit-level=critical` 都为 **0 vulnerabilities**。依赖文件未因本轮发生修改。 |
+| 默认镜像 npm audit（历史环境阻塞） | `https://registry.npmmirror.com` 的 `404 / NOT_IMPLEMENTED` 保持 **BLOCKED / NOT_PASS**；官方 registry 的成功不修复镜像审计端点。 |
+
+回归可信度记录：单飞测试在修复前确实出现 expected 1 / actual 6，普通慢请求与快速 reject+慢 sibling 两种路径均做了 red→green；目标保存测试在门禁修复前确实调起了不支持设备的服务。UI 新鲜度负测拒绝旧 dist，v2 新增 console gate 抓到无手势振动拦截（44 页面断言通过但总结果 FAIL）；修复后 v3 才是 45/45 与 0 console error。最初 TypeScript 对测试中直接删除 Navigator 非可选字段报错，改用 `Reflect.deleteProperty` 后 build 通过，未放宽编译或浏览器门禁。
+
+最终页面证据：`C:\WINDOWS\TEMP\flowbreak-ui-smoke-20261025-final-v3\results.json` 及 53 张截图。320×740 REST 容器 `scrollHeight=767/clientHeight=740`；滚动后按钮 top/bottom 为 `691.69/739.69`、左右 `20/300`，完整可达。保留已有内层滚动，无需布局补丁；初始首屏裁边不记作不可达 P2。截图与合成统计不是 Android/OEM 验收或商店最终取材。
+
+离线集成验收简报另外同步到本轮 PR #29/源码身份；320px 检查发现报告页页眉横向溢出，已仅对报告的小屏页眉启用换行，未改变产品布局。修正后报告在 320/393/1280px **3/3 PASS**，0 横向溢出、0 console/page error、0 外部资源请求，文档链接目标存在；该单独检查不计入产品 45/45 或真机结果。
+
+本轮 Android 构建曾因 `cap sync` 与 Gradle 同时操作生成目录而失败（EBUSY / missing generated build.gradle），该失败不记 PASS；随后串行同步并重跑双渠道矩阵成功。最终以如下源码绑定工件为准，不能用先前并行组装的 APK 冒充最终工件。
+
+### 最终源码绑定构建与 unsigned 工件
+
+- 源码 `a15b54d5e88ea59245a724c3cb29eb4820583ca9`；本地工程版本 `versionCode=2` / `versionName=ci-local-a15b54d`，不表示正式发布版本。`SOURCE_COMMIT_SHA` 与 `GITHUB_SHA` 均绑定该完整 SHA；只允许资料文档 WIP，不把工作树说成全 clean。
+- 顺序执行 Web build → provenance → `cap sync` → Web asset sync，`dist → Android assets` **51/51 SHA-256 一致**（另有 2 个 Capacitor 生成文件）。使用 JDK 21 / Gradle 8.13，最终同批 `testPlayDebugUnitTest testDomesticDebugUnitTest lintPlayDebug lintDomesticDebug assemblePlayDebug assembleDomesticDebug assemblePlayDebugAndroidTest assembleDomesticDebugAndroidTest bundlePlayRelease assembleDomesticRelease` 全部退出 0（395 tasks，5m49s）。JUnit/Lint 最终 XML 的数量与上表一致；Room schema 无新差异。
+- 之后串行生成两渠道 `ReleaseRuntimeClasspath` inventory；Play AAB 与 Domestic APK 的内嵌 provenance、从二进制独立读取的包名/版本、合并 Manifest、R8 mapping、runtime 清单和 unsigned 状态均复核 PASS。Play 不含无障碍服务，Domestic 包含；两者均声明 FGS specialUse。没有读取、使用生产签名或恢复实际密钥。
+- `artifact-manifest.json` 中两项 binary 均为 `signed=false`；`SHA256SUMS.txt` **7/7 独立复算一致**。本地 verifier 首次因 PowerShell 续行失败；修正本地 helper、显式调用 ZIP 扩展 API，并识别 apksigner 的精确 unsigned 输出后完整通过。未放宽生产源码、编译或发布门禁。
+
+| 本地 unsigned 工件 | SHA-256 |
+| --- | --- |
+| Play AAB | `17a515266f5c7ff02010688c7a14cf04365ddf4161339c51bbce4ccb0476037f` |
+| Domestic APK | `fe9ea1679bda146af6b88b1009437b040278b5b3f8d8c3f25a921983cca8d2de` |
+| artifact-manifest.json | `bfd6642c949d75cb38b3240e167ebe9a3ed9fee95212cae37a63fbf3cae1a7e6` |
+
+本地证据目录：`.tmp/local-release-verification/a15b54d5e88ea59245a724c3cb29eb4820583ca9-20261025T062714Z-e5791e36fb8d4cd794c5431f9d8709d3/`。这些不是签名发布包，也不是最终文档 HEAD 的 hosted artifact；最终推送必须独立确认对应 SHA 的云端检查与产物。
+
+### API 36 AVD 安装身份复验（SIMULATOR_ONLY）
+
+- `Medium_Phone_API_36.0`，Android 16 / API 36，显式 serial `emulator-5554`；每次安装、拉包和 instrumentation 前确认 `ro.kernel.qemu=1`、`sys.boot_completed=1`。未枚举或操作真实手机，没有 wipe、uninstall、clear、降级或权限变更。
+- 同批最终 Debug / AndroidTest APK 用 `install -r` 安装，Play `com.flowbreak.app` 和 Domestic `com.flowbreak.app.cn` 均成功；只执行 `ApplicationIdentityInstrumentedTest`，两渠道各 **2/2 PASS**（实际包名、FGS 存在且不 exported、Accessibility 仅 Domestic 存在并受正确权限保护）。没有把其他 instrumentation 场景记为已执行。
+- `pm path` 唯一定位已安装 base APK 并拉取逐一对账：Play SHA-256 `7a6968de18fa1ae0c15f4c7e1accfaafcb12a27a24ea47f3ebb4e6a16885027c`；Domestic `2d051f404d5347f2b9bea4383428cc9c2159945a209da982f945d1629dd5251c`；均与本地同批源码绑定 Debug APK 相同。这些是 Debug 工件，不与上表 unsigned Release 混用。
+- 输出与安装回执保存在 `.tmp/avd-identity-20261025T062717Z-adf4fd4cc8ab494f87c5a4be1981d0d3/`，不入 Git。该检查不证明任意 OEM 的计时、阻断、后台恢复、签名升级或 Beta 结果；**Gate F 仍 FAIL，Gate G/H/I 仍 PENDING**。
+- 核验后仅关闭本轮启动的 `emulator-5554`，保留模拟器数据，不停止其他项目进程或 ADB 服务。
+
+## PR #29 先前本地与首个推送候选验证快照（2026-10-25；历史基线）
+
+本节固定记录本轮增量之前的源码、测试与产物；“未再变化”“docs-only”等描述仅指该历史批次，不表示本轮未修改运行时代码，也不能覆盖后继 SHA 的独立验证。
 
 - 前序候选代码 `fd9045a3b916486588b93e477935070e640440e5` 之后，推送前远端基线为 `29573ee115ee8ba25120a3b61ce7ae87b0535fde`，Run `40145072882` 只验证该 SHA。本地代码/测试提交为 `0996ca32b8cc471236b8724665dd32a683a72067`，包含 `RestMode.tsx` 超时后原生状态对账/拒绝回执 token 校验，以及 v3→v4 Room 迁移幂等键回填与回归测试。首个推送候选 `1070f920adae83fd44e2e4ee04ca7e5109d8f89b` 的 hosted Run `40151649558` 已全绿：`verify=SUCCESS`、PR release job 按策略 `SKIPPED`；本地运行时代码未再变化。本次文档补记该 Run，不改变运行时代码；新文档版本的 hosted 结论以其自身 SHA 对应的 workflow/artifact 为准。目标分支 `fix/fb-p1-08-protection-integrity`，未合并 master。
 - 本地自动化（代码提交 `0996ca3…`）：Vitest **326/326 PASS**（28 files；Windows 单 worker）；TypeScript/Vite build **PASS**；UI smoke **44/44 PASS**（`WEB_PREVIEW_ONLY`）；brand **36/36**；provenance **20/20**；release policy **8/8**；privacy static **15/15**；`Test-SEC-PORTABILITY-001.ps1` **PASS**。
@@ -12,8 +64,8 @@
 - Hosted unsigned 工件：旧基线 Run `40145072882` 上传 artifact ID `12580044816`（source `29573ee…`）。首个收口候选 Run `40151649558` 上传 artifact ID `12582807009`（source `1070f920…`）；下载后 `artifact-manifest.json`、内部 `build-provenance.json`、两项 binary 均精确绑定该 SHA，`SHA256SUMS.txt` **7/7** 匹配，Play AAB 与 Domestic APK 均 `signed=false`。这是工程构建证据，不是签名/发布验收。
 - npm audit 来源必须分开：本地官方 `https://registry.npmjs.org` 的生产依赖 high 与全依赖 critical 审计均 **PASS — 0 vulnerabilities**；本地默认镜像 `https://registry.npmmirror.com` 的两项审计均因 endpoint `404 / NOT_IMPLEMENTED` 而 **BLOCKED / NOT_PASS**。GitHub Actions Run `40151649558` / SHA `1070f920…` 的生产依赖、全依赖 critical 及回归后复跑均报告 **0 vulnerabilities**；早先基线 Run `40145072882` / SHA `29573ee…` 也为 0。Hosted 结果不覆盖本地镜像阻塞。
 - 旧 Run `38053414311` 只属于 PR #29 旧 HEAD `b00b9cc75073e77759e28ba5b71f960033cbf1d5`：其生产依赖 audit 对 `@capacitor/android` 受影响版本 8.0.0–8.3.4 报告 1 个 critical（GHSA-rvm3-566m-v7fv），因此 `verify=FAILURE` / `release=SKIPPED`。不得把该旧失败归属到新 SHA；后续 docs-only HEAD 的 hosted 结论以 [PR #29 checks](https://github.com/guo6x/flowbreak/pull/29/checks) 显示的精确 SHA 为准。
-- iQOO V2073A / Android 13 是 vivo/iQOO 不支持设备。此前对旧候选的 Play Debug 安装命令返回 `INSTALL_FAILED_ABORTED: User rejected permissions`；无法仅凭此字面结果判断拒绝来源。安装未完成、未启动或改变权限，既有 `com.flowbreak.app.cn` 未触碰。本轮候选没有设备安装/运行证据，且此设备不能替代 Redmi Gate F。
-- Gate F **仍 FAIL**：Redmi 新候选短时 Bilibili 定向复测与 24 小时稳定性均未执行；不支持的 iQOO、AVD、JVM、静态审计都不能替代它们。Gate G/H/I 也保持未完成，详见 [RELEASE.md](RELEASE.md)。
+- iQOO V2073A / Android 13 当前被 vivo/iQOO 品牌门禁拒绝启动。此前旧候选安装返回 `INSTALL_FAILED_ABORTED: User rejected permissions`，无法仅凭文字判断拒绝来源；安装未完成、未启动或改变权限，既有 `com.flowbreak.app.cn` 未触碰。本轮没有设备安装/运行证据。兼容修复与复验纳入本次收尾，安全拒绝不算支持验证。
+- Gate F **仍 FAIL**：历史约 33 秒问题与当前候选核心状态的设备复验未完成；固定 24 小时要求已移除，不再限定必须 Redmi。AVD/JVM/静态审计不等于未执行的设备场景通过。Gate G/H/I 也保持未完成，详见 [RELEASE.md](RELEASE.md)。
 
 | 检查 | 结果与边界 |
 | ---- | ---- |
@@ -24,7 +76,8 @@
 | GitHub CI npm audit（早先基线） | Run `40145072882` / SHA `29573ee…`：生产依赖与全依赖 critical 均 **0 vulnerabilities**；不覆盖本次候选 |
 | GitHub CI npm audit（PR #42 历史） | Run `39301143402` 对 source `f7abbad7…` 报告 **0 vulnerabilities**；这是另一 PR/历史 SHA 的独立证据 |
 | Android device smoke | **NOT EXECUTED（本候选）** — 旧候选 iQOO 安装曾返回 `INSTALL_FAILED_ABORTED: User rejected permissions`；不推断拒绝来源；未成功安装/启动、未改权限，旧 `.cn` 应用未触碰 |
-| 24h stability / Gate F | **NOT EXECUTED / FAIL** — 仍需受支持 Redmi 的独立证据 |
+| Fixed 24h acceptance | **NOT_REQUIRED** — 负责人于 2026-10-25 移除；历史 NOT_EXECUTED 不改成 PASS |
+| Protection Integrity / Gate F | **FAIL / NOT_CLOSED** — 核心状态与真实失败仍需复验，不指定必须 Redmi |
 
 ## PR #42 历史集成验证快照（2026-10-23；不是当前候选）
 
@@ -258,7 +311,7 @@ Gate E 的当前结论区分健康运行时、执行间隔恢复和 Android/OEM 
 
 - 原则：**界面不能显示「保护中」，而实际关键能力已经失效**。UI 承诺必须 ≤ 实际保护能力。
 - 当前作为 TESTING / RELEASE ACCEPTANCE PRINCIPLE 执行（不是马上做大规模新功能）。
-- 未来 OEM / 24h 验证时，正常路径测试同时做失效注入，例如：
+- 本次 OEM / 核心场景短测在正常路径之外同时做失效注入，例如：
   - 撤销 Usage Access
   - 撤销 Overlay
   - Domestic 关闭 Accessibility
@@ -267,7 +320,7 @@ Gate E 的当前结论区分健康运行时、执行间隔恢复和 Android/OEM 
   - force-stop 后重新手动打开
 - 每项至少验证：A. 实际保护行为；B. 用户界面是否如实反映能力。
 - force-stop 语义：force-stop 后**不要求** App 自动复活。正确测试：force-stop → 用户手动重新打开 FlowBreak → UI 不得谎称旧保护状态仍完全有效 → 合法恢复保护。
-- 未来 24h 测试：不仅验证「不崩」，还要验证「**无 silent protection drift**」（保护能力无无声漂移）。
+- 日常使用反馈不仅关注崩溃，也关注「**无 silent protection drift**」（保护能力无无声漂移）；不要求固定连续运行时长，出现异常按实际版本和现象登记。
 
 ### v1.1.0 OEM 支持边界与 fail-closed 验收
 
@@ -279,10 +332,10 @@ Gate E 的当前结论区分健康运行时、执行间隔恢复和 Android/OEM 
 
 ### 尚未完成的设备验证
 
-- 受支持范围内其他 OEM 的真机矩阵（Xiaomi / Redmi 之外的 OPPO / OnePlus、Honor / Huawei 等：权限、后台限制、重启、24 小时稳定性）；vivo / iQOO 不属于 v1.1.0 支持运行时矩阵，保留为 `FB-P1-05` 开放兼容性问题。
+- 本次兼容候选的真机矩阵（权限、后台限制、计时、重启与恢复）；不预设必须提供某一部 Redmi。当前 vivo/iQOO 仍被代码拒绝启动，`FB-P1-05` 修复前不得宣称已支持；未来结果按实际机型/系统/候选记录，未覆盖品牌不宣称全面兼容。
 - 与系统数字健康误差 ≤10% 的多设备对照（UsageStats 精度）。
 - 阻断触发延迟 ≤2s 实测（blocking latency）。
-- 24h stability + Protection Integrity（含上述失效注入）。
+- Protection Integrity 核心短测（含上述失效注入）及日常使用反馈；固定 24 小时任务已取消。
 - 微信视频号识别真机专项。
 - 小规模 Beta。
 

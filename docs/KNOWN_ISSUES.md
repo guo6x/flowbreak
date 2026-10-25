@@ -30,13 +30,14 @@
 
 - Severity：**P1（supported-scope 核心保护完整性）**
 - Status：**OPEN_SUPPORTED_SCOPE_RELEASE_BLOCKER**；GitHub [Issue #28](https://github.com/guo6x/flowbreak/issues/28) 当前仍 OPEN，`GATE_F=FAIL`。
-- Affected version/SHA：真实设备摘要没有记录可核验的 APK 来源版本/SHA。Issue 正文中的 master 发现基线属于代码审计背景，**不等同于设备复现包的来源 SHA**；本集成工作区也还没有最终候选 SHA。
+- Affected version/SHA：历史设备复现包的版本、源码 SHA 与 APK SHA 均未记录。Issue 正文中的 master 发现基线只属于代码审计背景。PR #29 候选的源码与构建身份见 [当前状态](CURRENT_STATUS.md) 和 [验证快照](TESTING.md)；这些身份不能追溯证明历史复现包来自当前候选，设备失败摘要也未绑定任何 PR #29 安装产物。
 - Environment：历史真实设备记录描述在 REST 期间前台使用 Bilibili 约 33 秒。该摘要未包含可核验的设备型号、系统版本、渠道、签名证书或已安装 APK provenance；这些信息保持 **NOT_RECORDED / NOT_VERIFIED**，不得按相邻测试猜测。
 - Observed（设备摘要）：Bilibili 前台约 33 秒后，REST 界面仍显示倒计时。摘要中没有同时保存的原生持久状态、服务 tick、前台分类器或取消判定证据，因此无法判定当时是原生休息状态未取消，还是原生状态已变化而 Web 页面显示过期。此观察保留为真实设备失败，不将其解释成已确定的 native `cancelRest` 失败。
+- Investigation（2026-10-25）：已复核现有摘要及 PR #29 候选问题。历史复现包来源和同期原生状态证据仍缺失；没有足够证据确定 33 秒期间原生 REST 状态、服务 tick、分类结果与页面倒计时之间的先后关系。本轮代码侧检查/回归不构成该历史设备根因已定位或 Gate F 已关闭的证据，问题继续 OPEN / Gate F FAIL。
 - Additional code-audit findings in Issue #28（仍须在最终候选验证，不代表设备根因已定位）：必要的 Usage Access / Overlay 缺失时，保护状态 UI 与实际运行能力可能不一致；实时 UsageEvents 查询失败可能继续沿用旧前台包名；Domestic 无障碍在监控关闭后可能依赖过期的持久 `BLOCKED` 状态继续执行。无障碍是可选能力，缺失时应如实降级，不能因它缺失而禁用所有保护。通知、电池优化豁免与 OEM 自启动不是新增硬性前置条件。
 - Expected：遵守 **UI promise ≤ actual protection capability**。缺少硬性权限或当前原生运行能力时，不显示“保护有效”，不沿用过期前台状态累计使用；停止监控后 Domestic 无障碍不得继续依靠旧状态执行强阻断。恢复能力时只能按可验证、无虚构时长的路径恢复。
 - Evidence： [Issue #28](https://github.com/guo6x/flowbreak/issues/28)，特别是其 2026-10-10 设备失败摘要与取证说明。当前没有新的真实设备复测，也没有证据关闭该问题。
-- Next action：在最终候选 SHA 上完成确定性回归和独立代码复审；将虚拟设备用于可控权限、状态与界面场景，但不把 AVD/模拟 UsageEvents 记为 Gate F 通过。若未来有合规授权的真实设备条件，按 [FB-P1-08 设备验收交接](FB-P1-08-FINAL-DEVICE-HANDOFF.md) 收集最小化的 native 状态对照材料，并另行执行 24 小时稳定性观察。当前无设备的限制下，保留 OPEN / FAIL。
+- Next action：若要关闭 Gate F，需在实际运行兼容候选的获授权真机上，把源码/构建产物/安装包身份绑定起来，并同步记录最小化原生 REST/session 状态与前台分类结果；隐私边界见[设备验收交接](FB-P1-08-FINAL-DEVICE-HANDOFF.md)。AVD 与模拟 UsageEvents 仅覆盖可控自动化，不计为真机通过。负责人已于 2026-10-25 取消固定 24 小时验收，改由日常使用反馈，不要求连续时长任务；该决定不改变缺陷状态。
 
 ### FB-P1-05 vivo/iQOO native tick path may fail to accumulate foreground usage
 
@@ -44,10 +45,11 @@
 - Status：**OPEN — UNSUPPORTED IN V1.1.0**（本次变更不修复根因，也不将其标记为 RESOLVED）
 - Affected version/SHA：`d61d2439c3cbc7b347b7af483916670e35c08805`
 - Environment：vivo iQOO V2073A / OriginOS 13.5 / Android 13 (SDK 33) / Domestic final-production-signed APK
-- Observed：B站实际包名 `tv.danmaku.bili` 已被选择为目标应用，FlowForegroundService 保持存活且设备当前前台为 B站，但持续实际使用后 `sessionSeconds` 仍为 0，未进入递进状态或 BLOCKED。
+- Observed：B站实际包名 `tv.danmaku.bili` 已被选择为目标应用，FlowForegroundService 保持存活且设备当前前台为 B站；持续使用约 92.4 秒后，仪表盘仍显示连续使用 0 分钟。历史材料没有同期原始 native `sessionSeconds` 或逐 tick 状态值，不能把显示的 0 分钟等同于原始毫秒计数为 0。
 - Expected：在受支持设备上，连续目标应用前台 tick 应推动 `BlockStateMachine.getSessionMs()` 增长，并按既有阈值进入递进状态。v1.1.0 对 vivo/iQOO 不启动保护，不把“已开启”显示为可用保护。
-- Suspected root cause：仍未判定。本次 v1.1.0 变更只增加设备能力边界与 fail-closed 门禁，不继续扩大 OriginOS tracking 调查。
-- Next action：留待未来专门的 vivo/iQOO 兼容性修复或重新支持决策；v1.1.0 不生成新的 signed iQOO S6 candidate，也不执行 S6–S13。
+- Suspected root cause：仍未判定。2026-10-25 对现有设备摘要与 native 计时/状态链的复核确认：B 站保持 top-resumed/focused、目标应用已选中、UsageStats 活跃计数增长且 FlowBreak 服务存活；但没有同期 raw session 值、逐 tick detector/classifier/accumulator 与 state-machine 前后值。证据只能将问题限定在目标会话/状态路径，无法区分 detector、classifier、accumulator 或 state machine，也不能据此提出确定性代码修复。
+- Investigation and boundary (2026-10-25)：本轮调查已完成，但根因未定位。没有“删除一条设备拒绝规则即可安全兼容”的证据；不得移除 vivo/iQOO fail-closed、不得宣称兼容或 RESOLVED。v1.1.0 仍不支持 vivo/iQOO runtime，已有拒绝行为是当前明确的安全边界。
+- Next action：保持 OPEN 与 fail-closed。若将来重新评估支持，必须作为独立兼容性工作重新取得可归因的逐 tick 证据并完成对应设备验收；S6–S13 本轮未执行，不以代码审查或模拟测试替代。
 - Evidence：External device evidence: `D:\AI_code\flowbreak-device-evidence\iqoo-signed-sanity\2026-09-07-live-disambiguation-retry-2\sanity-report.md`
 - 2026-09-08 v1.1.0 final-scope acceptance：PR #20 已合入 master；最终签名 Domestic APK 通过 `adb install -r` 覆盖安装，未清除数据。iQOO 上 `unsupportedDevice=true`、`protectionRuntimeAvailable=false`，启动保护入口保持禁用并显示不支持原因；诊断未检测到保护服务心跳，未观察到活动保护 FGS。启用 Accessibility 后，B 站 `tv.danmaku.bili` 在短时检查中保持可用，未观察到 HOME、`BlockedTargetBanner` 或 `BlockActivity`。本次按范围未执行 S6–S13，因此不改变该问题的 OPEN 状态。
 - Final-scope evidence：External device evidence: `D:\AI_code\flowbreak-device-evidence\iqoo-signed-sanity\2026-09-08-final-scope-acceptance\`

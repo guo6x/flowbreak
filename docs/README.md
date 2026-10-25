@@ -18,6 +18,8 @@
 
 准备发布时：先读 [`docs/RELEASE.md`](RELEASE.md)；Gate F / `FB-P1-08` 的设备证据边界与复验步骤见 [`FB-P1-08-FINAL-DEVICE-HANDOFF.md`](FB-P1-08-FINAL-DEVICE-HANDOFF.md)。
 
+想先了解国内商店账号和资质怎么办理：读 [国内渠道办理指南](compliance/DOMESTIC_PUBLISHING_GUIDE.md)。面向发行负责人，说明步骤、材料和是否启动的决策点；不是已办理证明，也不要求现在注册、购买或提交。
+
 跨域审查集成风险时：参考 [`INTEGRATION_RISK_MATRIX.md`](INTEGRATION_RISK_MATRIX.md)；它可列出待验证的 WIP 行为与风险，但不是当前门禁/测试结果的事实源。离线视觉概览草稿在 [`INTEGRATION_ACCEPTANCE_DRAFT.html`](INTEGRATION_ACCEPTANCE_DRAFT.html)，不取代单一事实源文档。
 
 做文档变更时：先读 [`docs/docs-audit.md`](docs-audit.md) 了解本体系如何建立。
@@ -52,6 +54,7 @@
 | 未解决问题（Bug） | `docs/KNOWN_ISSUES.md` |
 | 发布门禁与发布状态 | `docs/RELEASE.md` |
 | FB-P1-08 / Gate F 设备验收方法与证据边界 | `docs/FB-P1-08-FINAL-DEVICE-HANDOFF.md`（方法说明，不是验收证据） |
+| 国内渠道账号与资质办理步骤 | `docs/compliance/DOMESTIC_PUBLISHING_GUIDE.md`（发行人操作指南；字段现况引用隐私说明和发布状态） |
 | 跨域集成风险与待验证 WIP 行为 | `docs/INTEGRATION_RISK_MATRIX.md`（风险索引；不取代候选/门禁/测试事实源） |
 | 离线验收报告草稿 | `docs/INTEGRATION_ACCEPTANCE_DRAFT.html`（展示草稿，不是规范或验收结论） |
 | 开发环境、命令、提交规范 | `docs/DEVELOPMENT.md` |

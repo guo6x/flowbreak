@@ -1,5 +1,7 @@
 # FlowBreak workstation recovery contract
 
+> Acceptance update (2026-10-25): the product owner removed fixed 24-hour acceptance; everyday-use feedback replaces a timed soak. Historical gate snapshots below remain unchanged, not PASS. Current acceptance and the complete closeout scope are in `RELEASE.md` and `CURRENT_STATUS.md`; this migration contract does not reintroduce the removed duration or require the owner's daily Redmi.
+
 `PHASE = PRE_WORKSTATION_MIGRATION_PREP`
 
 This document is the handoff for restoring development on a primary laptop.
@@ -19,7 +21,8 @@ Do not use `-wipe-data`, `pm clear`, uninstall, or any operation that discards
 existing AVD data. Do not run `scrcpy`. The repository still has no product
 instrumentation smoke suite; building an AndroidTest APK is not executing a
 device test. AVD evidence cannot close the OEM/device matrix, real-device
-usage/latency acceptance, or a complete 24-hour Protection Integrity gate.
+usage/latency acceptance, or Gate F's device-backed core-scenario evidence.
+The fixed 24-hour soak is not part of the current acceptance criteria.
 
 The original migration-prep checkout recorded changes to the following
 generated files. In any checkout, inspect `git status` first; preserve local
@@ -319,15 +322,19 @@ establish real-device/OEM evidence for:
 - Gate D OEM permissions, background limits, restart recovery, or compatibility;
 - Gate E UsageStats accuracy against system wellbeing and measured blocking
   latency;
-- Gate F 24-hour stability, service/protection integrity, or failure-injection
-  behavior;
+- Gate F device-backed core-scenario protection integrity or failure-injection
+  behavior. The fixed 24-hour soak was removed from current acceptance criteria;
+  this AVD does not substitute for the remaining Gate F evidence;
 - true signed version upgrade and any connected instrumentation behavior.
 
-Keep the applicable release gates `PENDING`; do not infer a device `PASS` from
-a successful Gradle build, AVD smoke, or assembled AndroidTest APK. If an
-authorized future real-device attempt cannot see the specified handset, record
-`DEVICE_UNAVAILABLE` and stop before build/install/trials; do not substitute
-another device. For a separately authorized AVD task, use only the exact AVD
+Preserve the current gate states recorded in `docs/CURRENT_STATUS.md` (Gate F
+`FAIL`; Gates G/H/I `PENDING`); do not infer a device `PASS` from a successful
+Gradle build, AVD smoke, or assembled AndroidTest APK. The owner
+selects any device for each separately authorized future test; no Redmi model or
+minimum elapsed duration is prescribed. If that specifically authorized
+device is unavailable, record `DEVICE_UNAVAILABLE` and stop before
+build/install/trials; do not silently substitute a different device without
+reauthorization. For a separately authorized AVD task, use only the exact AVD
 and explicit serial recorded in section 0.
 
 ## 11. Resume point on the primary laptop
