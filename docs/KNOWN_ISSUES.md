@@ -108,9 +108,9 @@
 - 后台 WebView innerText 冻结：后台时界面文本不随状态更新，需前台读取（证据：`progress-17-05.md`）。
 - 微信视频号识别：实现存在，未真机专项验证。
 
-## Resolved（2026-08-14 Redmi R1–R4 复测关闭）
+## Resolved（按项记录历史修复与复验）
 
-> 以下历史项均已合入 master 并有 Redmi 真机复测证据。新问题按文首状态规则逐项选择适配的验证证据；不要将本段历史设备范围机械套用到偏好默认值等非 OEM 行为。
+> 以下历史项均已合入 master；具体复验设备、日期和范围按项记录，包括 Redmi R1–R4 与历史 iQOO 针对性复测，不代表当前候选或该品牌全面通过。新问题按文首状态规则选择适配证据，不把某项历史设备范围机械套用到偏好默认值等非 OEM 行为。
 
 ### FB-P1-04 vivo/iQOO 后台冻结导致连续使用计时停止
 
@@ -119,7 +119,7 @@
 - Environment：vivo iQOO V2073A / OriginOS 13.5 / Android 13 (SDK 33) / Domestic final-production-signed APK
 - Observed（原现象）：B站（设备实测包名 `tv.danmaku.bili`）保持前台使用时，FlowBreak 服务进程被 OriginOS 冻结，连续使用累计停止，递进阻断无法可靠开始。
 - Root cause：OriginOS 在未开启系统“允许后台高耗电”时把 FlowBreak 进程置于 `freezer:/frozen` / `State: D`，即使前台服务仍显示存活也不执行 2 秒监控心跳；UsageEvents、目标判定和累计器不是根因。
-- Fix SHA：`dde0bc57d03575d2314f13a6feb8004b695fd392`；已合入 master `6c6385fbc4da9f07c76a498abbfcf23954aea4e8`。vivo/iQOO 现在把后台稳定性/电池优化豁免作为启动保护、目标重载和开机重启前置条件。
+- Fix SHA：`dde0bc57d03575d2314f13a6feb8004b695fd392`；已合入 master `6c6385fbc4da9f07c76a498abbfcf23954aea4e8`。该历史版本当时把 vivo/iQOO 后台稳定性/电池优化豁免作为启动、重载和开机恢复前置；后续独立缺陷 `FB-P1-05` 未解决，因此当前 vivo/iQOO 仍明确不支持并拒绝启动保护，不能按本项历史结案绕过。
 - Automated regression coverage：新增 vivo/iQOO 后台稳定性判定与权限门禁测试；前端全量 155 tests、Android targeted unit tests、release validation 8/8、GitHub verify 均 PASS。
 - Signed candidate：workflow run `34086540524`，source SHA `6c6385fbc4da9f07c76a498abbfcf23954aea4e8`；Domestic fingerprint `8d69d1786ea63b05ff3b8d1f5a78266a2fa1eda7b823af0c295cbfdc10e77f20`。
 - iQOO S6 evidence：最终签名 APK `adb install -r` 保留数据；2026-09-07 14:30:27–14:32:29 B站持续为实际前台；终点诊断 `sessionSeconds=191`、`serviceAlive=true`、`isIgnoringBattery=true`。

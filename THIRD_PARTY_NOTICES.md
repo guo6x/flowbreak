@@ -11,7 +11,7 @@
 - Recharts 3.8.1 — MIT License
 - Zustand 5.0.13 — MIT License
 - AndroidX AppCompat 1.7.1 / CoordinatorLayout 1.3.0 / Core 1.17.0 / Core Splashscreen 1.2.0 / Room 2.7.2 — Apache License 2.0
-- Tailwind CSS 4.2.2 / Vite 7.3.6 / Vitest 4.1.12 — MIT License（构建 / 测试期依赖）
+- Tailwind CSS 4.2.2 / Vite 7.3.7 / Vitest 4.1.12 — MIT License（构建 / 测试期依赖）
 - TypeScript 5.8.3 — Apache License 2.0（构建期依赖）
 - Playwright 1.62.1 — Apache License 2.0（仅网页验收工具，浏览器按其各自许可提供）
 - Sharp 0.35.5 — Apache License 2.0（仅品牌资产生成工具；其平台二进制及传递依赖遵循各自附带的许可）

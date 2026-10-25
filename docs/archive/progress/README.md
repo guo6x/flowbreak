@@ -8,11 +8,13 @@
 
 | 文件 | 性质 | 现行信息去向 |
 | ---- | ---- | ---- |
+| [docs-audit-20260814.md](docs-audit-20260814.md) | 2026-08-12 文档审计及 2026-08-14 同步原文，已冻结 | 当前维护规则 → [docs-audit.md](../../docs-audit.md) |
+| [verification-snapshots-through-20261025.md](verification-snapshots-through-20261025.md) | 旧 PR29、PR42、体验分支与早期自动化的 SHA 绑定快照 | 当前证据与方法 → [TESTING.md](../../TESTING.md) |
 | `VERIFICATION.md` | Beta 1.1 验证记录（2026-07-17） | 测试层级/证据标准 → `TESTING.md`；状态 → `CURRENT_STATUS.md` |
-| `RELEASE_CHECKLIST.md` | 旧发布检查表 | 门禁重写 → `RELEASE.md` |
-| `project-memory.md` | 项目记忆流水账 | 有效信息已并入 `PRODUCT.md` / `ARCHITECTURE.md` / `DEVELOPMENT.md` |
 | `progress_report.md` | T1 进度报告（2026-06-07） | 历史记录 |
 | `progress_report_fatigue_alignment.md` | T3 进度报告（2026-06-07） | 历史记录 |
 | `progress_report_usage_events.md` | T2 进度报告（2026-06-07） | 统计算法 → `ARCHITECTURE.md` |
 | `progress-achievements-unification.md` | T4 进度报告（2026-06-07） | 历史记录 |
 | `walkthrough.md` | 休息页美化进度文档 | 历史记录 |
+
+2026-10-25 清理后不再保留重复的 `project-memory.md` 和全未勾选的 `RELEASE_CHECKLIST.md`；当前规范见 `docs/PRODUCT.md`、`docs/ARCHITECTURE.md`、`docs/DEVELOPMENT.md` 与 `docs/RELEASE.md`，原文仍可从 Git 历史恢复。

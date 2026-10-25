@@ -2,7 +2,7 @@
 
 > Acceptance update (2026-10-25): the product owner removed fixed 24-hour acceptance; everyday-use feedback replaces a timed soak. Historical gate snapshots below remain unchanged, not PASS. Current acceptance and the complete closeout scope are in `RELEASE.md` and `CURRENT_STATUS.md`; this migration contract does not reintroduce the removed duration or require the owner's daily Redmi.
 
-`PHASE = PRE_WORKSTATION_MIGRATION_PREP`
+`PHASE = PRE_WORKSTATION_MIGRATION_PREP` (historical migration snapshot, not the current product phase)
 
 This document is the handoff for restoring development on a primary laptop.
 The repository is the source of truth for code; local evidence and signing
@@ -11,16 +11,18 @@ examples only.  A recovery machine may use any working directory and drive.
 
 ## 0. Safety boundary for this phase
 
-No physical phone is available. A task-scoped exception was authorized on
+No physical phone was available in the original recovery phase. A task-scoped exception was authorized on
 2026-10-18 for the preconfigured `Medium_Phone_API_36.0` Android Virtual Device
 only. This exception applies to that isolated product-validation task; it does
 not authorize connecting or operating a physical device. Before each ADB
 operation, require an `emulator-*` serial, verify `ro.boot.qemu=1` and
 `sys.boot_completed=1`, and pass the selected serial explicitly with `-s`.
 Do not use `-wipe-data`, `pm clear`, uninstall, or any operation that discards
-existing AVD data. Do not run `scrcpy`. The repository still has no product
-instrumentation smoke suite; building an AndroidTest APK is not executing a
-device test. AVD evidence cannot close the OEM/device matrix, real-device
+existing AVD data. Do not run `scrcpy`. Source-bound verification on 2026-10-25
+executed `ApplicationIdentityInstrumentedTest` on the API 36 AVD: two package
+identity/channel-manifest checks per channel. This is not a complete product
+instrumentation smoke suite; building an AndroidTest APK alone is not executing
+a device test. AVD evidence cannot close the OEM/device matrix, real-device
 usage/latency acceptance, or Gate F's device-backed core-scenario evidence.
 The fixed 24-hour soak is not part of the current acceptance criteria.
 
@@ -325,7 +327,9 @@ establish real-device/OEM evidence for:
 - Gate F device-backed core-scenario protection integrity or failure-injection
   behavior. The fixed 24-hour soak was removed from current acceptance criteria;
   this AVD does not substitute for the remaining Gate F evidence;
-- true signed version upgrade and any connected instrumentation behavior.
+- true signed version upgrade or full business-flow instrumentation/OEM
+  behavior. The 2026-10-25 AVD execution covered only package identity and
+  channel-manifest checks (two per channel), not these acceptance scopes.
 
 Preserve the current gate states recorded in `docs/CURRENT_STATUS.md` (Gate F
 `FAIL`; Gates G/H/I `PENDING`); do not infer a device `PASS` from a successful

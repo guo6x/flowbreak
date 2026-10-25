@@ -39,7 +39,7 @@ cd android           # 接上方的 app/ 目录；若从仓库根目录开始则
 .\gradlew.bat lintPlayDebug lintDomesticDebug
 .\gradlew.bat assemblePlayDebug assembleDomesticDebug
 .\gradlew.bat bundlePlayRelease assembleDomesticRelease   # Release 产物未签名
-.\gradlew.bat assemblePlayDebugAndroidTest                # 仅构建 instrumentation APK，不执行设备测试
+.\gradlew.bat assemblePlayDebugAndroidTest assembleDomesticDebugAndroidTest   # 仅构建两渠道 instrumentation APK，不执行设备测试
 ```
 
 ### 网页视觉回归
