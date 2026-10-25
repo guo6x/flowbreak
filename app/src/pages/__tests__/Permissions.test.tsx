@@ -59,10 +59,13 @@ function renderPermissions(overrides: Record<string, any> = {}) {
 
 describe("Permissions", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     mockNavigate.mockClear();
     mockRefresh.mockClear();
     vi.mocked(NativeFlow.requestAccessibilityPermission).mockReset();
     vi.mocked(NativeFlow.requestAccessibilityPermission).mockResolvedValue();
+    vi.mocked(NativeFlow.openAutoStartSettings).mockReset();
+    vi.mocked(NativeFlow.openAutoStartSettings).mockResolvedValue();
   });
 
   it("两个必需权限都开启时可继续", () => {
@@ -246,5 +249,66 @@ describe("Permissions", () => {
     fireEvent.click(screen.getByRole("button", { name: "开启悬浮窗权限" }));
     expect(NativeFlow.requestOverlayPermission).toHaveBeenCalledOnce();
     expect(NativeFlow.requestUsageStatsPermission).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])('两渠道均提供小米后台手动路径，且不伪造授权状态 domestic=%s', async isDomestic => {
+    renderPermissions({ isNative: true, isDomestic, manufacturer: 'Xiaomi' });
+    fireEvent.click(screen.getByText('提升后台稳定性（可稍后设置）'));
+    expect(screen.getByText('小米 / 红米 / 黑鲨 后台设置')).toBeInTheDocument();
+    expect(screen.getByText(/设置中搜索.*后台自启动/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '设置小米 / 红米 / 黑鲨 后台设置' }));
+    await waitFor(() => expect(NativeFlow.openAutoStartSettings).toHaveBeenCalledOnce());
+    expect(await screen.findByText('请在系统中确认')).toBeInTheDocument();
+    expect(screen.getByText(/打开设置不代表已授权/)).toBeInTheDocument();
+  });
+
+  it('三星给出睡眠名单指引，未知厂商仍可打开通用应用详情', () => {
+    renderPermissions({ isNative: true, manufacturer: 'Samsung' });
+    fireEvent.click(screen.getByText('提升后台稳定性（可稍后设置）'));
+    expect(screen.getByText(/从不休眠/)).toBeInTheDocument();
+    expect(screen.queryByText(/三星 自启动/)).toBeNull();
+  });
+
+  it('未知厂商也提供通用后台设置而不是隐藏入口', async () => {
+    renderPermissions({ isNative: true, manufacturer: 'Google' });
+    fireEvent.click(screen.getByText('提升后台稳定性（可稍后设置）'));
+    fireEvent.click(screen.getByRole('button', { name: '设置系统 后台设置' }));
+    await waitFor(() => expect(NativeFlow.openAutoStartSettings).toHaveBeenCalledOnce());
+  });
+
+  it('后台受限警告独立于电池豁免且不成为新增硬权限', () => {
+    renderPermissions({ isNative: true, manufacturer: 'Samsung', hasUsageStats: true,
+      hasOverlay: true, isIgnoringBattery: true, backgroundRestriction: 'restricted' });
+    expect(screen.getByRole('alert')).toHaveTextContent('系统当前限制后台运行');
+    expect(screen.getByRole('button', { name: '继续设置保护' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: '查看后台设置建议' }));
+    expect(screen.getByText(/从不休眠/)).toBeInTheDocument();
+  });
+
+  it.each(['unknown', 'not_restricted', undefined])('不把未知或未受限状态当故障 %s', backgroundRestriction => {
+    renderPermissions({ isNative: true, backgroundRestriction });
+    expect(screen.queryByText(/系统当前限制后台运行/)).toBeNull();
+  });
+
+  it('后台设置全部不可达时如实报错，不标记已打开', async () => {
+    vi.mocked(NativeFlow.openAutoStartSettings).mockRejectedValueOnce(new Error('请在系统设置中手动查找 FlowBreak'));
+    renderPermissions({ isNative: true, manufacturer: 'OPPO' });
+    fireEvent.click(screen.getByText('提升后台稳定性（可稍后设置）'));
+    fireEvent.click(screen.getByRole('button', { name: '设置OPPO / 一加 / realme 后台设置' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('请在系统设置中手动查找 FlowBreak');
+    expect(screen.queryByText('请在系统中确认')).toBeNull();
+  });
+
+  it('先打开成功后重试失败时清除旧成功描述', async () => {
+    renderPermissions({ isNative: true, manufacturer: 'OPPO' });
+    fireEvent.click(screen.getByText('提升后台稳定性（可稍后设置）'));
+    const open = screen.getByRole('button', { name: '设置OPPO / 一加 / realme 后台设置' });
+    fireEvent.click(open);
+    expect(await screen.findByText('请在系统中确认')).toBeInTheDocument();
+    vi.mocked(NativeFlow.openAutoStartSettings).mockRejectedValueOnce(new Error('本次无法打开系统设置'));
+    fireEvent.click(open);
+    expect(await screen.findByRole('alert')).toHaveTextContent('本次无法打开系统设置');
+    expect(screen.queryByText('请在系统中确认')).toBeNull();
+    expect(screen.queryByText(/已打开系统设置/)).toBeNull();
   });
 });

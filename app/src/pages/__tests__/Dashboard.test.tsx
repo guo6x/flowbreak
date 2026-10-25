@@ -136,7 +136,10 @@ describe("Dashboard", () => {
     mockHasUsage = true;
     mockHasOverlay = true;
     mockUnsupported = false;
-    vi.mocked(NativeFlow.getProtectionStatus).mockResolvedValue(null as never);
+    vi.mocked(NativeFlow.getProtectionStatus).mockReset().mockResolvedValue(null as never);
+    vi.mocked(NativeFlow.saveSettings).mockReset().mockResolvedValue(undefined);
+    vi.mocked(NativeFlow.startService).mockReset().mockResolvedValue(undefined);
+    vi.mocked(NativeFlow.stopService).mockReset().mockResolvedValue(undefined);
   });
 
   it("渲染暂停按钮", () => {
@@ -341,6 +344,299 @@ describe("Dashboard", () => {
     await waitFor(() => expect(screen.getAllByText("正在确认").length).toBeGreaterThanOrEqual(1));
     expect(screen.queryByText("已开启")).toBeNull();
     expect(screen.getByText("保护监控线程当前不可用，保护尚未生效")).toBeInTheDocument();
+  });
+
+  describe("manual native recovery", () => {
+    function unconfirmed(overrides: Partial<NativeProtectionStatus> = {}) {
+      return protectionStatus({
+        status: "STARTING_OR_UNCONFIRMED",
+        reason: "SERVICE_NOT_RUNNING",
+        coreProtectionOperational: false,
+        serviceRuntimeActive: false,
+        monitorThreadAlive: false,
+        heartbeatFresh: false,
+        ...overrides,
+      });
+    }
+
+    beforeEach(() => {
+      mockIsNative = true;
+      vi.mocked(NativeFlow.getProtectionStatus).mockResolvedValue(unconfirmed());
+    });
+
+    it("sends a real recovery request without toggling the owner's intent", async () => {
+      renderDashboard({ serviceError: "原生启动失败：后台限制" });
+      const recover = await screen.findByRole("button", { name: "恢复保护" });
+      expect(screen.getByText("原生启动失败：后台限制")).toBeInTheDocument();
+
+      fireEvent.click(recover);
+
+      await waitFor(() => expect(NativeFlow.startService).toHaveBeenCalledTimes(1));
+      expect(NativeFlow.saveSettings).toHaveBeenCalledWith({
+        limitMinutes: 15, targetApps: ["com.test.app"], monitoringEnabled: true,
+      });
+      expect(NativeFlow.startService).toHaveBeenCalledWith({
+        limitMinutes: 15, apps: ["com.test.app"], monitoringEnabled: true,
+      });
+      expect(useStore.getState().isMonitoring).toBe(true);
+      expect(NativeFlow.stopService).not.toHaveBeenCalled();
+      expect(screen.queryByText("已开启")).not.toBeInTheDocument();
+      expect(await screen.findByText("恢复请求已发送，正在等待设备心跳确认。")).toBeInTheDocument();
+    });
+
+    it("single-flights repeated recovery clicks and disables pause until the request settles", async () => {
+      let finishStart!: () => void;
+      vi.mocked(NativeFlow.startService).mockReturnValueOnce(new Promise(resolve => { finishStart = resolve; }));
+      renderDashboard();
+      const recover = await screen.findByRole("button", { name: "恢复保护" });
+
+      fireEvent.click(recover);
+      fireEvent.click(recover);
+      await waitFor(() => expect(NativeFlow.startService).toHaveBeenCalledTimes(1));
+      expect(screen.getByRole("button", { name: "恢复保护" })).toBeDisabled();
+      const pause = screen.getByRole("button", { name: "暂停保护" });
+      expect(pause).toBeDisabled();
+      fireEvent.click(pause);
+      expect(useStore.getState().isMonitoring).toBe(true);
+
+      await act(async () => finishStart());
+      await waitFor(() => expect(screen.getByRole("button", { name: "恢复保护" })).toBeEnabled());
+      expect(NativeFlow.startService).toHaveBeenCalledTimes(1);
+    });
+
+    it("preserves a native failure and allows only an explicit retry", async () => {
+      vi.mocked(NativeFlow.startService).mockRejectedValueOnce(new Error("OEM拒绝启动保护服务"));
+      renderDashboard();
+      fireEvent.click(await screen.findByRole("button", { name: "恢复保护" }));
+
+      expect(await screen.findByText("OEM拒绝启动保护服务")).toBeInTheDocument();
+      expect(useStore.getState().isMonitoring).toBe(true);
+      expect(NativeFlow.startService).toHaveBeenCalledTimes(1);
+      expect(screen.queryByText("已开启")).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "恢复保护" }));
+      await waitFor(() => expect(NativeFlow.startService).toHaveBeenCalledTimes(2));
+    });
+
+    it("shows active only after the native core and heartbeat have confirmed recovery", async () => {
+      vi.mocked(NativeFlow.getProtectionStatus)
+        .mockResolvedValueOnce(unconfirmed())
+        .mockResolvedValueOnce(unconfirmed())
+        .mockResolvedValue(protectionStatus());
+      renderDashboard();
+      fireEvent.click(await screen.findByRole("button", { name: "恢复保护" }));
+
+      await waitFor(() => expect(screen.getAllByText("已开启").length).toBeGreaterThanOrEqual(1));
+      expect(NativeFlow.startService).toHaveBeenCalledTimes(1);
+      expect(screen.queryByText("恢复请求已发送，正在等待设备心跳确认。")).not.toBeInTheDocument();
+    });
+
+    it("does not claim recovery when the post-request native read fails", async () => {
+      vi.mocked(NativeFlow.getProtectionStatus)
+        .mockResolvedValueOnce(unconfirmed())
+        .mockResolvedValueOnce(unconfirmed())
+        .mockRejectedValue(new Error("无法读取设备保护状态"));
+      renderDashboard();
+      fireEvent.click(await screen.findByRole("button", { name: "恢复保护" }));
+
+      expect(await screen.findByText("无法读取设备保护状态")).toBeInTheDocument();
+      expect(NativeFlow.startService).toHaveBeenCalledTimes(1);
+      expect(screen.queryByText("已开启")).not.toBeInTheDocument();
+      expect(useStore.getState().isMonitoring).toBe(true);
+    });
+
+    it.each([
+      ["local pause", {}, { isMonitoring: false }],
+      ["onboarding incomplete", {}, { profile: { onboardingDone: false } }],
+      ["no local targets", {}, { profile: { targetApps: [] } }],
+      ["native pause", { status: "PAUSED", monitoringEnabled: false }, {}],
+      ["native unconfigured", { status: "UNCONFIGURED" }, {}],
+      ["native unsupported", { status: "UNSUPPORTED" }, {}],
+      ["configuration absent", { monitoringConfigured: false }, {}],
+      ["native targets absent", { targetCount: 0 }, {}],
+      ["native intent disabled", { monitoringEnabled: false }, {}],
+      ["runtime unavailable", { protectionRuntimeAvailable: false }, {}],
+    ] as const)("does not offer recovery for %s", async (_name, status, overrides) => {
+      vi.mocked(NativeFlow.getProtectionStatus).mockResolvedValue(unconfirmed(status));
+      renderDashboard({ ...overrides });
+      await waitFor(() => expect(NativeFlow.getProtectionStatus).toHaveBeenCalled());
+
+      expect(screen.queryByRole("button", { name: "恢复保护" })).not.toBeInTheDocument();
+      expect(NativeFlow.startService).not.toHaveBeenCalled();
+      expect(NativeFlow.saveSettings).not.toHaveBeenCalled();
+    });
+
+    it("directs a hard-permission failure to permission settings instead of recovery", async () => {
+      vi.mocked(NativeFlow.getProtectionStatus).mockResolvedValue(unconfirmed({
+        reason: "USAGE_ACCESS_MISSING",
+        permissions: { ...protectionStatus().permissions, hasUsageStats: false },
+      }));
+      renderDashboard();
+      fireEvent.click(await screen.findByRole("button", { name: "去授权" }));
+
+      expect(mockNavigate).toHaveBeenCalledWith("/permissions");
+      expect(screen.queryByRole("button", { name: "恢复保护" })).not.toBeInTheDocument();
+      expect(NativeFlow.startService).not.toHaveBeenCalled();
+    });
+
+    it("rechecks native pause before dispatch and does not change intent", async () => {
+      vi.mocked(NativeFlow.getProtectionStatus)
+        .mockResolvedValueOnce(unconfirmed())
+        .mockResolvedValue(protectionStatus({
+          status: "PAUSED", reason: "MONITORING_DISABLED", monitoringEnabled: false,
+          coreProtectionOperational: false,
+        }));
+      renderDashboard();
+      fireEvent.click(await screen.findByRole("button", { name: "恢复保护" }));
+
+      await screen.findByRole("button", { name: "开启保护" });
+      expect(NativeFlow.saveSettings).not.toHaveBeenCalled();
+      expect(NativeFlow.startService).not.toHaveBeenCalled();
+      expect(useStore.getState().isMonitoring).toBe(true);
+    });
+
+    it("rechecks revoked permissions and opens settings without sending a service request", async () => {
+      vi.mocked(NativeFlow.getProtectionStatus)
+        .mockResolvedValueOnce(unconfirmed())
+        .mockResolvedValue(unconfirmed({
+          reason: "OVERLAY_MISSING",
+          permissions: { ...protectionStatus().permissions, hasOverlay: false },
+        }));
+      renderDashboard();
+      fireEvent.click(await screen.findByRole("button", { name: "恢复保护" }));
+
+      await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith("/permissions"));
+      expect(NativeFlow.saveSettings).not.toHaveBeenCalled();
+      expect(NativeFlow.startService).not.toHaveBeenCalled();
+    });
+
+    it("respects a local pause made while the native preflight is pending", async () => {
+      let finishPreflight!: (value: NativeProtectionStatus) => void;
+      vi.mocked(NativeFlow.getProtectionStatus)
+        .mockResolvedValueOnce(unconfirmed())
+        .mockReturnValueOnce(new Promise(resolve => { finishPreflight = resolve; }));
+      renderDashboard();
+      fireEvent.click(await screen.findByRole("button", { name: "恢复保护" }));
+      act(() => useStore.setState({ isMonitoring: false }));
+      await act(async () => finishPreflight(unconfirmed()));
+
+      expect(NativeFlow.saveSettings).not.toHaveBeenCalled();
+      expect(NativeFlow.startService).not.toHaveBeenCalled();
+      expect(useStore.getState().isMonitoring).toBe(false);
+    });
+
+    it("restores a pause made elsewhere while the native start request was pending", async () => {
+      let finishStart!: () => void;
+      vi.mocked(NativeFlow.startService).mockReturnValueOnce(new Promise(resolve => { finishStart = resolve; }));
+      renderDashboard();
+      fireEvent.click(await screen.findByRole("button", { name: "恢复保护" }));
+      await waitFor(() => expect(NativeFlow.startService).toHaveBeenCalledTimes(1));
+      act(() => useStore.setState({ isMonitoring: false }));
+      await act(async () => finishStart());
+
+      await waitFor(() => expect(NativeFlow.stopService).toHaveBeenCalledTimes(1));
+      expect(useStore.getState().isMonitoring).toBe(false);
+      expect(screen.queryByText("恢复请求已发送，正在等待设备心跳确认。")).not.toBeInTheDocument();
+    });
+
+    it("reconciles a pause even when a deferred save later starts and rejects", async () => {
+      let finishSave!: () => void;
+      vi.mocked(NativeFlow.saveSettings).mockReturnValueOnce(new Promise(resolve => { finishSave = resolve; }));
+      vi.mocked(NativeFlow.startService).mockRejectedValueOnce(new Error("启动命令遭系统拒绝"));
+      renderDashboard();
+      fireEvent.click(await screen.findByRole("button", { name: "恢复保护" }));
+      await waitFor(() => expect(NativeFlow.saveSettings).toHaveBeenCalledTimes(1));
+
+      // Model GlobalMonitor stopping after an external pause, before the old
+      // in-flight save completes and the native start persists enabled=true.
+      act(() => useStore.setState({ isMonitoring: false }));
+      await NativeFlow.stopService();
+      await act(async () => finishSave());
+
+      expect(await screen.findByText("启动命令遭系统拒绝")).toBeInTheDocument();
+      expect(NativeFlow.startService).toHaveBeenCalledTimes(1);
+      expect(NativeFlow.stopService).toHaveBeenCalledTimes(2);
+      expect(useStore.getState().isMonitoring).toBe(false);
+      expect(screen.queryByText("已开启")).not.toBeInTheDocument();
+    });
+
+    it("preserves the original recovery failure when pause reconciliation also fails", async () => {
+      let finishSave!: () => void;
+      vi.mocked(NativeFlow.saveSettings).mockReturnValueOnce(new Promise(resolve => { finishSave = resolve; }));
+      vi.mocked(NativeFlow.startService).mockRejectedValueOnce(new Error("启动命令遭系统拒绝"));
+      vi.mocked(NativeFlow.stopService)
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error("停止命令也遭系统拒绝"));
+      renderDashboard();
+      fireEvent.click(await screen.findByRole("button", { name: "恢复保护" }));
+      await waitFor(() => expect(NativeFlow.saveSettings).toHaveBeenCalledTimes(1));
+      act(() => useStore.setState({ isMonitoring: false }));
+      await NativeFlow.stopService();
+      await act(async () => finishSave());
+
+      expect(await screen.findByText("启动命令遭系统拒绝；暂停保护失败：停止命令也遭系统拒绝")).toBeInTheDocument();
+      expect(NativeFlow.stopService).toHaveBeenCalledTimes(2);
+      expect(useStore.getState().isMonitoring).toBe(false);
+      expect(screen.queryByText("已开启")).not.toBeInTheDocument();
+    });
+
+    it("never asks an unsupported device to grant unusable permissions", async () => {
+      vi.mocked(NativeFlow.getProtectionStatus).mockResolvedValue(unconfirmed({
+        status: "UNSUPPORTED",
+        reason: "UNSUPPORTED_DEVICE",
+        protectionRuntimeAvailable: false,
+        permissions: {
+          ...protectionStatus().permissions,
+          hasUsageStats: false,
+          hasOverlay: false,
+          unsupportedDevice: true,
+          protectionRuntimeAvailable: false,
+        },
+      }));
+      renderDashboard();
+
+      expect(await screen.findByRole("button", { name: "当前版本暂不支持在此设备上开启保护" })).toBeDisabled();
+      expect(screen.queryByRole("button", { name: "去授权" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "检查权限" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "恢复保护" })).not.toBeInTheDocument();
+      expect(screen.queryByText("使用情况访问权限已失效")).not.toBeInTheDocument();
+      expect(NativeFlow.startService).not.toHaveBeenCalled();
+    });
+
+    it("preserves a preflight failure without issuing a service operation", async () => {
+      vi.mocked(NativeFlow.getProtectionStatus)
+        .mockResolvedValueOnce(unconfirmed())
+        .mockRejectedValue(new Error("原生状态预检不可用"));
+      renderDashboard();
+      fireEvent.click(await screen.findByRole("button", { name: "恢复保护" }));
+
+      expect(await screen.findByText("原生状态预检不可用")).toBeInTheDocument();
+      expect(NativeFlow.saveSettings).not.toHaveBeenCalled();
+      expect(NativeFlow.startService).not.toHaveBeenCalled();
+      expect(useStore.getState().isMonitoring).toBe(true);
+    });
+
+    it("does not start after a settings save fails", async () => {
+      vi.mocked(NativeFlow.saveSettings).mockRejectedValueOnce(new Error("原生设置写入失败"));
+      renderDashboard();
+      fireEvent.click(await screen.findByRole("button", { name: "恢复保护" }));
+
+      expect(await screen.findByText("原生设置写入失败")).toBeInTheDocument();
+      expect(NativeFlow.saveSettings).toHaveBeenCalledTimes(1);
+      expect(NativeFlow.startService).not.toHaveBeenCalled();
+      expect(useStore.getState().isMonitoring).toBe(true);
+    });
+
+    it("uses native permission flags even when the reason describes a stopped service", async () => {
+      vi.mocked(NativeFlow.getProtectionStatus).mockResolvedValue(unconfirmed({
+        permissions: { ...protectionStatus().permissions, hasOverlay: false },
+      }));
+      renderDashboard();
+
+      expect(await screen.findByText("悬浮窗权限已失效")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "去授权" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "恢复保护" })).not.toBeInTheDocument();
+      expect(NativeFlow.startService).not.toHaveBeenCalled();
+    });
   });
 
   it.each([

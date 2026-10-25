@@ -4,7 +4,7 @@
 
 ## 当前状态与试用边界
 
-**RELEASE PREPARATION · NOT APPROVED**；`STORE_READY=NO`，`PRODUCTION_RELEASE_APPROVED=NO`。本次为文档与仓库清理，运行时沿用 TESTING 记载的既有代码源，不是新一轮运行时代码修复；未因此合并 master、进行生产签名、创建 tag 或发布应用。
+**RELEASE PREPARATION · NOT APPROVED**；`STORE_READY=NO`，`PRODUCTION_RELEASE_APPROVED=NO`。本轮改进跨厂商设置入口容错、后台设置指引、受限状态提示与用户触发的保护恢复；恢复请求不替代真实心跳，也不覆盖用户的暂停选择。适配实现不等于全品牌真机认证。源码与复验范围见 TESTING，厂商差异见 [OEM 兼容与后台设置](OEM_COMPATIBILITY.md)。未合并 master、进行生产签名、创建 tag 或发布应用。
 
 - 负责人已取消固定 24 小时验收：`FIXED_24H_ACCEPTANCE=NOT_REQUIRED`。采用日常反馈，不设置最低使用时长，也不要求提供日常 Redmi；历史 NOT_EXECUTED 不改成 PASS。
 - Gate F 仍 **FAIL / NOT_CLOSED**，Gate G/H/I 仍 **PENDING**。取消时长要求不关闭真实缺陷，也不授权正式发布。

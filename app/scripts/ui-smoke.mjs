@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { stripVTControlCharacters } from 'node:util';
 import { chromium } from 'playwright';
+import { checkOemGuidance } from './oem-guidance-fixture.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const arg = name => { const i = process.argv.indexOf(name); return i >= 0 ? process.argv[i + 1] : null; };
@@ -252,6 +253,22 @@ try {
     }
     await context.close();
   }
+  await checkOemGuidance(browser, url, output, page => {
+    page.on('pageerror', error => pageErrors.push(String(error)));
+    page.on('console', message => {
+      if (message.type() === 'error') consoleErrors.push(`${page.url()}: ${message.text()}`);
+    });
+    page.on('request', request => {
+      if (/^https?:/.test(request.url()) && new URL(request.url()).origin !== new URL(url).origin) unexpectedRequests.add(request.url());
+    });
+    page.on('response', response => {
+      if (response.status() >= 400) failedResources.add(`${response.status()} ${response.url()}`);
+    });
+    page.on('requestfailed', request => failedResources.add(`${request.failure()?.errorText ?? 'Request failed'} ${request.url()}`));
+  }, result => {
+    results.push(result);
+    if (result.status === 'FAIL') failures.push(`${result.route}: ${result.error}`);
+  });
   if (pageErrors.length) failures.push(...pageErrors.map(error => `Unhandled browser error: ${error}`));
   if (consoleErrors.length) failures.push(...consoleErrors.map(error => `Browser console error: ${error}`));
   if (unexpectedRequests.size) failures.push(`Unexpected external requests: ${[...unexpectedRequests].join(', ')}`);

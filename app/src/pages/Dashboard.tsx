@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { motion } from 'framer-motion';
 import { Moon, Clock, Shield, ChevronRight, Pause, Play, ArrowUpRight, Smartphone } from 'lucide-react';
@@ -77,6 +77,28 @@ function nativeStatusReason(reason: string) {
   return labels[reason] || (reason ? `保护状态：${reason}` : '保护尚未确认');
 }
 
+function nativePermissionsMissing(status: NativeProtectionStatus) {
+  return !status.permissions.hasUsageStats
+    || !status.permissions.hasOverlay
+    || status.reason === 'USAGE_ACCESS_MISSING'
+    || status.reason === 'OVERLAY_MISSING';
+}
+
+function nativeStatusRecoverable(status: NativeProtectionStatus | null) {
+  return status !== null
+    && status.monitoringConfigured
+    && status.monitoringEnabled
+    && status.targetCount > 0
+    && status.protectionRuntimeAvailable
+    && status.permissions.protectionRuntimeAvailable !== false
+    && status.permissions.unsupportedDevice !== true
+    && !status.coreProtectionOperational
+    && status.status !== 'PAUSED'
+    && status.status !== 'UNCONFIGURED'
+    && status.status !== 'UNSUPPORTED'
+    && !nativePermissionsMissing(status);
+}
+
 
 function ProtectionStatusCard({
   now,
@@ -87,6 +109,11 @@ function ProtectionStatusCard({
   missingPermissionLabel,
   currentAppName,
   unsupportedDevice,
+  canRecover,
+  onRecover,
+  operationBusy,
+  recovering,
+  recoveryPending,
 }: {
   now: number;
   isNative: boolean;
@@ -96,6 +123,11 @@ function ProtectionStatusCard({
   missingPermissionLabel: string;
   currentAppName: string;
   unsupportedDevice: boolean;
+  canRecover: boolean;
+  onRecover: () => void;
+  operationBusy: boolean;
+  recovering: boolean;
+  recoveryPending: boolean;
 }) {
   const navigate = useNavigate();
   const isMonitoring = useStore(s => s.isMonitoring);
@@ -129,6 +161,7 @@ function ProtectionStatusCard({
     missingPermissionLabel,
     currentAppName,
   });
+  const hasServiceError = isNative ? !!serviceError : vm.hasError;
 
   const badgeLabel = isNative
     ? nativeStatusKey ? NATIVE_STATUS_LABELS[nativeStatusKey] : '正在确认'
@@ -157,20 +190,20 @@ function ProtectionStatusCard({
           <p className="text-[12px] text-red-700 mt-1 leading-relaxed">{UNSUPPORTED_DEVICE_DETAIL}</p>
         </div>
       )}
-      {vm.hasError && !displayedUnsupported && (
+      {hasServiceError && !displayedUnsupported && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-3" role="alert">
-          <p className="text-[13px] text-red-700">{vm.errorMessage}</p>
+          <p className="text-[13px] text-red-700">{isNative ? serviceError : vm.errorMessage}</p>
           <div className="flex gap-2 mt-2">
             <button onClick={() => navigate('/permissions')} className="text-[12px] text-red-600 underline">
               检查权限
             </button>
-            <button onClick={handleRetry} className="text-[12px] text-red-600 underline">
+            {!isNative && <button onClick={handleRetry} disabled={operationBusy} className="text-[12px] text-red-600 underline">
               重试开启
-            </button>
+            </button>}
           </div>
         </div>
       )}
-      {(missingPermissions || runtimeStatusNeedsAttention) && (
+      {!displayedUnsupported && (missingPermissions || runtimeStatusNeedsAttention) && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-3" role="alert">
           <p className="text-[13px] text-red-700">{missingPermissionLabel}</p>
           {missingPermissions && (
@@ -180,7 +213,21 @@ function ProtectionStatusCard({
               </button>
             </div>
           )}
+          {canRecover && (
+            <button
+              onClick={onRecover}
+              disabled={operationBusy}
+              aria-label="恢复保护"
+              aria-busy={recovering}
+              className="mt-2 min-h-11 text-[12px] text-red-600 underline disabled:opacity-50"
+            >
+              {recovering ? '正在请求恢复...' : '恢复保护'}
+            </button>
+          )}
         </div>
+      )}
+      {recoveryPending && !protectionActive && (
+        <p className="text-[12px] text-amber-700 mb-3" role="status">恢复请求已发送，正在等待设备心跳确认。</p>
       )}
       {isNative && nativeStatus?.strongBlockingRequested && !nativeStatus.strongBlockingOperational && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-3" role="alert">
@@ -265,6 +312,9 @@ export default function Dashboard() {
   const [nativeScreenSeconds, setNativeScreenSeconds] = useState<number | null>(null);
   const [nativeTimeError, setNativeTimeError] = useState(false);
   const [toggling, setToggling] = useState(false);
+  const [recovering, setRecovering] = useState(false);
+  const [recoveryPending, setRecoveryPending] = useState(false);
+  const monitoringOperation = useRef(false);
   const { isNative, permissions } = useNativePermissions();
   const [nativeProtectionStatus, setNativeProtectionStatus] = useState<NativeProtectionStatus | null>(null);
   const noTargetApps = profile.targetApps.length === 0;
@@ -278,8 +328,7 @@ export default function Dashboard() {
     : localProtectionActive;
   const nativeMonitoringEnabled = nativeProtectionStatus?.monitoringEnabled ?? isMonitoring;
   const missingPermission = isNative && nativeProtectionStatus
-    ? nativeProtectionStatus.reason === 'USAGE_ACCESS_MISSING'
-      || nativeProtectionStatus.reason === 'OVERLAY_MISSING'
+    ? nativePermissionsMissing(nativeProtectionStatus)
     : false;
   const missingCritical = isNative && !nativeProtectionStatus && localProtectionActive && (
     !permissions.hasUsageStats
@@ -299,7 +348,9 @@ export default function Dashboard() {
     let active = true;
     const refresh = () => {
       NativeFlow.getProtectionStatus().then(status => {
-        if (active) setNativeProtectionStatus(status);
+        if (!active) return;
+        setNativeProtectionStatus(status);
+        if (status?.coreProtectionOperational) setRecoveryPending(false);
       }).catch(() => {
         if (active) setNativeProtectionStatus(null);
       });
@@ -319,10 +370,16 @@ export default function Dashboard() {
     && nativeProtectionStatus.status !== 'UNCONFIGURED'
     && nativeProtectionStatus.status !== 'UNSUPPORTED';
   const statusIssueLabel = nativeProtectionStatus
-    ? nativeStatusReason(nativeProtectionStatus.reason)
+    ? nativeStatusReason(missingPermission
+      ? !nativeProtectionStatus.permissions.hasUsageStats || nativeProtectionStatus.reason === 'USAGE_ACCESS_MISSING'
+        ? 'USAGE_ACCESS_MISSING' : 'OVERLAY_MISSING'
+      : nativeProtectionStatus.reason)
     : missingCriticalLabel;
   const monitoringIntent = isNative ? nativeMonitoringEnabled : isMonitoring;
   const nativeStatusKey = nativeStatusDisplayKey(nativeProtectionStatus);
+  const canRecover = isNative && isMonitoring && profile.onboardingDone
+    && !noTargetApps && !unsupportedDevice && nativeStatusRecoverable(nativeProtectionStatus);
+  const operationBusy = toggling || recovering;
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -395,10 +452,12 @@ export default function Dashboard() {
   };
 
   const handleToggleMonitoring = async () => {
-    if (toggling) return;
+    if (monitoringOperation.current) return;
     if (noTargetApps || unsupportedDevice) return;
     const nextMonitoring = !monitoringIntent;
+    monitoringOperation.current = true;
     setToggling(true);
+    setRecoveryPending(false);
     try {
       // Native status is authoritative. If the local Zustand intent has
       // diverged (for example after a rejected start), changing it to the
@@ -418,7 +477,62 @@ export default function Dashboard() {
       setServiceError(message);
       if (isNative && nextMonitoring) setMonitoring(false);
     } finally {
+      monitoringOperation.current = false;
       setToggling(false);
+    }
+  };
+
+  const handleRecoverMonitoring = async () => {
+    if (monitoringOperation.current || !canRecover) return;
+    monitoringOperation.current = true;
+    setRecovering(true);
+    setRecoveryPending(false);
+    try {
+      // Recheck both native and local intent after the asynchronous preflight.
+      // A stale card must never turn a newly paused or unconfigured service on.
+      const status = await NativeFlow.getProtectionStatus();
+      setNativeProtectionStatus(status);
+      const latest = useStore.getState();
+      if (!latest.isMonitoring || !latest.profile.onboardingDone || latest.profile.targetApps.length === 0) return;
+      if (status && nativePermissionsMissing(status)) {
+        navigate('/permissions');
+        return;
+      }
+      if (!nativeStatusRecoverable(status)) return;
+
+      // Do not toggle Zustand intent: that would also trigger GlobalMonitor
+      // and dispatch a second start. Only the explicit user action retries.
+      let recoveryFailure = '';
+      try {
+        await syncNativeMonitoring(true, latest.profile.sessionLimit, latest.profile.targetApps);
+      } catch (error) {
+        recoveryFailure = error instanceof Error && error.message
+          ? error.message
+          : '恢复保护失败，请检查权限和后台设置后重试。';
+      }
+      if (!useStore.getState().isMonitoring) {
+        // A rejected start can already have persisted native enabled=true.
+        // Reconcile a newer pause even after failure, without losing its cause.
+        try {
+          await syncNativeMonitoring(false, latest.profile.sessionLimit, latest.profile.targetApps);
+        } catch (error) {
+          const pauseFailure = error instanceof Error && error.message
+            ? error.message : '停止保护服务失败，请重试。';
+          throw new Error(`${recoveryFailure ? `${recoveryFailure}；` : ''}暂停保护失败：${pauseFailure}`);
+        }
+      }
+      if (recoveryFailure) throw new Error(recoveryFailure);
+      const confirmed = await NativeFlow.getProtectionStatus();
+      setNativeProtectionStatus(confirmed);
+      setServiceError('');
+      setRecoveryPending(useStore.getState().isMonitoring && confirmed?.coreProtectionOperational !== true);
+    } catch (error) {
+      setServiceError(error instanceof Error && error.message
+        ? error.message
+        : '恢复保护失败，请检查权限和后台设置后重试。');
+    } finally {
+      monitoringOperation.current = false;
+      setRecovering(false);
     }
   };
 
@@ -540,16 +654,21 @@ export default function Dashboard() {
         missingPermissionLabel={statusIssueLabel}
         currentAppName={currentAppName}
         unsupportedDevice={unsupportedDevice}
+        canRecover={canRecover}
+        onRecover={() => void handleRecoverMonitoring()}
+        operationBusy={operationBusy}
+        recovering={recovering}
+        recoveryPending={recoveryPending && isMonitoring && monitoringIntent}
       />
 
       <button
         onClick={handleToggleMonitoring}
-        disabled={toggling || noTargetApps || unsupportedDevice}
+        disabled={operationBusy || noTargetApps || unsupportedDevice}
         className={`w-full min-h-12 flex items-center justify-center gap-2 rounded-2xl px-3 py-3 text-[13px] font-semibold transition-colors mb-5 ${
           unsupportedDevice || noTargetApps ? 'bg-gray-100 text-gray-500' : monitoringIntent ? 'bg-white border border-gray-200 text-gray-700' : 'bg-primary text-white'
         }`}
         aria-label={unsupportedDevice ? UNSUPPORTED_DEVICE_MESSAGE : noTargetApps ? '请先选择受限应用' : monitoringIntent ? '暂停保护' : '开启保护'}
-        aria-busy={toggling}
+        aria-busy={operationBusy}
       >
         {monitoringIntent ? <Pause size={15} aria-hidden="true" /> : <Play size={15} aria-hidden="true" />}
         {unsupportedDevice ? UNSUPPORTED_DEVICE_MESSAGE : noTargetApps ? '请先选择受限应用' : toggling ? (monitoringIntent ? '正在暂停...' : '正在开启...') : (monitoringIntent ? '暂停保护' : '开启保护')}

@@ -183,26 +183,18 @@ public class NativeFlowPlugin extends Plugin {
     }
 
     @PluginMethod public void requestUsageStatsPermission(PluginCall call) {
-        openSettings(permissions.usageStatsSettingsIntent());
-        call.resolve();
+        openSettings(call, permissions.usageStatsSettingsIntent(),
+                "无法打开使用情况访问设置，请到系统设置中手动为 FlowBreak 开启使用情况访问权限");
     }
 
     @PluginMethod public void requestOverlayPermission(PluginCall call) {
-        Intent intent = permissions.overlaySettingsIntent();
-        if (intent != null) openSettings(intent);
-        call.resolve();
+        openSettings(call, permissions.overlaySettingsIntent(),
+                "无法打开悬浮窗设置，请到系统设置中手动为 FlowBreak 开启悬浮窗权限");
     }
 
     @PluginMethod public void requestIgnoreBatteryOptimizations(PluginCall call) {
-        Intent intent = permissions.batteryOptimizationSettingsIntent();
-        if (intent != null) {
-            try {
-                openSettings(intent);
-            } catch (Exception ignored) {
-                openSettings(permissions.batteryOptimizationSettingsIntent());
-            }
-        }
-        call.resolve();
+        openSettings(call, permissions.batteryOptimizationSettingsIntent(),
+                "无法打开电池设置，请到系统设置中手动调整 FlowBreak 的后台电池限制");
     }
 
     @PluginMethod public void requestNotificationPermission(PluginCall call) {
@@ -214,25 +206,13 @@ public class NativeFlowPlugin extends Plugin {
     }
 
     @PluginMethod public void requestAccessibilityPermission(PluginCall call) {
-        Intent intent = permissions.accessibilitySettingsIntent();
-        if (intent != null) openSettings(intent);
-        call.resolve();
+        openSettings(call, permissions.accessibilitySettingsIntent(),
+                "无法打开无障碍设置，请到系统设置中手动配置 FlowBreak 无障碍增强");
     }
 
     @PluginMethod public void openAutoStartSettings(PluginCall call) {
-        for (Intent candidate : permissions.autoStartCandidateIntents()) {
-            try {
-                getContext().startActivity(candidate);
-                call.resolve();
-                return;
-            } catch (Exception ignored) { }
-        }
-        try {
-            getContext().startActivity(permissions.appDetailFallbackIntent());
-            call.resolve();
-        } catch (Exception error) {
-            call.reject("无法打开自启动设置页，请到系统设置手动允许 FlowBreak 后台运行", error);
-        }
+        openSettings(call, permissions.autoStartCandidateIntents(),
+                "无法打开后台设置页，请到系统设置手动允许 FlowBreak 后台运行");
     }
 
     // ==================== Service Control ====================
@@ -751,9 +731,23 @@ public class NativeFlowPlugin extends Plugin {
 
     // ==================== Helpers ====================
 
-    private void openSettings(Intent intent) {
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        getContext().startActivity(intent);
+    private void openSettings(PluginCall call, Intent preferred, String failureMessage) {
+        if (preferred == null) {
+            // Preserve no-op semantics for capabilities unavailable on this API
+            // or channel (especially Accessibility in the Play build).
+            call.resolve();
+            return;
+        }
+        openSettings(call, java.util.Collections.singletonList(preferred), failureMessage);
+    }
+
+    private void openSettings(PluginCall call, java.util.List<Intent> preferred,
+            String failureMessage) {
+        java.util.List<Intent> candidates = new java.util.ArrayList<>(preferred);
+        candidates.add(permissions.appDetailFallbackIntent());
+        candidates.add(permissions.generalSettingsFallbackIntent());
+        new NativeFlowSettingsNavigator(getContext()::startActivity)
+                .open(call, candidates, failureMessage);
     }
 
     private interface NativeTask {
