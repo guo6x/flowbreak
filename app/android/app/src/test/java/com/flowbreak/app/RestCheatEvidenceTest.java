@@ -67,7 +67,8 @@ public class RestCheatEvidenceTest {
     @Test public void historicalTargetOutsideRestIsNotAcceptedAsCheatEvidence() {
         assertFalse(RestCheatEvidence.shouldRecordHistoricalReplay(false, 10_000L));
         assertFalse(RestCheatEvidence.shouldRecordHistoricalReplay(false, 0L));
-        assertFalse(RestCheatEvidence.shouldRecordHistoricalReplay(true, 0L));
+        assertTrue("a successful zero-target replay still has REST provenance",
+                RestCheatEvidence.shouldRecordHistoricalReplay(true, 0L));
         assertTrue(RestCheatEvidence.shouldRecordHistoricalReplay(true, 5_000L));
 
         RestCheatEvidence evidence = new RestCheatEvidence();
@@ -80,6 +81,18 @@ public class RestCheatEvidenceTest {
         assertEquals(0L, snapshot.sessionHistoricalReplayMs);
         assertEquals(0L, snapshot.maxAccumulatedMs);
         assertEquals("AWAITING_NATIVE_OBSERVATION", snapshot.lastSource);
+    }
+
+    @Test public void zeroTargetRestReplayRecordsProvenanceWithoutAttributingUsage() {
+        RestCheatEvidence evidence = new RestCheatEvidence();
+        evidence.onRestStarted();
+        evidence.recordHistoricalReplay(0L, 0L, 6_000L);
+
+        RestCheatEvidence.Snapshot snapshot = evidence.snapshot();
+        assertEquals(0L, snapshot.sessionHistoricalReplayMs);
+        assertEquals(0L, snapshot.lastAccumulatedMs);
+        assertEquals("HISTORICAL_REPLAY", snapshot.lastSource);
+        assertEquals(6_000L, snapshot.lastObservationAt);
     }
 
     @Test public void historicalReplayRecordsOnlyVerifiedMillisAndSnapshotIsImmutable() {

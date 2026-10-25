@@ -4,6 +4,7 @@ import { ArrowLeft, ArrowUpRight, Check, ChevronDown, Download, FileWarning, Har
 import { useNavigate } from 'react-router';
 import { NativeFlow } from '../backend/nativeFlow';
 import * as storage from '../backend/storage';
+import SupportContact from '../components/SupportContact';
 
 type CrashLog = { filename: string; timestamp: number; content: string };
 type BuildInfo = Awaited<ReturnType<typeof NativeFlow.getBuildInfo>>;
@@ -201,6 +202,7 @@ export default function PrivacyAndData() {
         </section>
       ) : null}
 
+      <SupportContact />
       <section className="card p-5" aria-labelledby="about-flowbreak">
         <h2 id="about-flowbreak" className="text-[16px] font-bold mb-3">关于 FlowBreak</h2>
         <div className="rounded-xl bg-gray-50 p-3">

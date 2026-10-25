@@ -32,7 +32,7 @@ import java.util.Locale;
  * - 无 overlay 权限时打开 BlockActivity
  * - addView 失败时 fallback
  * - 紧急长按 10 秒 Runnable
- * - 紧急长按顺序：tryUnlock → log → machine.emergencyUnlock → persistState → dismiss
+ * - 紧急长按由 Service 异步确认；结果仅作用于发起请求的 blocker generation
  *
  * 控制器不持有 Service 或 Activity，通过 Callbacks 回调业务。
  */
@@ -45,11 +45,14 @@ public final class FlowOverlayController {
     private final Callbacks callbacks;
 
     private volatile View blockerView;
+    private volatile TextView blockerEmergencyAction;
     private volatile View warningBar;
     private volatile int warningBarLevel; // 0=无, 1=80%, 2=100%
     private volatile View graceCountdownBar;
     private volatile TextView graceCountdownText;
     private volatile Runnable emergencyRunnable;
+    private volatile long pendingEmergencyUnlockId;
+    private long nextEmergencyUnlockId;
 
     /**
      * 每个异步 overlay 都有独立的 generation。dismiss* 即使在 show Runnable
@@ -63,8 +66,8 @@ public final class FlowOverlayController {
         /** 用户点击"开始休息"。 */
         void onStartRest();
 
-        /** 紧急长按 10 秒触发。由 Service 执行 tryUnlock、log、machine.emergencyUnlock、persistState，返回是否成功。 */
-        boolean onEmergencyLongPress();
+        /** 紧急长按 10 秒触发；结果异步返回，避免阻塞主线程等待 monitor worker。 */
+        void onEmergencyLongPress(EmergencyUnlockCompletion completion);
 
         /** 紧急长按失败时发送通知。 */
         void onEmergencyExhausted();
@@ -79,6 +82,10 @@ public final class FlowOverlayController {
         boolean allowEmergencyUnlock();
     }
 
+    public interface EmergencyUnlockCompletion {
+        void onComplete(boolean unlocked);
+    }
+
     public FlowOverlayController(Context context, WindowManager windowManager, Handler handler, Callbacks callbacks) {
         this.context = context.getApplicationContext();
         this.windowManager = windowManager;
@@ -88,7 +95,22 @@ public final class FlowOverlayController {
 
     /** 显示阻断全屏层。 */
     public void showBlocker(String packageName, long sessionMs, boolean allowEmergency) {
-        if (blockerView != null) return;
+        View existingBlocker = blockerView;
+        if (existingBlocker != null) {
+            TextView emergencyAction = blockerEmergencyAction;
+            if (emergencyAction != null) {
+                handler.post(() -> {
+                    if (blockerView != existingBlocker
+                            || blockerEmergencyAction != emergencyAction) return;
+                    if (!allowEmergency && emergencyRunnable != null) {
+                        handler.removeCallbacks(emergencyRunnable);
+                        emergencyRunnable = null;
+                    }
+                    emergencyAction.setVisibility(allowEmergency ? View.VISIBLE : View.GONE);
+                });
+            }
+            return;
+        }
         final long generation = blockerGeneration.issue();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
                 && !Settings.canDrawOverlays(context)) {
@@ -129,15 +151,19 @@ public final class FlowOverlayController {
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(56)
             ));
 
-            if (allowEmergency) {
-                TextView emergency = text("紧急使用（长按 10 秒，每日一次）", 13, Color.rgb(150, 73, 62));
-                emergency.setGravity(Gravity.CENTER);
-                emergency.setPadding(0, dp(28), 0, dp(20));
-                emergency.setOnTouchListener((v, event) -> handleEmergencyTouch(event));
-                root.addView(emergency, new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, dp(72)
-                ));
-            }
+            TextView emergency = text(
+                    "紧急使用（长按 10 秒，每日一次）",
+                    13,
+                    Color.rgb(150, 73, 62)
+            );
+            emergency.setGravity(Gravity.CENTER);
+            emergency.setPadding(0, dp(28), 0, dp(20));
+            emergency.setOnTouchListener((v, event) ->
+                    handleEmergencyTouch(event, root, generation));
+            emergency.setVisibility(allowEmergency ? View.VISIBLE : View.GONE);
+            root.addView(emergency, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(72)
+            ));
 
             int type = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                     ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -156,10 +182,12 @@ public final class FlowOverlayController {
                 if (!blockerGeneration.isCurrent(generation)
                         || blockerView != null) return;
                 blockerView = root;
+                blockerEmergencyAction = emergency;
                 try {
                     windowManager.addView(root, params);
                 } catch (Exception ignored) {
                     blockerView = null;
+                    blockerEmergencyAction = null;
                     fallbackToBlockActivity = true;
                 }
             }
@@ -170,31 +198,71 @@ public final class FlowOverlayController {
     }
 
     /** 紧急长按触摸处理，保持原有 10 秒 Runnable 顺序。 */
-    private boolean handleEmergencyTouch(MotionEvent event) {
+    private boolean handleEmergencyTouch(
+            MotionEvent event,
+            View expectedBlocker,
+            long expectedBlockerGeneration
+    ) {
+        if (!isCurrentBlocker(expectedBlocker, expectedBlockerGeneration)) return true;
         if (event.getAction() == MotionEvent.ACTION_DOWN) {
+            if (pendingEmergencyUnlockId != 0L || emergencyRunnable != null) return true;
             emergencyRunnable = () -> {
-                if (callbacks.onEmergencyLongPress()) {
-                    dismissBlocker();
-                } else {
-                    callbacks.onEmergencyExhausted();
-                }
+                emergencyRunnable = null;
+                if (!isCurrentBlocker(expectedBlocker, expectedBlockerGeneration)
+                        || pendingEmergencyUnlockId != 0L) return;
+                long requestId = ++nextEmergencyUnlockId;
+                if (requestId == 0L) requestId = ++nextEmergencyUnlockId;
+                pendingEmergencyUnlockId = requestId;
+                final long unlockRequestId = requestId;
+                callbacks.onEmergencyLongPress(unlocked -> handler.post(() ->
+                        completeEmergencyUnlock(
+                                expectedBlocker,
+                                expectedBlockerGeneration,
+                                unlockRequestId,
+                                unlocked
+                        )));
             };
             handler.postDelayed(emergencyRunnable, 10_000L);
         } else if (event.getAction() == MotionEvent.ACTION_UP
                 || event.getAction() == MotionEvent.ACTION_CANCEL) {
-            if (emergencyRunnable != null) handler.removeCallbacks(emergencyRunnable);
+            if (emergencyRunnable != null) {
+                handler.removeCallbacks(emergencyRunnable);
+                emergencyRunnable = null;
+            }
         }
         return true;
+    }
+
+    private void completeEmergencyUnlock(
+            View expectedBlocker,
+            long expectedBlockerGeneration,
+            long requestId,
+            boolean unlocked
+    ) {
+        if (pendingEmergencyUnlockId != requestId
+                || !isCurrentBlocker(expectedBlocker, expectedBlockerGeneration)) {
+            return;
+        }
+        pendingEmergencyUnlockId = 0L;
+        if (unlocked) dismissBlocker();
+        else callbacks.onEmergencyExhausted();
+    }
+
+    private boolean isCurrentBlocker(View expectedBlocker, long expectedGeneration) {
+        return blockerView == expectedBlocker && blockerGeneration.isCurrent(expectedGeneration);
     }
 
     public void dismissBlocker() {
         blockerGeneration.invalidate();
         if (emergencyRunnable != null) handler.removeCallbacks(emergencyRunnable);
+        emergencyRunnable = null;
+        pendingEmergencyUnlockId = 0L;
         final View view;
         synchronized (blockerGeneration) {
             if (blockerView == null) return;
             view = blockerView;
             blockerView = null;
+            blockerEmergencyAction = null;
         }
         handler.post(() -> {
             try { windowManager.removeView(view); } catch (Exception ignored) { }
@@ -393,6 +461,8 @@ public final class FlowOverlayController {
     /** 移除所有 Handler 回调（onDestroy 时调用）。 */
     public void clearCallbacks() {
         if (emergencyRunnable != null) handler.removeCallbacks(emergencyRunnable);
+        emergencyRunnable = null;
+        pendingEmergencyUnlockId = 0L;
         blockerGeneration.invalidate();
         warningBarGeneration.invalidate();
         graceCountdownGeneration.invalidate();

@@ -105,7 +105,7 @@ export default function ValidationAndDiagnostics() {
     { label: '保护能力', good: diagnostics.protectionRuntimeAvailable, detail: diagnostics.protectionRuntimeAvailable ? '设备支持运行' : '设备暂不支持' },
     { label: '监控配置', good: diagnostics.monitoringConfigured, detail: diagnostics.monitoringConfigured ? '已配置' : '未配置' },
     { label: '关键权限', good: permissionReady, detail: permissionReady ? '已具备' : '需要检查' },
-    { label: '本地数据库', good: diagnostics.databaseVersion === 3, detail: `Room v${diagnostics.databaseVersion}` },
+    { label: '本地数据库', good: diagnostics.databaseSchemaCurrent, detail: `Room v${diagnostics.databaseVersion} · ${diagnostics.databaseSchemaCurrent ? '正常' : '需检查'}` },
     { label: '受限应用', good: diagnostics.targetCount > 0, detail: `${diagnostics.targetCount} 个` },
   ] : [];
 

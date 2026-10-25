@@ -30,13 +30,14 @@
 
 - Severity：**P1（supported-scope 核心保护完整性）**
 - Status：**OPEN_SUPPORTED_SCOPE_RELEASE_BLOCKER**；GitHub [Issue #28](https://github.com/guo6x/flowbreak/issues/28) 当前仍 OPEN，`GATE_F=FAIL`。
-- Affected version/SHA：真实设备摘要没有记录可核验的 APK 来源版本/SHA。Issue 正文中的 master 发现基线属于代码审计背景，**不等同于设备复现包的来源 SHA**；本集成工作区也还没有最终候选 SHA。
-- Environment：历史真实设备记录描述在 REST 期间前台使用 Bilibili 约 33 秒。该摘要未包含可核验的设备型号、系统版本、渠道、签名证书或已安装 APK provenance；这些信息保持 **NOT_RECORDED / NOT_VERIFIED**，不得按相邻测试猜测。
+- Affected version/SHA：2026-10-25 找到并复核后继的 2026-09-14 最终报告及保存的安装 APK：源码 `48aaf6a77ca6bae9f17f19e0210f5af3af745126`，Domestic `1.1.0 / 1001000`，APK SHA-256 `ff7225de9626ab20d29dade1fecdbc20b09917ae73f846a550338baad4e7f2c2`。本轮独立复算保存 APK 的哈希并读取包内 provenance，与报告一致；不再沿用仅凭早期摘要的“身份均未记录”结论。它仍不是当前候选的设备验收。
+- Environment：上述最终报告记录 Xiaomi Redmi Note 13 Pro 5G（2312DRA50C）/ Android 16 / SDK 36 / HyperOS `OS3.0.306.0.WNRCNXM`。报告记录同证书覆盖安装及数据保留；本轮未操作设备或生产签名，也没有重新认证安装过程。
 - Observed（设备摘要）：Bilibili 前台约 33 秒后，REST 界面仍显示倒计时。摘要中没有同时保存的原生持久状态、服务 tick、前台分类器或取消判定证据，因此无法判定当时是原生休息状态未取消，还是原生状态已变化而 Web 页面显示过期。此观察保留为真实设备失败，不将其解释成已确定的 native `cancelRest` 失败。
+- Investigation（2026-10-25）：后继报告确认约 33 秒 Bilibili 前台及返回时 REST 倒计时仍在，真实失败不变。配套根因审计指出，当时 `recordTick` 位于 paused-REST 分支之后，因此既有 detector/classifier 计数不覆盖失败路径；最大 45,811ms gap 没有同时绑定测试窗和服务代际，不能据此把原因归于 OEM 调度或某一内部层。本轮设置适配/自动化不构成根因已修复或 Gate F 关闭的证据。
 - Additional code-audit findings in Issue #28（仍须在最终候选验证，不代表设备根因已定位）：必要的 Usage Access / Overlay 缺失时，保护状态 UI 与实际运行能力可能不一致；实时 UsageEvents 查询失败可能继续沿用旧前台包名；Domestic 无障碍在监控关闭后可能依赖过期的持久 `BLOCKED` 状态继续执行。无障碍是可选能力，缺失时应如实降级，不能因它缺失而禁用所有保护。通知、电池优化豁免与 OEM 自启动不是新增硬性前置条件。
 - Expected：遵守 **UI promise ≤ actual protection capability**。缺少硬性权限或当前原生运行能力时，不显示“保护有效”，不沿用过期前台状态累计使用；停止监控后 Domestic 无障碍不得继续依靠旧状态执行强阻断。恢复能力时只能按可验证、无虚构时长的路径恢复。
-- Evidence： [Issue #28](https://github.com/guo6x/flowbreak/issues/28)，特别是其 2026-10-10 设备失败摘要与取证说明。当前没有新的真实设备复测，也没有证据关闭该问题。
-- Next action：在最终候选 SHA 上完成确定性回归和独立代码复审；将虚拟设备用于可控权限、状态与界面场景，但不把 AVD/模拟 UsageEvents 记为 Gate F 通过。若未来有合规授权的真实设备条件，按 [FB-P1-08 设备验收交接](FB-P1-08-FINAL-DEVICE-HANDOFF.md) 收集最小化的 native 状态对照材料，并另行执行 24 小时稳定性观察。当前无设备的限制下，保留 OPEN / FAIL。
+- Evidence：[Issue #28](https://github.com/guo6x/flowbreak/issues/28)；External device evidence: `D:\AI_code\flowbreak-device-evidence\pr29-fb-p1-08-device-revalidation-2026-09-13\PR29_FB_P1_08_DEVICE_REVALIDATION_FINAL_REPORT.txt`、同目录 `PR29_FB_P1_08_CUMULATIVE_CHEAT_ROOT_CAUSE_REPORT.txt` 与 `installed-after-exact-head.apk`。当前没有新的真实设备复测，也没有证据关闭该问题。
+- Next action：若要关闭 Gate F，需在实际运行兼容候选的获授权真机上，把源码/构建产物/安装包身份绑定起来，并同步记录最小化原生 REST/session 状态与前台分类结果；隐私边界见[设备验收交接](FB-P1-08-FINAL-DEVICE-HANDOFF.md)。AVD 与模拟 UsageEvents 仅覆盖可控自动化，不计为真机通过。负责人已于 2026-10-25 取消固定 24 小时验收，改由日常使用反馈，不要求连续时长任务；该决定不改变缺陷状态。
 
 ### FB-P1-05 vivo/iQOO native tick path may fail to accumulate foreground usage
 
@@ -44,11 +45,13 @@
 - Status：**OPEN — UNSUPPORTED IN V1.1.0**（本次变更不修复根因，也不将其标记为 RESOLVED）
 - Affected version/SHA：`d61d2439c3cbc7b347b7af483916670e35c08805`
 - Environment：vivo iQOO V2073A / OriginOS 13.5 / Android 13 (SDK 33) / Domestic final-production-signed APK
-- Observed：B站实际包名 `tv.danmaku.bili` 已被选择为目标应用，FlowForegroundService 保持存活且设备当前前台为 B站，但持续实际使用后 `sessionSeconds` 仍为 0，未进入递进状态或 BLOCKED。
+- Observed：B站实际包名 `tv.danmaku.bili` 已被选择为目标应用，FlowForegroundService 保持存活且设备当前前台为 B站；持续使用约 92.4 秒后，仪表盘仍显示连续使用 0 分钟。历史材料没有同期原始 native `sessionSeconds` 或逐 tick 状态值，不能把显示的 0 分钟等同于原始毫秒计数为 0。
 - Expected：在受支持设备上，连续目标应用前台 tick 应推动 `BlockStateMachine.getSessionMs()` 增长，并按既有阈值进入递进状态。v1.1.0 对 vivo/iQOO 不启动保护，不把“已开启”显示为可用保护。
-- Suspected root cause：仍未判定。本次 v1.1.0 变更只增加设备能力边界与 fail-closed 门禁，不继续扩大 OriginOS tracking 调查。
-- Next action：留待未来专门的 vivo/iQOO 兼容性修复或重新支持决策；v1.1.0 不生成新的 signed iQOO S6 candidate，也不执行 S6–S13。
+- Suspected root cause：仍未判定。2026-10-25 重新核对后继原始材料：主线程时期曾捕获 122,128ms 监控调度间隙；PR #19 移到 worker 后，后续因果审计仍找到 124,574ms / 100,635ms 大间隙。但两次 Bilibili 窗口缺绝对起止锚点，不能把 retained tick 的 self/non-target、session 增长和 gap 归到同一真实窗口。最终因果裁定仍为 `INSUFFICIENT_EVIDENCE_FOR_CAUSAL_ORDERING`；不能声称“仅调度”或“仅分类器”已是唯一根因，也不能忽略自身包名来制造计时增长。
+- Investigation and boundary (2026-10-25)：本轮调查已完成，但根因未定位。没有“删除一条设备拒绝规则即可安全兼容”的证据；不得移除 vivo/iQOO fail-closed、不得宣称兼容或 RESOLVED。v1.1.0 仍不支持 vivo/iQOO runtime，已有拒绝行为是当前明确的安全边界。
+- Next action：保持 OPEN 与 fail-closed。若将来重新评估支持，必须作为独立兼容性工作重新取得可归因的逐 tick 证据并完成对应设备验收；S6–S13 本轮未执行，不以代码审查或模拟测试替代。
 - Evidence：External device evidence: `D:\AI_code\flowbreak-device-evidence\iqoo-signed-sanity\2026-09-07-live-disambiguation-retry-2\sanity-report.md`
+- 后继因果证据：External device evidence: `D:\AI_code\flowbreak-device-evidence\iqoo-signed-sanity\2026-09-08-final-root-cause\root-cause.txt`、`D:\AI_code\flowbreak-device-evidence\iqoo-signed-sanity\2026-09-08-worker-loop-fix\FB_P1_05_CAUSAL_TIMELINE_REPORT.md`。后继审计优先于早期单层归因；本次只读复核不增加新的设备 PASS。
 - 2026-09-08 v1.1.0 final-scope acceptance：PR #20 已合入 master；最终签名 Domestic APK 通过 `adb install -r` 覆盖安装，未清除数据。iQOO 上 `unsupportedDevice=true`、`protectionRuntimeAvailable=false`，启动保护入口保持禁用并显示不支持原因；诊断未检测到保护服务心跳，未观察到活动保护 FGS。启用 Accessibility 后，B 站 `tv.danmaku.bili` 在短时检查中保持可用，未观察到 HOME、`BlockedTargetBanner` 或 `BlockActivity`。本次按范围未执行 S6–S13，因此不改变该问题的 OPEN 状态。
 - Final-scope evidence：External device evidence: `D:\AI_code\flowbreak-device-evidence\iqoo-signed-sanity\2026-09-08-final-scope-acceptance\`
 
@@ -65,12 +68,12 @@
 ### FB-P2-03 Domestic strong-blocking default differs from the documented opt-in UI
 
 - Severity：**P2（默认设置与产品规范一致性）**
-- Status：**OPEN IN MASTER — FIXED ON `product/experience-polish-20261018`; API 36 AVD VERIFIED; MERGE PENDING**。模拟器完成了本项针对性验证；按本仓库关闭规则，分支修复尚未合入 master，故不标记为 RESOLVED。
+- Status：**RESOLVED IN MASTER — merged by PR #42**。修复提交 `154a7cfab7da1c7924ae1acb53acd63a931c2626` 已进入当前 master；针对性 Domestic/Play JVM 与 API 36 AVD 证据见下方。此结论仅关闭默认值一致性缺陷，不代表 Redmi/OEM 或 Gate F 验收。
 - Affected scope：Domestic 原生偏好读取、保护状态展示、设置加载和无障碍执行门禁。未保存时按关闭处理；显式保存的用户选择不因读取缺省值而改变。
 - Observed before fix：`NativeFlowPlugin.loadSettings()` 在未存储该选项时按 Domestic 渠道返回 `strongBlockingEnabled=true`；`BlockingSettings` 成功读取后显示为开启。系统无障碍授权仍独立、可选，不能由这个布尔值推断已授权或正在执行强阻断。
 - Expected：`PRODUCT.md` 的默认 UI 关闭目标，与实际初始值和可选授权表述应一致，且不得覆盖用户已有选择。
 - Evidence：修复点为 `PreferenceUtils.isStrongBlockingEnabled()`；设置读取、`getProtectionStatus()` 与 Domestic `FlowAccessibilityService.canEnforce()` 共用关闭缺省。源码提交 `154a7cfab7da1c7924ae1acb53acd63a931c2626`；Domestic/Play JVM 分别 412/382 项通过，覆盖缺失值不写入、显式开/关保留、Play 不启用及 Accessibility 缺失值不执行。2026-10-18 在 `Medium_Phone_API_36.0`（Android 16 / API 36）以 `install -r` 覆盖安装后，`FlowBreakPrefs.xml` 仍无 `strongBlockingEnabled` 键；权限页为 0/2，系统“使用情况访问”设置返回后仍为 0/2。APK SHA-256：`41de12d1eecbcd3778d72bafca3d0824d5d8fb720d17638e5e180464ffd4c64a`。截图：`D:\temp\flowbreak-avd-evidence-20261018\flowbreak-final-154a7cf-settings-return.png`。AVD 结果不代表 Redmi/OEM 真机验收。
-- Next action：将体验分支经常规 review/merge 纳入 master 后，再按本仓库状态规则更新缺陷；更广泛的受支持手机/OEM smoke、Gate F 稳定性及既有 Gate D/E 证据继续按各自范围执行。
+- Next action：本缺陷无待合并动作。更广泛的受支持手机/OEM smoke、Gate F 稳定性及既有 Gate D/E 证据继续按各自范围执行，不随本项关闭而自动通过。
 
 ## Platform limitations
 
@@ -106,9 +109,9 @@
 - 后台 WebView innerText 冻结：后台时界面文本不随状态更新，需前台读取（证据：`progress-17-05.md`）。
 - 微信视频号识别：实现存在，未真机专项验证。
 
-## Resolved（2026-08-14 Redmi R1–R4 复测关闭）
+## Resolved（按项记录历史修复与复验）
 
-> 以下历史项均已合入 master 并有 Redmi 真机复测证据。新问题按文首状态规则逐项选择适配的验证证据；不要将本段历史设备范围机械套用到偏好默认值等非 OEM 行为。
+> 以下历史项均已合入 master；具体复验设备、日期和范围按项记录，包括 Redmi R1–R4 与历史 iQOO 针对性复测，不代表当前候选或该品牌全面通过。新问题按文首状态规则选择适配证据，不把某项历史设备范围机械套用到偏好默认值等非 OEM 行为。
 
 ### FB-P1-04 vivo/iQOO 后台冻结导致连续使用计时停止
 
@@ -117,7 +120,7 @@
 - Environment：vivo iQOO V2073A / OriginOS 13.5 / Android 13 (SDK 33) / Domestic final-production-signed APK
 - Observed（原现象）：B站（设备实测包名 `tv.danmaku.bili`）保持前台使用时，FlowBreak 服务进程被 OriginOS 冻结，连续使用累计停止，递进阻断无法可靠开始。
 - Root cause：OriginOS 在未开启系统“允许后台高耗电”时把 FlowBreak 进程置于 `freezer:/frozen` / `State: D`，即使前台服务仍显示存活也不执行 2 秒监控心跳；UsageEvents、目标判定和累计器不是根因。
-- Fix SHA：`dde0bc57d03575d2314f13a6feb8004b695fd392`；已合入 master `6c6385fbc4da9f07c76a498abbfcf23954aea4e8`。vivo/iQOO 现在把后台稳定性/电池优化豁免作为启动保护、目标重载和开机重启前置条件。
+- Fix SHA：`dde0bc57d03575d2314f13a6feb8004b695fd392`；已合入 master `6c6385fbc4da9f07c76a498abbfcf23954aea4e8`。该历史版本当时把 vivo/iQOO 后台稳定性/电池优化豁免作为启动、重载和开机恢复前置；后续独立缺陷 `FB-P1-05` 未解决，因此当前 vivo/iQOO 仍明确不支持并拒绝启动保护，不能按本项历史结案绕过。
 - Automated regression coverage：新增 vivo/iQOO 后台稳定性判定与权限门禁测试；前端全量 155 tests、Android targeted unit tests、release validation 8/8、GitHub verify 均 PASS。
 - Signed candidate：workflow run `34086540524`，source SHA `6c6385fbc4da9f07c76a498abbfcf23954aea4e8`；Domestic fingerprint `8d69d1786ea63b05ff3b8d1f5a78266a2fa1eda7b823af0c295cbfdc10e77f20`。
 - iQOO S6 evidence：最终签名 APK `adb install -r` 保留数据；2026-09-07 14:30:27–14:32:29 B站持续为实际前台；终点诊断 `sessionSeconds=191`、`serviceAlive=true`、`isIgnoringBattery=true`。

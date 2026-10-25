@@ -102,6 +102,36 @@ public class NativeFlowPlugin extends Plugin {
         }
     }
 
+    private static void dispatchRestResult(Runnable completion) {
+        // A service worker can finish after Activity detachment. The bridge
+        // result still belongs on the main thread, but must not depend on an
+        // Activity that may no longer exist.
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            completion.run();
+        } else {
+            new android.os.Handler(android.os.Looper.getMainLooper()).post(completion);
+        }
+    }
+
+    FlowForegroundService.RestCompletionCallback restCompletionCallback(PluginCall call) {
+        return new FlowForegroundService.RestCompletionCallback() {
+            @Override public void onSuccess(NativeFlowRestCoordinator.Result result) {
+                dispatchRestResult(() -> call.resolve(result.response));
+            }
+
+            @Override public void onDeferred() {
+                dispatchRestResult(() -> call.reject(RestCompletionIntegrityGate.RETRYABLE_MESSAGE));
+            }
+
+            @Override public void onRejected(String message, Exception error) {
+                dispatchRestResult(() -> {
+                    if (error == null) call.reject(message);
+                    else call.reject(message, error);
+                });
+            }
+        };
+    }
+
     /**
      * Reject any transition that would activate protection without the hard
      * core prerequisites. The persisted configuration remains untouched.
@@ -153,26 +183,18 @@ public class NativeFlowPlugin extends Plugin {
     }
 
     @PluginMethod public void requestUsageStatsPermission(PluginCall call) {
-        openSettings(permissions.usageStatsSettingsIntent());
-        call.resolve();
+        openSettings(call, permissions.usageStatsSettingsIntent(),
+                "无法打开使用情况访问设置，请到系统设置中手动为 FlowBreak 开启使用情况访问权限");
     }
 
     @PluginMethod public void requestOverlayPermission(PluginCall call) {
-        Intent intent = permissions.overlaySettingsIntent();
-        if (intent != null) openSettings(intent);
-        call.resolve();
+        openSettings(call, permissions.overlaySettingsIntent(),
+                "无法打开悬浮窗设置，请到系统设置中手动为 FlowBreak 开启悬浮窗权限");
     }
 
     @PluginMethod public void requestIgnoreBatteryOptimizations(PluginCall call) {
-        Intent intent = permissions.batteryOptimizationSettingsIntent();
-        if (intent != null) {
-            try {
-                openSettings(intent);
-            } catch (Exception ignored) {
-                openSettings(permissions.batteryOptimizationSettingsIntent());
-            }
-        }
-        call.resolve();
+        openSettings(call, permissions.batteryOptimizationSettingsIntent(),
+                "无法打开电池设置，请到系统设置中手动调整 FlowBreak 的后台电池限制");
     }
 
     @PluginMethod public void requestNotificationPermission(PluginCall call) {
@@ -184,25 +206,13 @@ public class NativeFlowPlugin extends Plugin {
     }
 
     @PluginMethod public void requestAccessibilityPermission(PluginCall call) {
-        Intent intent = permissions.accessibilitySettingsIntent();
-        if (intent != null) openSettings(intent);
-        call.resolve();
+        openSettings(call, permissions.accessibilitySettingsIntent(),
+                "无法打开无障碍设置，请到系统设置中手动配置 FlowBreak 无障碍增强");
     }
 
     @PluginMethod public void openAutoStartSettings(PluginCall call) {
-        for (Intent candidate : permissions.autoStartCandidateIntents()) {
-            try {
-                getContext().startActivity(candidate);
-                call.resolve();
-                return;
-            } catch (Exception ignored) { }
-        }
-        try {
-            getContext().startActivity(permissions.appDetailFallbackIntent());
-            call.resolve();
-        } catch (Exception error) {
-            call.reject("无法打开自启动设置页，请到系统设置手动允许 FlowBreak 后台运行", error);
-        }
+        openSettings(call, permissions.autoStartCandidateIntents(),
+                "无法打开后台设置页，请到系统设置手动允许 FlowBreak 后台运行");
     }
 
     // ==================== Service Control ====================
@@ -253,6 +263,7 @@ public class NativeFlowPlugin extends Plugin {
     }
 
     @PluginMethod public void beginRest(PluginCall call) {
+        String beginRequestToken = null;
         try {
             String persistedState = prefs().getString(
                     "blockState",
@@ -262,7 +273,7 @@ public class NativeFlowPlugin extends Plugin {
                 call.reject("PROTECTION_RUNTIME_UNHEALTHY");
                 return;
             }
-            String beginRequestToken = UUID.randomUUID().toString();
+            beginRequestToken = UUID.randomUUID().toString();
             boolean persisted = RestBeginRequestTokenStore.persistLatestRequest(
                     prefs(),
                     beginRequestToken
@@ -280,6 +291,15 @@ public class NativeFlowPlugin extends Plugin {
             result.put("beginRequestToken", beginRequestToken);
             call.resolve(result);
         } catch (Exception error) {
+            if (beginRequestToken != null) {
+                try {
+                    RestBeginRequestTokenStore.recordRejectedIfCurrent(
+                            prefs(), beginRequestToken, "SERVICE_COMMAND_FAILED"
+                    );
+                } catch (Exception statusError) {
+                    Log.w("NativeFlowPlugin", "Could not persist REST begin rejection", statusError);
+                }
+            }
             call.reject("休息模式启动失败", error);
         }
     }
@@ -300,12 +320,7 @@ public class NativeFlowPlugin extends Plugin {
                     beginRequestToken,
                     new FlowForegroundService.RestCancellationCallback() {
                         private void finishOnUiThread(Runnable completion) {
-                            android.app.Activity activity = getActivity();
-                            if (activity == null) {
-                                call.reject("休息状态暂时无法确认；请保持页面并重试。");
-                                return;
-                            }
-                            activity.runOnUiThread(completion);
+                            dispatchRestResult(completion);
                         }
 
                         @Override public void onCancelled() {
@@ -355,6 +370,13 @@ public class NativeFlowPlugin extends Plugin {
             SharedPreferences preferences = prefs();
             Set<String> targets = PreferenceUtils.getMigratedTargetApps(preferences);
             boolean monitoringEnabled = preferences.getBoolean("monitoringEnabled", true);
+            int limitMinutes = Math.max(1, preferences.getInt("limitMinutes", 25));
+            FlowForegroundService.RuntimeConfigurationMatch runtimeConfigurationMatch =
+                    FlowForegroundService.compareRuntimeConfiguration(
+                            targets,
+                            monitoringEnabled,
+                            limitMinutes
+                    );
             ProtectionRuntimeHealthEvaluator.Result runtimeHealth =
                     FlowForegroundService.getCurrentProtectionRuntimeHealth();
             long currentHeartbeatWall = FlowForegroundService.getLastCompletedMonitorTickWallMs();
@@ -376,6 +398,9 @@ public class NativeFlowPlugin extends Plugin {
                             monitoringEnabled,
                             supportedRuntime,
                             !targets.isEmpty(),
+                            runtimeConfigurationMatch.targetSetMatchesPersisted,
+                            runtimeConfigurationMatch.monitoringEnabledMatchesPersisted,
+                            runtimeConfigurationMatch.runtimeLimitMinutesMatchesPersisted,
                             hasUsageStats,
                             hasOverlay,
                             serviceRuntimeActive,
@@ -399,6 +424,12 @@ public class NativeFlowPlugin extends Plugin {
             result.put("monitoringConfigured", preferences.getBoolean("serviceConfigured", false));
             result.put("monitoringEnabled", monitoringEnabled);
             result.put("targetCount", targets.size());
+            result.put("runtimeTargetsMatchPersisted",
+                    runtimeConfigurationMatch.targetSetMatchesPersisted);
+            result.put("runtimeMonitoringEnabledMatchesPersisted",
+                    runtimeConfigurationMatch.monitoringEnabledMatchesPersisted);
+            result.put("runtimeLimitMinutesMatchesPersisted",
+                    runtimeConfigurationMatch.runtimeLimitMinutesMatchesPersisted);
             result.put("serviceRuntimeActive", serviceRuntimeActive);
             result.put("monitorThreadAlive", monitorThreadAlive);
             result.put("heartbeatFresh", status.runtimeHealth.heartbeatFresh);
@@ -429,24 +460,7 @@ public class NativeFlowPlugin extends Plugin {
                 expectedSessionId,
                 requestedActivity,
                 restCoordinator,
-                new FlowForegroundService.RestCompletionCallback() {
-                    @Override public void onSuccess(NativeFlowRestCoordinator.Result result) {
-                        getActivity().runOnUiThread(() -> call.resolve(result.response));
-                    }
-
-                    @Override public void onDeferred() {
-                        getActivity().runOnUiThread(
-                                () -> call.reject(RestCompletionIntegrityGate.RETRYABLE_MESSAGE)
-                        );
-                    }
-
-                    @Override public void onRejected(String message, Exception error) {
-                        getActivity().runOnUiThread(() -> {
-                            if (error == null) call.reject(message);
-                            else call.reject(message, error);
-                        });
-                    }
-                }
+                restCompletionCallback(call)
         );
         if (!queued) call.reject(RestCompletionIntegrityGate.RETRYABLE_MESSAGE);
     }
@@ -488,8 +502,12 @@ public class NativeFlowPlugin extends Plugin {
             return;
         }
         SharedPreferences current = prefs();
-        boolean shouldReload = current.getBoolean("serviceConfigured", false)
-                && current.getBoolean("monitoringEnabled", true);
+        boolean shouldReload = ProtectionSettingsSaveGate.mayReload(
+                current.getBoolean("serviceConfigured", false),
+                current.getBoolean("monitoringEnabled", true),
+                permissions.isProtectionRuntimeAvailable(),
+                permissions.isBackgroundStabilitySatisfied()
+        );
         prefs().edit()
                 .putStringSet(PreferenceUtils.PREF_TARGET_APPS, filtered)
                 .apply();
@@ -713,9 +731,23 @@ public class NativeFlowPlugin extends Plugin {
 
     // ==================== Helpers ====================
 
-    private void openSettings(Intent intent) {
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        getContext().startActivity(intent);
+    private void openSettings(PluginCall call, Intent preferred, String failureMessage) {
+        if (preferred == null) {
+            // Preserve no-op semantics for capabilities unavailable on this API
+            // or channel (especially Accessibility in the Play build).
+            call.resolve();
+            return;
+        }
+        openSettings(call, java.util.Collections.singletonList(preferred), failureMessage);
+    }
+
+    private void openSettings(PluginCall call, java.util.List<Intent> preferred,
+            String failureMessage) {
+        java.util.List<Intent> candidates = new java.util.ArrayList<>(preferred);
+        candidates.add(permissions.appDetailFallbackIntent());
+        candidates.add(permissions.generalSettingsFallbackIntent());
+        new NativeFlowSettingsNavigator(getContext()::startActivity)
+                .open(call, candidates, failureMessage);
     }
 
     private interface NativeTask {

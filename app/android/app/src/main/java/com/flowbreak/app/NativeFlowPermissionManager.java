@@ -1,6 +1,7 @@
 package com.flowbreak.app;
 
 import android.accessibilityservice.AccessibilityServiceInfo;
+import android.app.ActivityManager;
 import android.app.AppOpsManager;
 import android.content.ComponentName;
 import android.content.Context;
@@ -42,7 +43,7 @@ public final class NativeFlowPermissionManager {
         this.context = context.getApplicationContext();
     }
 
-    /** 与原 NativeFlowPlugin.permissionState() 字段、顺序、语义完全一致。 */
+    /** 保留原权限字段；系统后台限制仅作可选诊断，不改变核心权限门禁。 */
     public JSObject permissionState() {
         JSObject result = new JSObject();
         boolean usage = hasUsageStats();
@@ -56,6 +57,7 @@ public final class NativeFlowPermissionManager {
         result.put("hasUsageStats", usage);
         result.put("hasOverlay", overlay);
         result.put("isIgnoringBattery", battery);
+        result.put("backgroundRestriction", backgroundRestriction());
         result.put("hasNotification", notification);
         result.put("hasAccessibility", hasAccessibility());
         result.put("isDomestic", "domestic".equals(BuildConfig.CHANNEL));
@@ -66,6 +68,23 @@ public final class NativeFlowPermissionManager {
         result.put("unsupportedDevice", unsupported);
         result.put("protectionRuntimeAvailable", !unsupported);
         return result;
+    }
+
+    /**
+     * Standard Android restriction state, not proof of an OEM keep-alive grant.
+     * Unsupported APIs and unreadable state remain explicitly unknown.
+     */
+    public String backgroundRestriction() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return "unknown";
+        try {
+            ActivityManager activityManager = (ActivityManager) context.getSystemService(
+                    Context.ACTIVITY_SERVICE
+            );
+            if (activityManager == null) return "unknown";
+            return activityManager.isBackgroundRestricted() ? "restricted" : "not_restricted";
+        } catch (RuntimeException ignored) {
+            return "unknown";
+        }
     }
 
     /** Returns the current Usage Access app-op without requiring JSObject parsing. */
@@ -181,6 +200,11 @@ public final class NativeFlowPermissionManager {
         );
         detail.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         return detail;
+    }
+
+    /** OEM-specific and app-detail pages can both be absent/restricted. */
+    public Intent generalSettingsFallbackIntent() {
+        return withNewTask(new Intent(Settings.ACTION_SETTINGS));
     }
 
     public boolean isAccessibilityEnabled() {

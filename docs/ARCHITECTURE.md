@@ -1,6 +1,6 @@
 # ARCHITECTURE — 当前技术架构
 
-> 只描述当前 master 实际存在的架构；具体验收基线见 `CURRENT_STATUS.md`。历史架构描述一律见 `docs/archive/`。
+> 描述当前选定源码的架构；候选身份、是否已合并及具体验收基线见 `CURRENT_STATUS.md`，不能默认候选已进入 master 或发布包。历史架构描述一律见 `docs/archive/`。
 > 业务状态语义见 `docs/PRODUCT.md`，本文档不重复业务规则。
 
 ## 1. 分层总览
@@ -86,11 +86,11 @@ TargetSessionGapReconciler
 | 存储 | 内容 | 谁写 |
 | ---- | ---- | ---- |
 | SharedPreferences `FlowBreakPrefs` | 设置（targetApps/limitMinutes/restDuration/emergency 开关/strongBlockingEnabled）、状态快照、心跳 | 原生服务/插件 |
-| Room `FlowDatabase`（schema v3，迁移 1→2、2→3） | daily_usage、daily_summary、flow_events、progress 等 | 原生服务（前台扫描只在服务内执行） |
+| Room `FlowDatabase`（schema v4，迁移 1→2→3→4） | daily_usage、daily_summary、flow_events、progress 等；拉回统计事件按 session key 幂等 | 原生服务（前台扫描只在服务内执行） |
 | localStorage | Web 界面层 profile/statistics/achievements/reflections 缓存（UI Projection） | React 层 |
 
 - 原生统计/仪表盘/导出统一从 Room 读取；界面不再直接执行使用扫描。
-- 统计口径：`NativeFlowStatisticsService` 基于 UsageEvents 配对算法计算「当日目标应用前台总时长」，物理上限为 `now − 今日0点`。
+- 统计读取：`NativeFlowStatisticsService` 不在页面查询时重新扫描 UsageEvents；当日总时长取 Room `daily_usage` 汇总与 `legacyScreenSeconds` 的较大值，历史统计按日期采用相同兼容规则。UsageEvents 检测、配对与目标使用累计由前台服务链路负责。
 
 ### 2.5 生命周期与恢复
 
@@ -112,7 +112,7 @@ Android/OEM 执行调度限制的产品语义见 `PRODUCT.md` 与 `KNOWN_ISSUES.
 ## 4. 构建与测试链路（详见 `TESTING.md`、`DEVELOPMENT.md`）
 
 - 前端：`npm test`（Vitest）、`npm run build`、`npx cap sync android`。
-- 原生：`testPlayDebugUnitTest` / `testDomesticDebugUnitTest`（JVM/Robolectric）、`lintPlayDebug` / `lintDomesticDebug`、`assemblePlayDebug` / `assembleDomesticDebug`、`assemblePlayDebugAndroidTest`（仅构建 instrumentation APK）、Release（`bundlePlayRelease` / `assembleDomesticRelease`，未签名）。
+- 原生：`testPlayDebugUnitTest` / `testDomesticDebugUnitTest`（JVM/Robolectric）、`lintPlayDebug` / `lintDomesticDebug`、`assemblePlayDebug` / `assembleDomesticDebug`、`assemblePlayDebugAndroidTest` / `assembleDomesticDebugAndroidTest`（仅构建 instrumentation APK）、Release（`bundlePlayRelease` / `assembleDomesticRelease`，未签名）。
 - CI：`.github/workflows/android.yml`（Node 22.23.1、JDK 21 temurin、npm audit 门禁、Room schema drift 检查、R8 mapping 检查）。
 
 ## 5. Source of Truth / Persistence / UI Projection / Fallback 汇总

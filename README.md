@@ -11,7 +11,8 @@ A local-first Android digital-wellbeing tool that helps reduce continuous use of
 ## 当前阶段
 
 - 处于**发布准备阶段（RELEASE PREPARATION）**（MVP，尚未发布；不是 STORE READY）。
-- 2026-08-14 Redmi R1–R4 真机复测：**核心验收通过（PASSED）**，原 P1/P2 缺陷全部 RESOLVED（见 [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md)）。
+- 当前面向知情、自愿参与者的**受控工程试用**，不是正式发布或已获批准的商店版本；当前 Gate F 尚未关闭，不能把自动化或模拟器结果当作当前候选真机验收通过。
+- 2026-08-14 Redmi R1–R4 通过的是历史基线及当时指定缺陷，不认证后继候选；历史证据与当前问题见 [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md)。vivo / iQOO 当前不支持启用保护，其他未验证机型也不因未被拒绝启动而自动获得兼容声明。
 - 详细状态与发布门禁见 [docs/CURRENT_STATUS.md](docs/CURRENT_STATUS.md) 与 [docs/RELEASE.md](docs/RELEASE.md)。
 
 ## 核心机制
@@ -34,7 +35,7 @@ A local-first Android digital-wellbeing tool that helps reduce continuous use of
 ## 技术栈
 
 - 前端：React 19 / TypeScript / Vite / Zustand / Tailwind CSS v4 / Framer Motion / Capacitor 8
-- 原生：Java / Foreground Service（START_STICKY）/ UsageEvents / WindowManager / Room（schema v3）/ SharedPreferences / 可选 AccessibilityService（仅国内版）
+- 原生：Java / Foreground Service（START_STICKY）/ UsageEvents / WindowManager / Room（schema v4）/ SharedPreferences / 可选 AccessibilityService（仅国内版）
 
 架构说明：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
@@ -57,7 +58,7 @@ cd android
 
 ## 文档入口
 
-- 第一次使用：[使用指南](docs/USER_GUIDE.md)；应用内也可进入“我的 → 使用指南”。
+- 第一次使用与自愿试用：[使用指南](docs/USER_GUIDE.md)；先阅读安装、更新与支持范围，再开始设置。应用内也可进入“我的 → 使用指南”。
 - 维护界面与图标：[品牌与设计参考](docs/BRAND.md)。
 - 浏览器开发预览不具备 Android 跨应用保护能力，不应当作真机验证。
 
@@ -65,7 +66,7 @@ cd android
 
 ## 其他文档
 
-- [PRIVACY.md](PRIVACY.md) — 隐私政策
+- [PRIVACY.md](PRIVACY.md) — 产品隐私说明（正式政策网页尚未托管）
 - [CHANGELOG.md](CHANGELOG.md) — 版本变更记录
 - [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) — 第三方许可
 

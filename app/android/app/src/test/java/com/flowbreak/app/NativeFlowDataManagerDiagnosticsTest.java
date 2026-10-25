@@ -20,6 +20,8 @@ public class NativeFlowDataManagerDiagnosticsTest {
         source.put("versionName", "1.0.0");
         source.put("channel", "domestic");
         source.put("serviceAlive", true);
+        source.put("databaseVersion", FlowDatabaseSchema.VERSION);
+        source.put("databaseSchemaCurrent", true);
         source.put("eventCount", 42);
         source.put("targetCount", 2);
         source.put("runtimeTracking", runtimeTracking);
@@ -36,6 +38,8 @@ public class NativeFlowDataManagerDiagnosticsTest {
 
         assertEquals("1.0.0", shared.optString("versionName"));
         assertEquals("domestic", shared.optString("channel"));
+        assertEquals(FlowDatabaseSchema.VERSION, shared.optInt("databaseVersion"));
+        assertTrue(shared.optBoolean("databaseSchemaCurrent"));
         assertTrue(shared.optBoolean("serviceAlive"));
         assertEquals(42, shared.optInt("eventCount"));
         assertEquals(2, shared.optInt("targetCount"));

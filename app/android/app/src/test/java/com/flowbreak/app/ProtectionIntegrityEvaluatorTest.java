@@ -72,6 +72,34 @@ public class ProtectionIntegrityEvaluatorTest {
         assertTrue(result.strongBlockingOperational);
     }
 
+    @Test public void activeRequiresRuntimeTargetsToMatchPersistedTargets() {
+        ProtectionStatusEvaluator.Result result = ProtectionStatusEvaluator.evaluate(
+                new ProtectionStatusEvaluator.Input(
+                        true, true, true, true, false, true, true, true, true,
+                        true, true, 1_000L, 1_000L,
+                        false, false, false, ""
+                )
+        );
+        assertEquals(ProtectionStatusEvaluator.Status.DEGRADED, result.status);
+        assertEquals("TARGET_SET_MISMATCH", result.reason);
+        assertFalse(result.coreProtectionOperational);
+        assertTrue("optional strong blocking remains operational only when requested",
+                result.strongBlockingOperational);
+    }
+
+    @Test public void activeRequiresRuntimeMonitoringFlagToMatchPersistedFlag() {
+        ProtectionStatusEvaluator.Result result = ProtectionStatusEvaluator.evaluate(
+                new ProtectionStatusEvaluator.Input(
+                        true, true, true, true, true, false, true, true, true,
+                        true, true, 1_000L, 1_000L,
+                        false, false, false, ""
+                )
+        );
+        assertEquals(ProtectionStatusEvaluator.Status.DEGRADED, result.status);
+        assertEquals("MONITORING_STATE_MISMATCH", result.reason);
+        assertFalse(result.coreProtectionOperational);
+    }
+
     @Test public void runtimeHealthUsesElapsedRealtimeAndRejectsStaleOrFutureTicks() {
         ProtectionRuntimeHealthEvaluator.Result fresh =
                 ProtectionRuntimeHealthEvaluator.evaluate(true, true, 1_000L, 1_000L, "");
@@ -173,7 +201,7 @@ public class ProtectionIntegrityEvaluatorTest {
     @Test public void missingAccessibilityDegradesStrongBlockingOnly() {
         ProtectionStatusEvaluator.Result result = ProtectionStatusEvaluator.evaluate(
                 new ProtectionStatusEvaluator.Input(
-                        true, true, true, true, true, true,
+                        true, true, true, true, true, true, true, true, true,
                         true, true, 1_000L, 1_000L,
                         true, false, false, ""
                 )
@@ -189,7 +217,7 @@ public class ProtectionIntegrityEvaluatorTest {
     @Test public void strongBlockingReportsCoreFailureSeparately() {
         ProtectionStatusEvaluator.Result result = ProtectionStatusEvaluator.evaluate(
                 new ProtectionStatusEvaluator.Input(
-                        true, true, true, true, true, true,
+                        true, true, true, true, true, true, true, true, true,
                         false, true, 1_000L, 1_000L,
                         true, true, true, ""
                 )
@@ -204,7 +232,7 @@ public class ProtectionIntegrityEvaluatorTest {
     @Test public void settingsEnabledButDisconnectedDegradesOnlyStrongBlocking() {
         ProtectionStatusEvaluator.Result result = ProtectionStatusEvaluator.evaluate(
                 new ProtectionStatusEvaluator.Input(
-                        true, true, true, true, true, true,
+                        true, true, true, true, true, true, true, true, true,
                         true, true, 1_000L, 1_000L,
                         true, true, false, ""
                 )
@@ -222,7 +250,7 @@ public class ProtectionIntegrityEvaluatorTest {
     @Test public void connectedAccessibilityMakesStrongBlockingOperational() {
         ProtectionStatusEvaluator.Result result = ProtectionStatusEvaluator.evaluate(
                 new ProtectionStatusEvaluator.Input(
-                        true, true, true, true, true, true,
+                        true, true, true, true, true, true, true, true, true,
                         true, true, 1_000L, 1_000L,
                         true, true, true, ""
                 )
@@ -255,6 +283,20 @@ public class ProtectionIntegrityEvaluatorTest {
         assertFalse(result.coreProtectionOperational);
     }
 
+    @Test public void runtimeLimitMismatchDegradesOtherwiseHealthyCoreProtection() {
+        ProtectionStatusEvaluator.Result result = ProtectionStatusEvaluator.evaluate(
+                new ProtectionStatusEvaluator.Input(
+                        true, true, true, true, true, true, false,
+                        true, true, true, true, 1_000L, 1_000L,
+                        false, false, false, ""
+                )
+        );
+
+        assertEquals(ProtectionStatusEvaluator.Status.DEGRADED, result.status);
+        assertEquals("LIMIT_MINUTES_MISMATCH", result.reason);
+        assertFalse(result.coreProtectionOperational);
+    }
+
     private static ProtectionStatusEvaluator.Input input(
             boolean configured,
             boolean monitoringEnabled,
@@ -272,6 +314,9 @@ public class ProtectionIntegrityEvaluatorTest {
                 monitoringEnabled,
                 supported,
                 targets,
+                true,
+                true,
+                true,
                 usage,
                 overlay,
                 service,

@@ -2,6 +2,8 @@
 
 **DRAFT_ONLY — 2026-10-12；尚未商店提交，也未获审核批准。** 用户的设备、身份和证书没有用于本文档。所有描述须经最终实测和发行主体确认。
 
+**资料补记（2026-10-25）：** 负责人已指定 `15015091629@163.com` 为对外支持邮箱，未做收发验证或注册账号；公开隐私政策网页地址暂无。国内各渠道开发者账号与资质的办理步骤见 [国内发行指南](DOMESTIC_PUBLISHING_GUIDE.md)，准备资料不等于决定办理或已提交。
+
 ## 1. Google Play 商品详情（待发行方选定默认语言）
 
 **App name（≤30 字符）：** FlowBreak
@@ -17,7 +19,7 @@ FlowBreak 是一款帮助你更有意识地使用手机的本地数字健康工�
 **由你自主设置**
 - 自己决定哪些应用需要提醒或限制，以及使用时长。
 - 在系统设置中自行授权或撤销使用情况访问、悬浮窗和通知等能力。
-- 如果 Android/OEM 系统限制了后台运行，提醒与拦截可能延迟或暂时不可用；返回应用可检查所需权限和保护配置。当前版本的运行健康提示仍在 Gate F 验证中，不宣传“所有中断都会被即时告知”。
+- 如果 Android/OEM 系统限制了后台运行，提醒与拦截可能延迟或暂时不可用；返回应用后请核对所显示的保护状态和所需权限。应用不保证后台始终运行，也不保证每种中断都会被即时发现或提示。
 
 **注重本地数据**
 - 使用记录、设置、休息与反馈主要保存在设备本地，不要求注册账号。
@@ -45,11 +47,11 @@ FlowBreak 支持由用户选择需要限制的应用、设定使用时长，并�
 
 ## 3. Google Play FGS `specialUse` 填报说明草案
 
-**Use case:** A user-configured, persistent digital well-being reminder that observes foreground durations of apps selected by the user (with Usage Access) and presents a visible ongoing status notification while protection is enabled. The foreground task is necessary to deliver timely reminders and screen-blocking cues that depend on changing foreground app activity. It does not upload personal app-usage contents to an external backend as a core feature.
+**Use case:** A user-configured, persistent digital well-being reminder that observes foreground durations of apps selected by the user (with Usage Access) and presents a visible ongoing status notification while protection is enabled. The foreground task is necessary to deliver timely reminders and screen-blocking cues that depend on changing foreground app activity. The current source is designed to keep product usage data on-device and does not implement uploading it to a FlowBreak backend. This is a source-level statement only: do not submit it as a verified final-binary/network claim until the exact release candidate's merged manifest, SDK/dependency inventory, and runtime network behavior have been reviewed.
 
 **Why does deferring the task matter?** Delaying the task may make a configured time threshold or reminder late or miss it entirely; the on-screen promise must reflect actual detection ability. Delaying tasks is not a critical safety hazard and should not be described as an emergency use case.
 
-**What happens if interrupted?** Android/OEM restrictions can delay or suspend monitoring, so reminders and blocking may be late or unavailable. **Current release master does not yet provide fully proven UI runtime-health reporting**: its Dashboard can still display configured monitoring intent without checking live worker/heartbeat health. Runtime-state truthfulness is part of the unmerged PR #29 and the failed Gate F physical verification. Until that is independently approved, the Play submission must not claim that reopening the app always diagnoses or immediately reports every degraded state. Never claim monitoring continued when the OS suspended execution.
+**What happens if interrupted?** Android/OEM restrictions can delay or suspend monitoring, so reminders and blocking may be late or unavailable. Check the implementation and verification state in [`CURRENT_STATUS.md`](../CURRENT_STATUS.md) against the exact release candidate before making runtime-health claims. Real-device validation is separate from source review and automated checks; until the final candidate has been independently reviewed and the required device evidence recorded, do not claim that reopening the app always diagnoses or immediately reports every degraded state. Never claim monitoring continued when the OS suspended execution.
 
 **User initiated and perceptible:** The user explicitly selects targets and enables protection; the ongoing foreground notification indicates that monitoring is active. Revoking usage/overlay privileges removes necessary protection capabilities; user-visible status must be accurate.
 
@@ -87,8 +89,8 @@ FGS subtype manifest currently says “健康提醒：监控连续使用时长�
 ## 6. 发行方补充字段（不得使用测试占位信息提交）
 
 - 发布主体法定名称/类型/地区：**未提供**。
-- 面向公众的支持邮箱：**未提供**（Google Play 上架必需）。
-- 公开隐私政策 HTTPS 地址：**未提供**。
+- 面向公众的支持邮箱：**负责人已提供** — `15015091629@163.com`；尚未执行收发验证，不据此推断手机号、商店账号或主体身份。
+- 公开隐私政策 HTTPS 地址：**未配置/未部署**；是网页地址，不是个人住址，可先评估静态托管。
 - 备案编号、APP 主办者、版权归属或授权：**未提供 / 待发行条件核验**。
 - 商店账号所有权、发行地区和具体渠道：**未核实**。
 - 最终商店截图/审核视频与批准结果：**未制作/未提交**。

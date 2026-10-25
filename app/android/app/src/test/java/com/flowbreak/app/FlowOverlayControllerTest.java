@@ -3,9 +3,26 @@ package com.flowbreak.app;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import android.content.Context;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.View;
+import android.view.MotionEvent;
+import android.view.WindowManager;
+import android.widget.TextView;
+import androidx.test.core.app.ApplicationProvider;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.robolectric.RobolectricTestRunner;
+import org.robolectric.Shadows;
+import org.robolectric.shadows.ShadowSettings;
 
+@RunWith(RobolectricTestRunner.class)
 public class FlowOverlayControllerTest {
     private static final long NOW = 10_000_000L;
 
@@ -115,5 +132,176 @@ public class FlowOverlayControllerTest {
         assertFalse(blocker.isCurrent(blockerShow));
         assertFalse(warning.isCurrent(warningShow));
         assertFalse(grace.isCurrent(graceShow));
+    }
+
+    @Test public void existingBlockerRefreshesEmergencyActionWhenPreferenceChanges()
+            throws Exception {
+        Context context = ApplicationProvider.getApplicationContext();
+        ShadowSettings.setCanDrawOverlays(true);
+        FlowOverlayController controller = new FlowOverlayController(
+                context,
+                (WindowManager) context.getSystemService(Context.WINDOW_SERVICE),
+                new Handler(Looper.getMainLooper()),
+                new FlowOverlayController.Callbacks() {
+                    @Override public void onStartRest() { }
+                    @Override public void onEmergencyLongPress(
+                            FlowOverlayController.EmergencyUnlockCompletion completion
+                    ) { completion.onComplete(false); }
+                    @Override public void onEmergencyExhausted() { }
+                    @Override public long currentSessionMs() { return 0L; }
+                    @Override public int currentLimitMinutes() { return 25; }
+                    @Override public boolean allowEmergencyUnlock() { return false; }
+                }
+        );
+
+        controller.showBlocker("tv.example", 60_000L, false);
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
+        TextView emergencyAction = emergencyAction(controller);
+        assertNotNull(emergencyAction);
+        assertEquals(View.GONE, emergencyAction.getVisibility());
+
+        controller.showBlocker("tv.example", 60_000L, true);
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
+        assertEquals(View.VISIBLE, emergencyAction.getVisibility());
+
+        controller.showBlocker("tv.example", 60_000L, false);
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
+        assertEquals(View.GONE, emergencyAction.getVisibility());
+        controller.dismissBlocker();
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
+    }
+
+    @Test public void emergencyOverlayWaitsForTheActualUnlockResult() throws Exception {
+        Context context = ApplicationProvider.getApplicationContext();
+        ShadowSettings.setCanDrawOverlays(true);
+        AtomicReference<FlowOverlayController.EmergencyUnlockCompletion> pending =
+                new AtomicReference<>();
+        AtomicInteger exhausted = new AtomicInteger();
+        FlowOverlayController controller = new FlowOverlayController(
+                context,
+                (WindowManager) context.getSystemService(Context.WINDOW_SERVICE),
+                new Handler(Looper.getMainLooper()),
+                new FlowOverlayController.Callbacks() {
+                    @Override public void onStartRest() { }
+                    @Override public void onEmergencyLongPress(
+                            FlowOverlayController.EmergencyUnlockCompletion completion
+                    ) { pending.set(completion); }
+                    @Override public void onEmergencyExhausted() { exhausted.incrementAndGet(); }
+                    @Override public long currentSessionMs() { return 0L; }
+                    @Override public int currentLimitMinutes() { return 25; }
+                    @Override public boolean allowEmergencyUnlock() { return true; }
+                }
+        );
+
+        controller.showBlocker("tv.example", 60_000L, true);
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
+        TextView action = emergencyAction(controller);
+        MotionEvent down = MotionEvent.obtain(0L, 0L, MotionEvent.ACTION_DOWN, 0f, 0f, 0);
+        try {
+            assertTrue(action.dispatchTouchEvent(down));
+        } finally {
+            down.recycle();
+        }
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(10L, TimeUnit.SECONDS);
+
+        assertNotNull("long press should submit an asynchronous unlock request", pending.get());
+        assertEquals("a pending request must not be reported as exhausted", 0, exhausted.get());
+        assertNotNull("the blocker stays visible until the service confirms success",
+                getField(controller, "blockerView"));
+
+        pending.get().onComplete(false);
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
+        assertEquals(1, exhausted.get());
+        assertNotNull("failed confirmation must not dismiss the blocker",
+                getField(controller, "blockerView"));
+        controller.dismissBlocker();
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
+    }
+
+    @Test public void lateEmergencyResultCannotAffectAReplacementBlocker() throws Exception {
+        Context context = ApplicationProvider.getApplicationContext();
+        ShadowSettings.setCanDrawOverlays(true);
+
+        for (boolean staleResult : new boolean[]{true, false}) {
+            AtomicReference<FlowOverlayController.EmergencyUnlockCompletion> firstRequest =
+                    new AtomicReference<>();
+            AtomicReference<FlowOverlayController.EmergencyUnlockCompletion> secondRequest =
+                    new AtomicReference<>();
+            AtomicInteger requestCount = new AtomicInteger();
+            AtomicInteger exhausted = new AtomicInteger();
+            FlowOverlayController controller = new FlowOverlayController(
+                    context,
+                    (WindowManager) context.getSystemService(Context.WINDOW_SERVICE),
+                    new Handler(Looper.getMainLooper()),
+                    new FlowOverlayController.Callbacks() {
+                        @Override public void onStartRest() { }
+                        @Override public void onEmergencyLongPress(
+                                FlowOverlayController.EmergencyUnlockCompletion completion
+                        ) {
+                            if (requestCount.incrementAndGet() == 1) {
+                                firstRequest.set(completion);
+                            } else {
+                                secondRequest.set(completion);
+                            }
+                        }
+                        @Override public void onEmergencyExhausted() {
+                            exhausted.incrementAndGet();
+                        }
+                        @Override public long currentSessionMs() { return 0L; }
+                        @Override public int currentLimitMinutes() { return 25; }
+                        @Override public boolean allowEmergencyUnlock() { return true; }
+                    }
+            );
+
+            controller.showBlocker("tv.example", 60_000L, true);
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            longPressEmergencyAction(controller);
+            assertNotNull(firstRequest.get());
+
+            controller.dismissBlocker();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            controller.showBlocker("tv.example", 60_000L, true);
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            Object replacementBlocker = getField(controller, "blockerView");
+            longPressEmergencyAction(controller);
+            assertNotNull(secondRequest.get());
+
+            firstRequest.get().onComplete(staleResult);
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertEquals("the replacement blocker must ignore the old result",
+                    replacementBlocker, getField(controller, "blockerView"));
+            assertEquals("the old failure must not clear the new pending request", 0,
+                    exhausted.get());
+
+            secondRequest.get().onComplete(true);
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertNull("only the replacement request may dismiss its blocker",
+                    getField(controller, "blockerView"));
+        }
+    }
+
+    private static void longPressEmergencyAction(FlowOverlayController controller) throws Exception {
+        TextView action = emergencyAction(controller);
+        MotionEvent down = MotionEvent.obtain(0L, 0L, MotionEvent.ACTION_DOWN, 0f, 0f, 0);
+        try {
+            assertTrue(action.dispatchTouchEvent(down));
+        } finally {
+            down.recycle();
+        }
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(10L, TimeUnit.SECONDS);
+    }
+
+    private static TextView emergencyAction(FlowOverlayController controller) throws Exception {
+        java.lang.reflect.Field field = FlowOverlayController.class.getDeclaredField(
+                "blockerEmergencyAction"
+        );
+        field.setAccessible(true);
+        return (TextView) field.get(controller);
+    }
+
+    private static Object getField(Object target, String name) throws Exception {
+        java.lang.reflect.Field field = FlowOverlayController.class.getDeclaredField(name);
+        field.setAccessible(true);
+        return field.get(target);
     }
 }

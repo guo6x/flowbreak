@@ -17,6 +17,8 @@ export interface PermissionState {
   isDomestic: boolean;
   channel: 'play' | 'domestic' | 'base';
   manufacturer?: string;
+  /** Standard Android background restriction only; not OEM autostart or runtime health. */
+  backgroundRestriction?: 'restricted' | 'not_restricted' | 'unknown';
   unsupportedDevice: boolean;
   protectionRuntimeAvailable: boolean;
 }
@@ -159,6 +161,10 @@ export interface NativeFlowPlugin {
     restClockValid?: boolean;
     restRemainingMs?: number;
     restRemainingSeconds?: number;
+    restBeginRequestToken?: string;
+    restBeginRequestStatusToken?: string;
+    restBeginRequestStatus?: 'PENDING' | 'ACCEPTED' | 'REJECTED' | '';
+    restBeginRequestErrorCode?: string;
   }>;
   completeRestAndUnlock(options: {
     activity: 'eye' | 'stretch' | 'breathe';
@@ -230,6 +236,7 @@ export interface NativeFlowPlugin {
     channel: string;
     packageName: string;
     databaseVersion: number;
+    databaseSchemaCurrent: boolean;
     serviceAlive: boolean;
     serviceHeartbeatAt: number;
     persistedServiceHeartbeatAt?: number;

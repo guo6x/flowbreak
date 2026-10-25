@@ -1,12 +1,13 @@
 // Browser-only acceptance. This never represents Android device acceptance.
 import assert from 'node:assert/strict';
-import { mkdir, writeFile, access } from 'node:fs/promises';
+import { mkdir, writeFile, access, readdir, stat } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { stripVTControlCharacters } from 'node:util';
 import { chromium } from 'playwright';
+import { checkOemGuidance } from './oem-guidance-fixture.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const arg = name => { const i = process.argv.indexOf(name); return i >= 0 ? process.argv[i + 1] : null; };
@@ -29,10 +30,48 @@ const results = [];
 const unexpectedRequests = new Set();
 const failedResources = new Set();
 const pageErrors = [];
+const consoleErrors = [];
+
+async function collectBuildInputs(directory, files = []) {
+  let entries;
+  try { entries = await readdir(directory, { withFileTypes: true }); }
+  catch { return files; }
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      if (!['node_modules', 'dist', 'coverage', '__tests__', 'test', 'tests'].includes(entry.name)) {
+        await collectBuildInputs(path.join(directory, entry.name), files);
+      }
+    } else if (entry.isFile() && !/\.(?:test|spec)\.[^.]+$/.test(entry.name)) {
+      files.push(path.join(directory, entry.name));
+    }
+  }
+  return files;
+}
+
+async function assertFreshWebBuild() {
+  const distPath = path.join(root, 'dist/index.html');
+  const distStat = await stat(distPath);
+  const sourceFiles = [
+    ...await collectBuildInputs(path.join(root, 'src')),
+    ...await collectBuildInputs(path.join(root, 'public')),
+  ];
+  const entries = await readdir(root, { withFileTypes: true });
+  sourceFiles.push(...entries
+    .filter(entry => entry.isFile() && /^(?:vite\.config\.|tailwind\.config\.|postcss\.config\.|tsconfig(?:\.|$)|package(?:-lock)?\.json$|index\.html$)/.test(entry.name))
+    .map(entry => path.join(root, entry.name)));
+  const newer = [];
+  for (const file of sourceFiles) {
+    const sourceStat = await stat(file);
+    if (sourceStat.mtimeMs > distStat.mtimeMs) newer.push(path.relative(root, file));
+  }
+  if (newer.length) throw new Error(`STALE_WEB_BUILD: dist/index.html is older than build input(s): ${newer.join(', ')}. Run npm run build before npm run test:ui.`);
+}
+
 try {
   await mkdir(output, { recursive: true });
   if (!arg('--url')) {
     await access(path.join(root, 'dist/index.html')).catch(() => { throw new Error('Run npm run build before npm run test:ui.'); });
+    await assertFreshWebBuild();
     // Never certify an old/unrelated process that happens to own our port.
     const probe = createServer();
     await new Promise((resolve, reject) => {
@@ -65,6 +104,9 @@ try {
     });
     const page = await context.newPage();
     page.on('pageerror', error => { pageErrors.push(String(error)); });
+    page.on('console', message => {
+      if (message.type() === 'error') consoleErrors.push(`${page.url()}: ${message.text()}`);
+    });
     page.on('request', request => {
       const reqUrl = request.url();
       if (/^https?:/.test(reqUrl) && new URL(reqUrl).origin !== new URL(url).origin) unexpectedRequests.add(reqUrl);
@@ -86,7 +128,48 @@ try {
         const metrics = await page.evaluate(() => ({ width: innerWidth, scrollWidth: document.documentElement.scrollWidth, headings: [...document.querySelectorAll('h1,h2')].map(n => n.textContent), images: [...document.images].filter(i => !i.complete || i.naturalWidth === 0).map(i => i.src) }));
         assert.ok(metrics.scrollWidth <= metrics.width + 1, `Horizontal overflow ${metrics.scrollWidth} > ${metrics.width}`);
         assert.deepEqual(metrics.images, [], 'Broken image');
+        if (route === '/help' || route === '/privacy') {
+          const mailLinks = page.locator('a[href^="mailto:"]');
+          assert.equal(await mailLinks.count(), 1, 'Expected one support email link');
+          assert.equal(await mailLinks.getAttribute('href'), 'mailto:15015091629@163.com', 'Support email must not include query or attached data');
+        }
         await page.screenshot({ path: path.join(output, `${label}.png`), fullPage: true });
+        if (route === '/rest' && viewport.width === 320) {
+          const restRoot = page.getByTestId('rest-activity-view');
+          const earlyExit = page.getByRole('button', { name: /提前结束/ });
+          await earlyExit.waitFor({ state: 'visible' });
+          const before = await restRoot.evaluate(element => ({
+            scrollHeight: element.scrollHeight,
+            clientHeight: element.clientHeight,
+            scrollTop: element.scrollTop,
+          }));
+          const initiallyClipped = await earlyExit.evaluate(element => {
+            const rect = element.getBoundingClientRect();
+            return rect.top < 0 || rect.bottom > innerHeight;
+          });
+          await earlyExit.evaluate(element => element.scrollIntoView({ block: 'end', inline: 'nearest' }));
+          const after = await earlyExit.evaluate(element => {
+            const root = element.closest('[data-testid="rest-activity-view"]');
+            const rect = element.getBoundingClientRect();
+            return {
+              scrollHeight: root.scrollHeight,
+              clientHeight: root.clientHeight,
+              scrollTop: root.scrollTop,
+              rect: { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right },
+              viewport: { width: innerWidth, height: innerHeight },
+            };
+          });
+          // Font metrics vary across hosts; a button that already fits needs
+          // no overflow. When clipped, its own container must reveal it.
+          if (initiallyClipped) {
+            assert.ok(before.scrollHeight > before.clientHeight, 'REST view must expose its own scrollable overflow');
+            assert.ok(after.scrollTop !== before.scrollTop, 'REST view must scroll to reveal the early-exit button');
+          }
+          assert.ok(after.rect.top >= 0 && after.rect.bottom <= after.viewport.height
+            && after.rect.left >= 0 && after.rect.right <= after.viewport.width,
+          `REST early-exit button must be fully reachable after scrolling: ${JSON.stringify(after)}`);
+          results.push({ viewport: viewport.width, route: 'rest-early-exit-scroll-accessibility', status: 'PASS', before, after });
+        }
         results.push({ viewport: viewport.width, route, status: 'PASS', headings: metrics.headings });
       } catch (error) {
         failures.push(`${label}: ${error.message}`);
@@ -170,7 +253,24 @@ try {
     }
     await context.close();
   }
+  await checkOemGuidance(browser, url, output, page => {
+    page.on('pageerror', error => pageErrors.push(String(error)));
+    page.on('console', message => {
+      if (message.type() === 'error') consoleErrors.push(`${page.url()}: ${message.text()}`);
+    });
+    page.on('request', request => {
+      if (/^https?:/.test(request.url()) && new URL(request.url()).origin !== new URL(url).origin) unexpectedRequests.add(request.url());
+    });
+    page.on('response', response => {
+      if (response.status() >= 400) failedResources.add(`${response.status()} ${response.url()}`);
+    });
+    page.on('requestfailed', request => failedResources.add(`${request.failure()?.errorText ?? 'Request failed'} ${request.url()}`));
+  }, result => {
+    results.push(result);
+    if (result.status === 'FAIL') failures.push(`${result.route}: ${result.error}`);
+  });
   if (pageErrors.length) failures.push(...pageErrors.map(error => `Unhandled browser error: ${error}`));
+  if (consoleErrors.length) failures.push(...consoleErrors.map(error => `Browser console error: ${error}`));
   if (unexpectedRequests.size) failures.push(`Unexpected external requests: ${[...unexpectedRequests].join(', ')}`);
   if (failedResources.size) failures.push(`Failed browser resources: ${[...failedResources].join(', ')}`);
 } catch (error) {
@@ -179,7 +279,7 @@ try {
   await browser?.close();
   server?.kill();
   await mkdir(output, { recursive: true });
-  await writeFile(path.join(output, 'results.json'), JSON.stringify({ kind: 'WEB_PREVIEW_ONLY', status: failures.length ? 'FAIL' : 'PASS', results, failures, pageErrors, unexpectedRequests: [...unexpectedRequests], failedResources: [...failedResources] }, null, 2));
+  await writeFile(path.join(output, 'results.json'), JSON.stringify({ kind: 'WEB_PREVIEW_ONLY', status: failures.length ? 'FAIL' : 'PASS', results, failures, pageErrors, consoleErrors, unexpectedRequests: [...unexpectedRequests], failedResources: [...failedResources] }, null, 2));
 }
 for (const failure of failures) console.error(failure);
 console.log(`UI_SMOKE=${failures.length ? 'FAIL' : 'PASS'} (${results.filter(r => r.status === 'PASS').length} checks, ${failures.length} failures)`);

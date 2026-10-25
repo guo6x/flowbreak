@@ -28,7 +28,7 @@ describe('RestActivityView accessible controls', () => {
   });
 
   it('never offers a pause control for the native timestamp-based timer', () => {
-    renderActivity({ isNative: true });
+    renderActivity({ isNative: true, restTimerReady: true });
     expect(screen.queryByRole('button', { name: /休息计时/ })).not.toBeInTheDocument();
     expect(screen.getByText('计时由设备校验')).toBeInTheDocument();
   });

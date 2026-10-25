@@ -8,7 +8,7 @@
 - [x] 生产签名 policy 中配置了公开证书指纹与两个渠道的不同用途；文件只含 public certificate SHA-256，不包含 keystore 或口令。
 - [x] 旧签名身份标注为技术演示用途，禁止用于产品发行；`release-signing-policy.json` 里 final identity 标记为 `PROVISIONED`。
 - [x] CI 正常 PR/master `verify` 构建的 APK/AAB 都是 **UNSIGNED / TEST ONLY**。受限制的 signing release job 只允许在已审核 workflow_dispatch/master 或 v* tag 事件中运行；不会对普通 PR 直接提供密钥。
-- [x] existing `tools/Test-PortableSigningVault.ps1` 和 `tools/PortableSigningVault.Security.ps1` 用于核验 vault 恢复与证书指纹；此前的记录只证明同机恢复、离机备份完成，**没有独立的跨机器恢复证据**。
+- [x] 现有 `tools/Test-PortableSigningVault.ps1` 入口与 `tools/PortableSigningVault.Security.ps1` 的后端守卫是 fail-closed 占位实现：在请求口令、读取密钥或创建恢复目录前以 `BLOCKED_PENDING_SAFE_TOOL` 拒绝恢复；安全回归仅证明拒绝路径，不提供实际 vault 恢复能力。既有同机恢复、离机备份记录来自公开 policy 与独立证据，不是这些脚本的执行结果；**没有独立的跨机器恢复证据**。
 - [x] `GHSA-rvm3-566m-v7fv` Critical 安全修复 PR31 已合入 master，提交 `f9ef7a1f0cbcb3925eb87cd9bd16032428054fde`。合并后 master `verify` 成功状态必须单独核实并附具体 run，不能仅引用 PR CI。
 - [x] PR29 REST 防作弊修复尚未通过 Gate F 实机验证，明确不允许以当前状态签发正式 tag/Release。
 

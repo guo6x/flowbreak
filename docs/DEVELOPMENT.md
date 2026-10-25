@@ -39,7 +39,7 @@ cd android           # 接上方的 app/ 目录；若从仓库根目录开始则
 .\gradlew.bat lintPlayDebug lintDomesticDebug
 .\gradlew.bat assemblePlayDebug assembleDomesticDebug
 .\gradlew.bat bundlePlayRelease assembleDomesticRelease   # Release 产物未签名
-.\gradlew.bat assemblePlayDebugAndroidTest                # 仅构建 instrumentation APK，不执行设备测试
+.\gradlew.bat assemblePlayDebugAndroidTest assembleDomesticDebugAndroidTest   # 仅构建两渠道 instrumentation APK，不执行设备测试
 ```
 
 ### 网页视觉回归
@@ -87,7 +87,7 @@ APK 同时包含原生 dex 与前端 Web bundle（`app/dist/` 经 `cap sync` 拷
 - 无障碍强阻断（仅 domestic）：`src/domestic/java/com/flowbreak/app/FlowAccessibilityService.java`（HOME + 顶部横幅 + 尽力而为 `tryStartBlockActivity`）
 - 返回键桥接：`app/android/app/src/main/java/com/flowbreak/app/MainActivity.java`（onBackPressed → `window.__flowbreakHandleBack`）+ 前端 `app/src/pages/TargetApps.tsx`（脏检查钩子；历史缺陷 `FB-P2-01` 已 RESOLVED）
 - 统计取数：`NativeFlowPlugin.java` / `NativeFlowStatisticsService.java`（读取 Room 使用聚合与 legacy 兼容汇总；UsageEvents 检测/配对在前台服务链路）
-- 数据模型：`FlowDatabase.java`（schema v3；改 schema 必须提供迁移并提交 `app/android/app/schemas/`）
+- 数据模型：`FlowDatabase.java`（schema v4；改 schema 必须提供迁移并提交 `app/android/app/schemas/`）
 - 前端全局：`app/src/App.tsx`（GlobalMonitor）、`app/src/hooks/useStore.ts`、`app/src/backend/storage.ts`
 
 ## 4. Git 安全规范

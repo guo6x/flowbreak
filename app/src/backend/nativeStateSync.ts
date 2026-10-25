@@ -46,17 +46,27 @@ export function startNativeStatePolling(
   intervalMs = 10_000,
 ): () => void {
   let active = true;
+  let inFlight = false;
   const syncNativeState = async () => {
+    // A slow bridge must not queue overlapping snapshots that can publish old
+    // protection state after a newer read, or accumulate redundant native work.
+    if (!active || inFlight) return;
+    inFlight = true;
     try {
-      const [app, result, block] = await Promise.all([
+      // Keep the flight occupied until every call settles, including when one
+      // request rejects before its slower siblings have returned.
+      const [app, result, block] = await Promise.allSettled([
         NativeFlow.getCurrentApp(),
         NativeFlow.getUsageStats(),
         NativeFlow.getBlockState(),
       ]);
-      if (!active) return;
-      applyNativeState(app, result, block, sessionLimit);
+      if (!active || app.status !== 'fulfilled' || result.status !== 'fulfilled'
+        || block.status !== 'fulfilled') return;
+      applyNativeState(app.value, result.value, block.value, sessionLimit);
     } catch {
       // Permission and service startup can briefly lag the WebView.
+    } finally {
+      inFlight = false;
     }
   };
 

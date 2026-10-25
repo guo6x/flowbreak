@@ -5,42 +5,11 @@ import { Accessibility, ArrowLeft, Battery, Bell, ChevronDown, ChevronUp, Clock,
 import { NativeFlow } from '../backend/nativeFlow';
 import AccessibilityDisclosureDialog from '../components/AccessibilityDisclosureDialog';
 import { useNativePermissions } from '../hooks/useNativePermissions';
+import { getOemBackgroundGuide } from '../utils/oemBackgroundGuide';
 import {
   UNSUPPORTED_DEVICE_DETAIL,
   UNSUPPORTED_DEVICE_MESSAGE,
 } from '../utils/backgroundStability';
-const AUTO_START_BRANDS = [
-  'xiaomi', 'redmi', 'blackshark',
-  'huawei',
-  'honor', 'hihonor',
-  'oppo', 'realme', 'oneplus', 'oplus',
-  'vivo', 'iqoo',
-  'meizu',
-  'samsung',
-  'letv', 'leeco',
-  'asus',
-  'zte', 'nubia',
-  'lenovo', 'motorola',
-];
-
-function brandLabel(manufacturer?: string): string {
-  if (!manufacturer) return '系统';
-  const m = manufacturer.toLowerCase();
-  if (m.includes('xiaomi') || m.includes('redmi') || m.includes('blackshark')) return '小米 / 红米 / 黑鲨';
-  if (m.includes('huawei')) return '华为';
-  if (m.includes('honor') || m.includes('hihonor')) return '荣耀';
-  if (m.includes('oppo') || m.includes('realme') || m.includes('oneplus') || m.includes('oplus')) {
-    return 'OPPO / 一加 / realme';
-  }
-  if (m.includes('vivo') || m.includes('iqoo')) return 'vivo / iQOO';
-  if (m.includes('meizu')) return '魅族';
-  if (m.includes('samsung')) return '三星';
-  if (m.includes('letv') || m.includes('leeco')) return '乐视';
-  if (m.includes('asus')) return '华硕';
-  if (m.includes('zte') || m.includes('nubia')) return '中兴 / 努比亚';
-  if (m.includes('lenovo') || m.includes('motorola')) return '联想 / 摩托罗拉';
-  return '系统';
-}
 
 export default function Permissions() {
   const navigate = useNavigate();
@@ -51,12 +20,9 @@ export default function Permissions() {
   const [optionalExpanded, setOptionalExpanded] = useState(false);
   const [accessibilityDisclosureOpen, setAccessibilityDisclosureOpen] = useState(false);
   const reduceMotion = useReducedMotion();
-  const manufacturer = state.manufacturer;
   const unsupportedDevice = isNative && state.unsupportedDevice === true;
-  const needsAutoStart = isNative
-    && !unsupportedDevice
-    && state.isDomestic
-    && AUTO_START_BRANDS.some(b => (manufacturer || '').toLowerCase().includes(b));
+  const backgroundGuide = getOemBackgroundGuide(state.manufacturer);
+  const showBackgroundSettings = isNative && !unsupportedDevice;
 
   const requiredItems = unsupportedDevice ? [] : [
       { key: 'usage', icon: Clock, title: '使用情况访问', desc: '统计所选应用的连续使用时长', granted: state.hasUsageStats },
@@ -72,13 +38,13 @@ export default function Permissions() {
       desc: '降低厂商后台限制导致的漏检',
       granted: state.isIgnoringBattery,
     },
-    ...(needsAutoStart ? [{
+    ...(showBackgroundSettings ? [{
       key: 'autostart',
       icon: Power,
-      title: `${brandLabel(manufacturer)} 自启动`,
+      title: `${backgroundGuide.label} 后台设置`,
       desc: autoStartOpened
-        ? '已打开系统设置。此项无法由应用验证，请按系统页面完成设置后返回。'
-        : '允许 FlowBreak 开机自启并加入后台白名单，避免被清理',
+        ? '已打开系统设置。若显示应用详情或系统首页，请按下方路径手动查找。'
+        : '尝试打开厂商后台管理；入口不可用时回退到应用详情或系统设置。',
       granted: false,
     }] : []),
     ...(state.isDomestic ? [{
@@ -111,8 +77,8 @@ export default function Permissions() {
         // Do not request Accessibility on this preliminary click.
         setAccessibilityDisclosureOpen(true);
         return;
-      }
-      else if (key === 'autostart') {
+      } else if (key === 'autostart') {
+        setAutoStartOpened(false);
         await NativeFlow.openAutoStartSettings();
         setAutoStartOpened(true);
       }
@@ -197,6 +163,15 @@ export default function Permissions() {
           </div>
         )}
 
+        {showBackgroundSettings && state.backgroundRestriction === 'restricted' && (
+          <div className="mb-6 rounded-2xl border border-secondary/20 bg-secondary/5 p-4 text-[13px] text-gray-700 leading-relaxed" role="alert">
+            <p>系统当前限制后台运行，可能延迟计时和提醒。电池优化豁免与厂商后台开关是不同设置；请查看下方建议。</p>
+            <button onClick={() => setOptionalExpanded(true)} className="mt-2 min-h-[44px] text-secondary font-semibold">
+              查看后台设置建议
+            </button>
+          </div>
+        )}
+
         {/* Required permissions */}
         {!unsupportedDevice && <div className="flex items-center justify-between mb-3">
           <p className="text-[13px] font-semibold text-gray-700">必需权限</p>
@@ -272,6 +247,14 @@ export default function Permissions() {
                       <div className="flex-1 min-w-0">
                         <p className="text-[14px] font-medium">{item.title}</p>
                         <p className="text-[13px] leading-relaxed text-gray-600 mt-1">{item.desc}</p>
+                        {item.key === 'autostart' && (
+                          <>
+                            <ol className="mt-2 list-decimal pl-4 space-y-2 text-[12px] text-gray-600 leading-relaxed">
+                              {backgroundGuide.steps.map(step => <li key={step}>{step}</li>)}
+                            </ol>
+                            <p className="mt-2 text-[12px] text-gray-500 leading-relaxed">打开设置不代表已授权，FlowBreak 无法读取厂商白名单。名称随系统版本变化；省电或强行停止仍可能中断保护。</p>
+                          </>
+                        )}
                         {item.key === 'accessibility' && <p className="text-[12px] text-secondary mt-1">可选实验性能力，不读取页面内容。</p>}
                       </div>
                     </div>
