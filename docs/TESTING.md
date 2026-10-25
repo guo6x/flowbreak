@@ -6,11 +6,71 @@
 
 负责人已移除固定 24 小时连续运行验收，`FIXED_24H_ACCEPTANCE=NOT_REQUIRED`；稳定性改为日常使用反馈，不设置最低时长，不要求提供日常 Redmi。核心计时/提醒/休息/恢复、安全关闭、状态真实性与隐私仍要复验。以下历史快照中的 `24h NOT_EXECUTED` 不改成 PASS，也不再作为当前待补的固定时长任务。取消要求不关闭 `FB-P1-08` / `FB-P1-05`，不把模拟器结果升级为真机证据。
 
-## 本轮代码、页面与工程复验（2026-10-25）
+## 本轮 OEM 体验与恢复保护复验（2026-10-25）
 
-源码/测试锚点：`a15b54d5e88ea59245a724c3cb29eb4820583ca9`，基于 `edf5def5af41e3daa9eceb318c55b8ada8bfd93f`。后继资料提交不改变运行时代码；本地检查仅证明列明范围，最终推送 HEAD 的 hosted 结果以 [PR #29 checks](https://github.com/guo6x/flowbreak/pull/29/checks) 精确 SHA 为准。历史 Run 不认证新 HEAD。
+运行时代码/测试锚点：`b2e2d011fce54ac415d8a058a2745c5e71c3bdba`。本轮源码绑定工件身份为 `versionCode=3` / `versionName=trial-oem-b2e2d01`，不是正式发布版本。本收据为推送前本地核验；后继文档 HEAD 与该运行时 SHA 分开记录，对应提交的最新 hosted 状态、精确 HEAD 和 Run 见 [PR #29 checks](https://github.com/guo6x/flowbreak/pull/29/checks) 与最终 PR 回执，不手工缓存或继承旧 Run，不为写回 CI 结果无限产生自认证提交。b2e 不单独推送触发 CI，本地工件不冒充后继文档 HEAD 的 hosted artifact。
 
-| 检查 | 本轮结果 |
+### 功能范围与独立复审
+
+1. **两渠道后台指引**：Play / Domestic 的 Android 权限页均提供品牌手动步骤，未知品牌给通用指引；打开设置不算获得白名单。vivo/iQOO 仍拒绝保护，不继续引导权限。实现、自动化、真机三层矩阵及官方正文/仅入口的区别见 [OEM_COMPATIBILITY.md](OEM_COMPATIBILITY.md)。
+2. **原生入口容错与真实状态**：私有或标准设置入口不可达时依次回退应用详情、系统首页；全部不可达则拒绝且仅结算一次。Play 无障碍与不适用 API 保持原有 no-op，不新增授权。API 28+ 的 `isBackgroundRestricted()` 是标准限制快照，缺服务/读失败/旧 API 为 `unknown`，不能当成厂商保活或原生服务健康。
+3. **首页显式恢复**：仅对仍有本地与原生开启意图、配置/目标和硬权限满足但保护未生效的状态提供恢复；请求前复查，暂停/未配置/不支持不重启。恢复与开关互斥、单飞，不翻转 Zustand 意图来触发 GlobalMonitor 重复 start，也不自动循环。只有原生确认才显示 ACTIVE；请求成功但未确认只显示等待设备心跳。
+
+独立只读复审覆盖本轮前端、原生入口/状态、测试夹具与文档，发现三项新增 P2；均先复现失败、再补最小修复与回归：
+
+| 新增问题 | red→green 验证与修复边界 |
+| --- | --- |
+| 后台设置先成功再失败仍保留旧成功提示 | 旧实现残留「请在系统中确认」；本次请求前重置状态，失败保留真实错误和手动提示，不冒充打开成功 |
+| 恢复中的旧启动请求覆盖新暂停意图 | 延迟 save → 其他入口暂停/已 stop → 旧 start 持久化后拒绝，旧实现缺补偿 stop；现无论恢复成功/失败均尊重新暂停，停止再失败保留原恢复错误及停止失败原因 |
+| 不支持机型缺硬权限时仍显示「去授权」 | UNSUPPORTED + 两项权限 false 的组合在旧实现出现授权引导；现不支持状态优先，保护禁用且无授权/恢复入口 |
+
+修复后本轮审查范围无剩余新增 P0/P1/P2。该结论不关闭历史 `FB-P1-08` / `FB-P1-05`，不提供新的 OEM 真机 PASS，也不提升 Gate F/G/H/I。
+
+### 本轮检查结果
+
+| 检查 | 当前结果与证据范围 |
+| --- | --- |
+| 最终全量 Vitest | **396/396 PASS**，29 files，`maxWorkers=2`，438.55s；绑定冻结后的本轮源码。日志 `.tmp/oem-frontend-source-final-20261025.log`。此前 393 项通过属于最后三项 P2 回归补齐前的阶段结果，不作为最终数量 |
+| 定向前端回归 | Dashboard **74/74 PASS**；Permissions **28/28 PASS**，含上述失败组合。既有 single-flight 15s 用例曾在宿主争用下超时；保留该失败，不降低门禁。原样 74 项重跑及最终 396 项全量均通过，未修改 timeout |
+| Play / Domestic JVM | **508/508 / 541/541 PASS**，51/52 suites；JUnit XML 0 failure、0 error、0 skipped。模拟原生设置启动与平台状态，不认证私有入口在真实 OEM 上可达 |
+| Play / Domestic Lint | **0 error / 0 fatal**，44/45 warnings。warnings 如实保留，不称零告警 |
+| 最终 TypeScript / Vite Web build | **PASS**，3m7s；Web、同步、原生构建和工件核验各自记录，不以 Web build 替代后续阶段 |
+| Brand / Provenance / Release / Privacy static | **36/36 / 20/20 / 8/8 / 15/15 PASS**；第一方静态审计 **146 inputs / 0 violations**。机制回归不等于最终工件来源核验；声明 INTERNET，不推导零运行时联网 |
+| Portable signing security | **8/8 PASS**；仅负向/安全机制回归，未读取、恢复或使用实际生产密钥，不关闭 Gate G |
+| 官方 npm audit（本地） | 显式 `--registry=https://registry.npmjs.org`；`--omit=dev --audit-level=high` 与 `--audit-level=critical` 均 **0 vulnerabilities** |
+| 默认镜像 npm audit（历史环境阻塞） | `registry.npmmirror.com` 的 404 / NOT_IMPLEMENTED 仍为 **BLOCKED / NOT_PASS**，不以官方端点成功抹去历史环境失败 |
+| 最终源码绑定 UI smoke | **59/59 PASS**；使用绑定 b2e 的新 dist，45 项为 `WEB_PREVIEW_ONLY`，14 项为 `SYNTHETIC_NATIVE_BRIDGE_ONLY`（7 场景 × 320/393px）。证据目录 `.tmp/oem-ui-source-b2e2d01`；模拟桥接仍是浏览器，不是 Android/OEM 测试 |
+| 最终 Web → Android assets / 构建 | **PASS**；串行同步后 dist 的 **51/51** 文件 SHA-256 一致（另有 2 个生成文件）。双渠道 Debug / AndroidTest 组装及 unsigned Release 矩阵全部成功，Gradle **36m47s / 395 tasks**（162 executed、233 up-to-date）；Room schema 无差异。日志 `.tmp/oem-source-build-b2e2d01.log`。组装不等于执行 instrumentation |
+| 最终 APK/AAB 来源与交付清单 | **PASS**；最终二进制的 provenance、包名/版本、Manifest、R8、runtime inventory 与 unsigned 状态逐项通过，Release `SHA256SUMS` **7/7** 一致；Debug 交付身份与唯一 Debug 证书另行核对。准确 hash 与目录见下节，不复制上轮值 |
+| API 36 AVD installed identity | **NOT_COMPLETED / INSTALL_ENVIRONMENT_ERROR**；首份 Play Debug 的 `adb install -r` 返回 `cmd: Failure calling service package: Broken pipe (32)`，本轮流程退出 1。未取得 b2e 新包的 installed APK hash，Play / Domestic 的 `ApplicationIdentityInstrumentedTest`（各 2 项）均未执行，不记 PASS。日志 `.tmp/oem-avd-identity-b2e2d01.log`。该安装环境错误不足以推断应用缺陷；AVD 范围仍仅 `SIMULATOR_ONLY`，不验收 OEM 计时/阻断/保活 |
+| 后继文档 HEAD 云端 CI | 本表是推送前本地收据；对应提交的最新 hosted 状态、精确 HEAD 与 Run 见 [PR #29 checks](https://github.com/guo6x/flowbreak/pull/29/checks) 和最终 PR 回执，不手工缓存、继承旧 Run 或以本地核验代替 |
+
+### 本轮本地工件与可安装交付
+
+构建与工件均绑定完整 b2e 源码及 `versionCode=3` / `versionName=trial-oem-b2e2d01`。以下 Release 验证目录为本地收据，不是 GitHub hosted Run：
+
+`.tmp/local-release-verification/b2e2d011fce54ac415d8a058a2745c5e71c3bdba-20261025T132100Z-6531d1cbe23448599992eef71e99d4bf/`
+
+| 工件 | SHA-256 | 用途 |
+| --- | --- | --- |
+| `app-play-release.aab` | `b5a289b6dda850cec81b8d5faa54a67f25c3697680e6718e90f61c1c3414dcdc` | `signed=false`，构建/来源验证，不能直接安装 |
+| `app-domestic-release-unsigned.apk` | `04b3deab68549a5d7edbe06e9d4e5535a34d7a2445310957dc915e7503e5491a` | `signed=false`，不能当作可安装分发包 |
+| `FlowBreak-domestic-oem-trial-b2e2d01.apk` | `c742499fde0c2ecf3d9664350db27d0ebcabca77af4d15f1d6caa070859e9923` | Domestic Debug，`com.flowbreak.app.cn`，知情自愿工程试用 |
+| `FlowBreak-play-oem-trial-b2e2d01.apk` | `df5f948897537d5d54dd69630e5c0cd690b326f43e0e30208ebccb8bd6f31350` | Play Debug，`com.flowbreak.app`，知情自愿工程试用 |
+
+可安装的两份 Debug APK 位于仓库外 `D:\AI_code\flowbreak-delivery\20261025-oem-trial-b2e2d01\`，附 `trial-manifest.json` 和 `SHA256SUMS.txt`。两渠道使用同一个且唯一的 Android Debug 证书，SHA-256 为 `dcabfd7e9af8c996b48475269849ad6185d670bbb93c6212d924db9a24ed11a7`；不是正式发行证书，也不保证覆盖既有正式签名或更高版本安装。未读取或使用生产密钥，APK/签名材料不加入 Git。本轮 AVD 因安装环境错误收尾为 `NOT_COMPLETED / INSTALL_ENVIRONMENT_ERROR`，没有 installed hash 或已执行 instrumentation 收据，不能将工件核验当成已安装验证，更不能称作真机验收。
+
+### 历史云端基线与本轮交付边界
+
+- 本轮修改前的云端 `37e1f05ac2adeba9bd72d289a2b208fe18ca84d7` / [Run `40188434455`](https://github.com/guo6x/flowbreak/actions/runs/40188434455) 已核实 `verify=SUCCESS`、`release=SKIPPED`。这是历史 SHA 的记录；release 跳过属于 PR 策略，不表示完成签名或发布，也不认证 `b2e2d011…` 或后继文档 HEAD。
+- 上节为本轮 b2e 本地工件；本轮 AVD 以 `NOT_COMPLETED / INSTALL_ENVIRONMENT_ERROR` 收尾，未取得新包的拉包 hash、未执行两渠道身份 instrumentation。最新 hosted 结果独立见对应 PR checks / 最终回执。下方 `a15b54d…`、`dca4f205…` 的工件/签名/AVD 只属于上轮；不得把旧 APK 当成本轮 OEM 改善包发放，或以历史 AVD PASS 填补本轮缺项。
+- 本轮没有操作真实手机、生产签名、正式 tag/release 或商店提交。**Gate F = FAIL，G/H/I = PENDING**；取消固定 24 小时要求不等于设备失败已解决。
+
+## 上轮 a15 代码、页面与工程复验（历史，2026-10-25）
+
+本节及其下属构建、AVD、云端和交付小节均为**上轮历史记录**，不代表本轮 OEM 包。历史源码/测试锚点：`a15b54d5e88ea59245a724c3cb29eb4820583ca9`，基于 `edf5def5af41e3daa9eceb318c55b8ada8bfd93f`。当时的后继资料提交未改变运行时代码；这些结果不认证本轮 `b2e2d011…` 或未来 HEAD。
+
+| 检查 | 上轮历史结果 |
 | --- | --- |
 | Vitest / TypeScript / Vite | **336/336 PASS**，28 files；`npm run build` PASS。新增测试包括 support mailto、慢查询单飞/快速 reject 后等待其他查询、无激活/无 API/抛错振动路径。测试环境已有 act/Recharts/AudioContext 提示与真实浏览器 console gate 分开记录，不称测试 stderr 为空。 |
 | UI smoke | **45/45 PASS — WEB_PREVIEW_ONLY**；13 路由 × 320/393/1280px，另含导航、合成统计、Web 休息操作与完成态、小屏退出按钮可达性；0 `pageErrors`、0 `consoleErrors`、0 非本地请求、0 失败资源。帮助/隐私的六个视口场景均只包含精确无 query 的支持 mailto。 |
@@ -27,9 +87,9 @@
 
 历史离线集成简报曾在 320/393/1280px **3/3 PASS**，不计入产品 45/45 或真机结果；该简报仅重复状态，已在文档清理中移除，原文和修正可从 Git 历史恢复，不作为现行入口继续维护。
 
-本轮 Android 构建曾因 `cap sync` 与 Gradle 同时操作生成目录而失败（EBUSY / missing generated build.gradle），该失败不记 PASS；随后串行同步并重跑双渠道矩阵成功。最终以如下源码绑定工件为准，不能用先前并行组装的 APK 冒充最终工件。
+上轮 Android 构建曾因 `cap sync` 与 Gradle 同时操作生成目录而失败（EBUSY / missing generated build.gradle），该失败不记 PASS；随后串行同步并重跑双渠道矩阵成功。该历史批次以如下源码绑定工件为准，不能用先前并行组装的 APK 冒充该批最终工件。
 
-### 最终源码绑定构建与 unsigned 工件
+### 上轮源码绑定构建与 unsigned 工件（历史）
 
 - 源码 `a15b54d5e88ea59245a724c3cb29eb4820583ca9`；本地工程版本 `versionCode=2` / `versionName=ci-local-a15b54d`，不表示正式发布版本。`SOURCE_COMMIT_SHA` 与 `GITHUB_SHA` 均绑定该完整 SHA；只允许资料文档 WIP，不把工作树说成全 clean。
 - 顺序执行 Web build → provenance → `cap sync` → Web asset sync，`dist → Android assets` **51/51 SHA-256 一致**（另有 2 个 Capacitor 生成文件）。使用 JDK 21 / Gradle 8.13，最终同批 `testPlayDebugUnitTest testDomesticDebugUnitTest lintPlayDebug lintDomesticDebug assemblePlayDebug assembleDomesticDebug assemblePlayDebugAndroidTest assembleDomesticDebugAndroidTest bundlePlayRelease assembleDomesticRelease` 全部退出 0（395 tasks，5m49s）。JUnit/Lint 最终 XML 的数量与上表一致；Room schema 无新差异。
@@ -44,7 +104,7 @@
 
 本地证据目录：`.tmp/local-release-verification/a15b54d5e88ea59245a724c3cb29eb4820583ca9-20261025T062714Z-e5791e36fb8d4cd794c5431f9d8709d3/`。这些不是签名发布包，也不是最终文档 HEAD 的 hosted artifact；最终推送必须独立确认对应 SHA 的云端检查与产物。
 
-### API 36 AVD 安装身份复验（SIMULATOR_ONLY）
+### 上轮 API 36 AVD 安装身份复验（历史，SIMULATOR_ONLY）
 
 - `Medium_Phone_API_36.0`，Android 16 / API 36，显式 serial `emulator-5554`；每次安装、拉包和 instrumentation 前确认 `ro.kernel.qemu=1`、`sys.boot_completed=1`。未枚举或操作真实手机，没有 wipe、uninstall、clear、降级或权限变更。
 - 同批最终 Debug / AndroidTest APK 用 `install -r` 安装，Play `com.flowbreak.app` 和 Domestic `com.flowbreak.app.cn` 均成功；只执行 `ApplicationIdentityInstrumentedTest`，两渠道各 **2/2 PASS**（实际包名、FGS 存在且不 exported、Accessibility 仅 Domestic 存在并受正确权限保护）。没有把其他 instrumentation 场景记为已执行。
@@ -52,16 +112,16 @@
 - 输出与安装回执保存在 `.tmp/avd-identity-20261025T062717Z-adf4fd4cc8ab494f87c5a4be1981d0d3/`，不入 Git。该检查不证明任意 OEM 的计时、阻断、后台恢复、签名升级或 Beta 结果；**Gate F 仍 FAIL，Gate G/H/I 仍 PENDING**。
 - 核验后仅关闭本轮启动的 `emulator-5554`，保留模拟器数据，不停止其他项目进程或 ADB 服务。
 
-### 已推送 HEAD 的独立云端复验快照（2026-10-25）
+### dca4f205 云端复验快照（历史，2026-10-25）
 
 - 精确源码：`dca4f205412b17cd34d414d879d6857a21b16ae2`；[GitHub Actions Run `40170229748`](https://github.com/guo6x/flowbreak/actions/runs/40170229748) 的 `verify=SUCCESS`、`release=SKIPPED`。后者是 PR 签名策略的预期跳过，不表示完成签名或发布验收。
 - 云端 unsigned artifact：`flowbreak-unsigned-dca4f205412b17cd34d414d879d6857a21b16ae2`，[artifact ID `12589874425`](https://github.com/guo6x/flowbreak/actions/runs/40170229748/artifacts/12589874425)。下载后独立复算 `SHA256SUMS.txt` **7/7 匹配**；Play AAB 与 Domestic APK 的内嵌 provenance **2/2 匹配该完整源码 SHA**，版本与清单一致，均为 `signed=false`。
 - 该 Run 的 production-high / all-critical npm audit（含回归后的两项复跑）均报告 **0 vulnerabilities**。这是 GitHub CI 对该精确 SHA 的结果，不是本地镜像的审计通过。
 - 本快照仅认证该 SHA 和该 Run 的工程范围，不将本地 `a15b54d…` 工件冒充云端包，也不关闭 Gate F/G/H/I。后继文档清理 HEAD 仍须核对其自身成功的 workflow 和 artifact；不能借此历史绿色 Run 认证新 HEAD。
 
-### 文档清理与工程试用交付复核（2026-10-25）
+### 上轮文档清理与 a15 工程试用交付复核（历史，2026-10-25）
 
-本批不改运行时代码、依赖或 CI。对上述 `a15b54d…` 同批 Debug APK 再次运行 apksigner：两渠道 v2 签名 PASS，证书均为 `C=US, O=Android, CN=Android Debug`，证书 SHA-256 为 `dcabfd7e9af8c996b48475269849ad6185d670bbb93c6212d924db9a24ed11a7`；不是正式证书。独立读取包名、`versionCode=2` / `versionName=ci-local-a15b54d`、最低 API24 和包内 provenance，复制到仓库外日期交付目录后 **2/2 hash 一致**，值与上方 AVD 拉包记录相同。
+该上轮清理批次不改运行时代码、依赖或 CI。对上述 `a15b54d…` 同批 Debug APK 再次运行 apksigner：两渠道 v2 签名 PASS，证书均为 `C=US, O=Android, CN=Android Debug`，证书 SHA-256 为 `dcabfd7e9af8c996b48475269849ad6185d670bbb93c6212d924db9a24ed11a7`；不是正式证书。独立读取包名、`versionCode=2` / `versionName=ci-local-a15b54d`、最低 API24 和包内 provenance，复制到仓库外日期交付目录后 **2/2 hash 一致**，值与上方 AVD 拉包记录相同。
 
 清理后本地再次复跑：Vitest **336/336**（28 files，单 worker，265.63s）、品牌 **36/36**、Provenance **20/20**、Release policy **8/8**、隐私静态 **15/15** 全部通过；仍是 143 个第一方输入、0 静态违规。全仓 38 份现存 Markdown 的 **121/121 相对链接有效**，Git 暂存差异空白检查通过。独立文档复审发现并修正历史取证方案被误称现行协议、已解决 iQOO 旧门禁被误写为当前支持等表述，未改变缺陷裁定。
 
@@ -133,7 +193,7 @@ CI（`.github/workflows/android.yml`）在 master push / PR / 手动 dispatch �
 
 ### 2026-09-11 Gate E supported-scope evidence model
 
-Gate E 的当前结论区分健康运行时、执行间隔恢复和 Android/OEM 无执行时间三种语义；本节不把历史等价性证据写成一次新的完整物理复测。
+Gate E 的历史结论区分健康运行时、执行间隔恢复和 Android/OEM 无执行时间三种语义；下文的「当前」指该 2026-09-11 记录当时的候选，不是本轮 b2e。本节不把历史等价性证据写成一次新的完整物理复测。
 
 - `E1_USAGE_ACCOUNTING = PASS_CARRIED_FORWARD_WITH_EQUIVALENCE`：依据为此前有效的 Redmi 真机 PASS（`54f6c54a313e96fb374514b2bb4bac8bfd689545`）与当前 master 的 normal-path equivalence。
 - `E2A_HEALTHY_RUNTIME_BLOCKING_LATENCY = PASS_CARRIED_FORWARD_WITH_EQUIVALENCE`：依据为此前签名 Redmi 约 `361s` 进入 BLOCKED 的证据（`c79fa0...`）与当前 master 的 normal-path equivalence。
@@ -195,13 +255,13 @@ Gate E 的当前结论区分健康运行时、执行间隔恢复和 Android/OEM 
 - **生产身份当前状态**：首轮 technical dry-run（Run `31934183213`）仅证明签名工程链路可用，身份已标记 **SUPERSEDED_PRE_PRODUCTION**，禁止用于正式发行。最终身份已在 primary workstation 生成；当前 policy 为 `PROVISIONED`，两个最终 public certificate fingerprint 已写入 allowlist。
 - **CI signing credentials**：旧 identity 的 8 个 secrets 已清理；最终 identity 对应的 8 个 production signing secrets 已由 owner provision。secret values 未读取、未写入仓库，也未进入 artifact 或日志。
 - **Portable vault 工具边界**：仓库中的 `tools/New-PortableSigningVault.ps1` / `tools/Test-PortableSigningVault.ps1` 当前在触碰密钥、policy、剪贴板或 secret 前 fail closed（`BLOCKED_PENDING_SAFE_TOOL`），不提供创建/解密/验收能力；外部 archiver fallback 也被拒绝。已建立的 age 托管记录来自 `app/release-signing-policy.json` 和独立证据，不是这些占位脚本的执行结果。安全回归只证明拒绝路径，不证明密钥恢复成功。
-- **当前剩余项**：`v1.1.0` 正式 tag / store release 尚未执行；portable vault 本地恢复与 off-machine backup 已 PASS，但 `CROSS_MACHINE_SIGNING_RECOVERY=NOT_YET_TESTED`，因此 GATE G 仍保持 `PENDING_CROSS_MACHINE_RECOVERY`。
+- **当前剩余项**：`v1.1.0` 正式 tag / store release 尚未执行；历史 portable vault 本地恢复与 off-machine backup 已 PASS，但 `CROSS_MACHINE_SIGNING_RECOVERY=NOT_YET_TESTED`，真实低版本 → 高版本同签名升级仍 `NOT_TESTED`。跨机恢复与真实升级是两个独立缺项，GATE G 继续 PENDING；本轮安全负测与 AVD 身份检查不能替代。
 
 ### Protection Integrity（UI promise ≤ 实际保护能力）
 
 - 原则：**界面不能显示「保护中」，而实际关键能力已经失效**。UI 承诺必须 ≤ 实际保护能力。
 - 当前作为 TESTING / RELEASE ACCEPTANCE PRINCIPLE 执行（不是马上做大规模新功能）。
-- 本次 OEM / 核心场景短测在正常路径之外同时做失效注入，例如：
+- 后续执行 OEM / 核心场景短测时，正常路径之外还应做失效注入；下列是验收要求，不是本轮已执行的真机结果：
   - 撤销 Usage Access
   - 撤销 Overlay
   - Domestic 关闭 Accessibility
@@ -218,7 +278,7 @@ Gate E 的当前结论区分健康运行时、执行间隔恢复和 Android/OEM 
 - vivo / iQOO（大小写与空白归一化后）属于 v1.1.0 明确不支持的设备族；Play 与 Domestic 必须一致阻断。
 - fail-closed 原因必须是 `UNSUPPORTED_DEVICE_FOR_RELIABLE_MONITORING`，不得退化成电池优化或其他权限提示。
 - 已有 active config、目标应用、限额与历史数据必须保留；诊断必须分别报告 `monitoringConfigured` 与 `protectionRuntimeAvailable`，不能把保存过配置伪装成当前保护可用。
-- 最小回归覆盖：vivo/iQOO 检测、Xiaomi/Redmi/Samsung/OPPO/Honor 不误判、启动/配置重载/BootReceiver/服务入口均阻断，以及两渠道共用该边界。Redmi 参考设备保持支持证据。
+- 最小回归覆盖：vivo/iQOO 检测、Xiaomi/Redmi/Samsung/OPPO/Honor 不误判、启动/配置重载/BootReceiver/服务入口均阻断，以及两渠道共用该边界。Redmi 参考设备保留历史支持证据，不认证本轮候选。
 
 ### 尚未完成的设备验证
 

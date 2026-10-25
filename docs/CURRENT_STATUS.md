@@ -11,14 +11,16 @@
 - 已取消固定 24 小时验收：`FIXED_24H_ACCEPTANCE=NOT_REQUIRED`。不设置最低时长，不要求占用日常 Redmi；历史未执行不改成通过。
 - 试用包、模拟器或 CI 通过都不关闭真实设备缺陷。**Gate F = FAIL，G/H/I = PENDING；STORE_READY=NO，PRODUCTION_RELEASE_APPROVED=NO。**
 
+本轮可安装包位于仓库外 `D:\AI_code\flowbreak-delivery\20261025-oem-trial-b2e2d01\`：Domestic 为 `FlowBreak-domestic-oem-trial-b2e2d01.apk`，Play 为 `FlowBreak-play-oem-trial-b2e2d01.apk`。两者均为绑定下述 b2e 源码的 Debug 工程试用包，目录附 `trial-manifest.json` / `SHA256SUMS.txt`；文件身份和哈希见 [TESTING](TESTING.md#本轮本地工件与可安装交付)。不要把历史 a15 包或 unsigned Release 当成本轮试用包。
+
 ## 源码、分支与云端
 
 | 范围 | 已核实事实 |
 | --- | --- |
 | 主候选 | [PR #29](https://github.com/guo6x/flowbreak/pull/29)，远端 `fix/fb-p1-08-protection-integrity`；不是已合并的历史 PR #42，未合并 master |
-| 运行时代码/测试锚点 | `a15b54d5e88ea59245a724c3cb29eb4820583ca9`；本次清理只改文档，不改变该运行时代码 |
-| 清理前已核验云端基线 | `dca4f205412b17cd34d414d879d6857a21b16ae2` / [Run 40170229748](https://github.com/guo6x/flowbreak/actions/runs/40170229748)：verify SUCCESS，release SKIPPED（PR 策略）；artifact `12589874425` 已独立复核，详见 TESTING |
-| 最新文档 HEAD / CI | 以 [PR #29 checks](https://github.com/guo6x/flowbreak/pull/29/checks) 和 PR 收口回执为准；清理后的提交必须通过自己的 CI，不能继承上行绿色结果 |
+| 本轮运行时代码/测试锚点 | `b2e2d011fce54ac415d8a058a2745c5e71c3bdba`；包含 OEM 后台设置、原生入口容错和首页手动恢复。本轮工件版本 `versionCode=3` / `versionName=trial-oem-b2e2d01`，不是正式发布版本 |
+| 本轮修改前已核验云端基线（历史） | `37e1f05ac2adeba9bd72d289a2b208fe18ca84d7` / [Run 40188434455](https://github.com/guo6x/flowbreak/actions/runs/40188434455)：verify SUCCESS，release SKIPPED（PR 策略）；仅认证该历史 SHA，不给本轮源码继承 PASS |
+| 后继文档 HEAD / 最新 CI | 本收据为推送前本地核验，b2e 运行时锚点与后继文档 HEAD 分开记录；对应提交的最新 hosted 状态、精确 HEAD 与 Run 链接见 [PR #29 checks](https://github.com/guo6x/flowbreak/pull/29/checks) 和最终 PR 回执。不手工缓存或继承旧 Run，也不把本地构建称为 GitHub CI |
 | master | 清理盘点基线 `67d1b7c3ee82ef4f6dd275299d51969869d7db4d`，PR #42 已合并；本轮不向 master 合并任何候选 |
 | 仍有独立工作的分支 | [Draft PR #43](https://github.com/guo6x/flowbreak/pull/43) / `integration/flowbreak-closeout-20261024`：含 REST 自动取消失败的 durable pending-marker 补丁，未证明被 PR #29 完全替代，因此保留 |
 
@@ -26,25 +28,29 @@
 
 ## 已完成的工程验证
 
-本节数字绑定上述运行时代码，不是未来 SHA 的保证。完整命令、指纹、失败后复跑和证据范围集中于 [TESTING](TESTING.md)。
+本节记录冻结源码的本地核验，不是未来 SHA 的保证。完整记录、失败后复跑和证据范围集中于 [TESTING](TESTING.md)。
 
 | 检查 | 结果 |
 | --- | --- |
-| 前端 / 构建 / Web 逐页 | Vitest 336/336；TypeScript/Vite PASS；13 路由、三种宽度 UI 45/45，0 console/page error、0 外部请求。仅 WEB_PREVIEW_ONLY |
-| Android | Play/Domestic JVM 495/528 全过；双渠道 Lint 0 error/fatal（44/45 warnings）；双渠道 Debug、AndroidTest 组装、unsigned Release 构建通过 |
-| 品牌 / 来源 / 发布策略 / 隐私静态 | 36/20/8/15 项通过；143 个第一方输入无静态违规。不是运行时网络证明 |
+| 前端源码 / Web 构建 | 最终 Vitest **396/396**（29 files，maxWorkers=2）；Dashboard **74/74**、Permissions **28/28** 定向通过；本轮 TypeScript/Vite 构建 PASS。未放宽超时或编译门禁 |
+| Android 源码验证 / 构建 | Play/Domestic JVM **508/541** 全过，51/52 suites、0 failure/error/skipped；双渠道 Lint 0 error/fatal（44/45 warnings）。最终 Debug、AndroidTest 组装及 unsigned Release 矩阵全部 PASS；Gradle 395 tasks、36m47s，Room schema 无差异。组装不等于执行 instrumentation |
+| 品牌 / 来源 / 发布策略 / 隐私静态 | **36/20/8/15** 项通过；**146** 个第一方输入、0 静态违规。来源/发布脚本回归不等于最终二进制核验，静态审计不是运行时网络证明 |
 | 签名安全负向回归 | 8/8 PASS；不读取或恢复真实生产密钥，不等于跨机恢复通过 |
-| 本地产物 / AVD | Web 资产 51/51、unsigned 清单 7/7；API 36 AVD 两渠道各 2/2 installed-identity PASS，拉取包哈希与同批 Debug APK 一致。不是 OEM 核心场景验收 |
-| npm 审计 | 本地显式官方 registry 和已列明 GitHub CI 的 production-high/all-critical 均 0 vulnerabilities；本地默认镜像的历史 404/NOT_IMPLEMENTED 仍为 BLOCKED/NOT_PASS |
+| 本轮 Web UI | 绑定 b2e 新 dist 的 UI **59/59 PASS**：45 项 Web 预览 + 14 项模拟桥接（7 场景 × 320/393px），分别仅为 `WEB_PREVIEW_ONLY` / `SYNTHETIC_NATIVE_BRIDGE_ONLY`，不是 Android/OEM 验收 |
+| 本轮本地产物 | Web 资产 **51/51** 哈希一致（另有 2 个生成文件）；APK/AAB 的内嵌来源、包名/版本、Manifest、R8、runtime 清单与 unsigned 状态复核 PASS，Release `SHA256SUMS` **7/7** 一致；两渠道 Debug 交付身份与 Debug 证书已核实，未用生产签名 |
+| 本轮 AVD | **NOT_COMPLETED / INSTALL_ENVIRONMENT_ERROR**。首份 Play Debug 的 `adb install -r` 返回 `cmd: Failure calling service package: Broken pipe (32)`，本轮未取得 installed APK hash，Play/Domestic 的身份 instrumentation 均未执行。日志 `.tmp/oem-avd-identity-b2e2d01.log`。这不是应用缺陷定论；AVD 的证据范围仍仅 `SIMULATOR_ONLY`，不认证 OEM 核心场景 |
+| npm 审计 | 本轮本地显式官方 registry 的 production-high / all-critical 均 **0 vulnerabilities**；默认镜像的历史 404/NOT_IMPLEMENTED 仍为 **BLOCKED/NOT_PASS**。GitHub CI 审计按各自精确 SHA / Run 独立查阅，不由本地结果或历史 CI 继承 |
 
-原生设置/目标应用的持久化成功但重载失败会对账并如实提示；轮询竞态、无 Activity 回调、受限设备重载和无用户激活振动等代码回归已修复。代码复审不替代设备验收，也不表示所有已知 P1/P2 均已解决。
+本轮三项体验改善：两渠道按品牌提供可选后台设置与未知品牌通用指引；原生私有/标准入口失败逐级回退并如实拒绝，API 28+ 标准后台限制保持三态；首页为已配置且仍有开启意图、但原生未生效的保护提供单次手动恢复，预检原生状态，不自动重试，也不以“请求已发出”冒充 ACTIVE。厂商说明与官方来源分层见 [机型兼容参考](OEM_COMPATIBILITY.md)。
+
+独立复审发现的三项新增 P2 均完成 red→green：后台设置先成功再失败不残留成功文案；恢复失败后仍对账更新的暂停意图，补偿停止失败保留双重真实原因；不支持机型缺权限时不再出现授权入口。本轮改动范围内未遗留新增 P0/P1/P2；这不替代真机验收，也不关闭既有已知缺陷。
 
 ## 未关闭事项
 
 | 项目 | 状态与剩余条件 |
 | --- | --- |
-| FB-P1-08 / [Issue #28](https://github.com/guo6x/flowbreak/issues/28) / Gate F | **OPEN_SUPPORTED_SCOPE_RELEASE_BLOCKER / FAIL**。历史约 33 秒 REST 异常缺原生同期链证据，当前候选核心状态尚缺真实设备复验；不臆定根因 |
-| FB-P1-05 | **OPEN_UNSUPPORTED_V1_1_0**。vivo/iQOO 计时兼容根因未定位，继续 fail closed，不改称已修复 |
+| FB-P1-08 / [Issue #28](https://github.com/guo6x/flowbreak/issues/28) / Gate F | **OPEN_SUPPORTED_SCOPE_RELEASE_BLOCKER / FAIL**。后继 Redmi 报告及保存 APK 已锚定历史源码 `48aaf6a77ca6bae9f17f19e0210f5af3af745126`、APK SHA-256 `ff7225de9626ab20d29dade1fecdbc20b09917ae73f846a550338baad4e7f2c2`，不再称“全部身份缺失”。仍缺约 33 秒失败窗口的完整原生同期因果链，且不是本轮候选真机复验；不臆定根因 |
+| FB-P1-05 | **OPEN_UNSUPPORTED_V1_1_0**。vivo/iQOO 后继因果审计缺失败窗口的绝对起止锚点，不能把调度 gap / 分类 / 累计判定为唯一根因；继续 fail closed，不改称已修复 |
 | FB-P1-07 / PLATFORM-EXEC-001 | **MITIGATED_ACCEPTED_PLATFORM_LIMITATION**。保留真实历史失败；Android/OEM 不给执行时间期间不保证实时提醒/阻断 |
 | FB-P2-02 | **OPEN_NON_BLOCKING_V1_1_0**。recovered usage DB 与 checkpoint durability 非原子；不重开既有 Gate E |
 | COMPAT-001 | HyperOS 尽力启动 BlockActivity 可能被拒；强阻断不以其成功为前提，保留兼容观察 |
@@ -58,4 +64,4 @@
 - Redmi R1–R4、iQOO fail-closed、Gate E 支持范围与签名托管均有各自历史证据；详见 [TESTING](TESTING.md)、[RELEASE](RELEASE.md)、[KNOWN_ISSUES](KNOWN_ISSUES.md)。不自动转移为当前包通过。
 - 旧 PR、自动化数和历史审计见 [历史目录](archive/progress/README.md)。当前入口不再重复累计旧状态流水账。
 - 支持邮箱 `15015091629@163.com` 已获准公开，但收发未验证；公开隐私政策尚未托管。国内办理步骤见 [国内渠道指南](compliance/DOMESTIC_PUBLISHING_GUIDE.md)。
-- 本次仅清理文档、已解决 Issue 和可恢复的合并分支；不操作真实手机、生产签名、注册/付费、tag/release 或商店提交。
+- 本轮在清理基础上改善 OEM 后台设置、原生容错和首页恢复体验，并更新工程试用文档；未操作真实手机、生产签名、注册/付费、tag/release 或商店提交。新工件按源码单独核验，AVD 与 hosted 收据按各自证据记录，不沿用旧包或历史 CI。
