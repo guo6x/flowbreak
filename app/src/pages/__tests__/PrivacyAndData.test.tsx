@@ -33,6 +33,15 @@ beforeEach(() => {
 });
 
 describe('PrivacyAndData', () => {
+  it('provides a support address without attaching diagnostics or usage data', async () => {
+    render(<PrivacyAndData />);
+    await screen.findByText('本机暂无已保存的崩溃记录。');
+    expect(screen.getByRole('link', { name: /15015091629@163.com/ }))
+      .toHaveAttribute('href', 'mailto:15015091629@163.com');
+    expect(screen.getByText(/不会自动附带诊断或使用记录/)).toBeInTheDocument();
+    expect(screen.getByText(/邮件服务及收件方处理/)).toBeInTheDocument();
+  });
+
   it('discloses Accessibility event fields and local WeChat signal before describing the feature', async () => {
     render(<PrivacyAndData />);
     await screen.findByText('本机暂无已保存的崩溃记录。');

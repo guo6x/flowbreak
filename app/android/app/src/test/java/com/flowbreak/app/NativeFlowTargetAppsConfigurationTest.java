@@ -25,6 +25,7 @@ import org.robolectric.RuntimeEnvironment;
 import org.robolectric.Shadows;
 import org.robolectric.annotation.Config;
 import org.robolectric.shadows.ShadowSettings;
+import org.robolectric.shadows.ShadowBuild;
 
 /** Exercises the real plugin persistence and boot receiver, not a copied policy. */
 @RunWith(RobolectricTestRunner.class)
@@ -115,6 +116,39 @@ public class NativeFlowTargetAppsConfigurationTest {
         assertTrue(preferences.getBoolean("serviceConfigured", false));
         assertFalse(preferences.getBoolean("monitoringEnabled", true));
         assertNoServiceStartAfterBoot();
+    }
+
+    @Test public void unsupportedConfiguredDeviceCanSaveTargetsWithoutReloadingProtection() {
+        ShadowBuild.setManufacturer("vivo");
+        preferences.edit()
+                .putBoolean("serviceConfigured", true)
+                .putBoolean("monitoringEnabled", true)
+                .commit();
+
+        RecordingCall call = saveTargets(UPDATED_TARGET);
+
+        assertResolved(call);
+        assertEquals(Collections.singleton(UPDATED_TARGET),
+                PreferenceUtils.getMigratedTargetApps(preferences));
+        assertTrue(preferences.getBoolean("monitoringEnabled", false));
+        assertNull(Shadows.shadowOf(RuntimeEnvironment.getApplication()).getNextStartedService());
+    }
+
+    @Test public void unsupportedConfiguredDeviceCanSaveRulesWithoutReloadingProtection() {
+        ShadowBuild.setManufacturer("iQOO");
+        preferences.edit()
+                .putBoolean("serviceConfigured", true)
+                .putBoolean("monitoringEnabled", true)
+                .commit();
+        JSObject options = new JSObject();
+        options.put("limitMinutes", 40);
+
+        RecordingCall call = saveSettings(options);
+
+        assertResolved(call);
+        assertEquals(40, preferences.getInt("limitMinutes", 0));
+        assertTrue(preferences.getBoolean("monitoringEnabled", false));
+        assertNull(Shadows.shadowOf(RuntimeEnvironment.getApplication()).getNextStartedService());
     }
 
     @Test public void targetSaveReportsPersistedStateWhenReloadFails() {

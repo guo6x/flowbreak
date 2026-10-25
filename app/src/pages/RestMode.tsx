@@ -28,6 +28,24 @@ import RestCompleteView from './rest-mode/RestCompleteView';
 
 const NATIVE_BEGIN_CONFIRMATION_TIMEOUT_MS = 30_000;
 
+/**
+ * Vibration is best-effort and must not run in a browser before sticky user
+ * activation, because Chromium reports an uncaught console error for it.
+ * Older Android WebViews may not expose UserActivation; retain native haptics
+ * there, but fail closed in browsers where activation cannot be established.
+ */
+function vibrateIfActivated(durationMs: number, isNative: boolean): void {
+  if (typeof navigator === 'undefined' || typeof navigator.vibrate !== 'function') return;
+
+  const activation = (navigator as Navigator & {
+    userActivation?: { hasBeenActive?: boolean } | null;
+  }).userActivation;
+  const activated = activation == null ? isNative : activation.hasBeenActive === true;
+  if (!activated) return;
+
+  try { navigator.vibrate(durationMs); } catch { /* best-effort feedback must not interrupt rest */ }
+}
+
 function cancelNativeRestOnce(
   beginRequestToken: string,
   cancelledRestRef: { current: boolean },
@@ -483,21 +501,19 @@ export default function RestMode() {
       playChime(500 + stepIdx * 40, 0.25);
     }
     // 步骤切换时轻震动，帮助用户感知节奏变化
-    if (!showReward && !isPaused && typeof navigator !== 'undefined' && navigator.vibrate) {
-      try { navigator.vibrate(30); } catch { /* ignore */ }
+    if (!showReward && !isPaused) {
+      vibrateIfActivated(30, isNative);
     }
-  }, [stepIdx, showReward, isMuted, isPaused]);
+  }, [stepIdx, showReward, isMuted, isPaused, isNative]);
 
   // ===== 呼吸节奏震动：4 秒周期，吸气开始时轻震一下，与呼吸圆圈动画同步 =====
   useEffect(() => {
     if (showReward || isPaused) return;
     const interval = setInterval(() => {
-      if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        try { navigator.vibrate(50); } catch { /* ignore */ }
-      }
+      vibrateIfActivated(50, isNative);
     }, 4000);
     return () => clearInterval(interval);
-  }, [showReward, isPaused]);
+  }, [showReward, isPaused, isNative]);
 
   // ===== Reward delay + counting animation =====
   useEffect(() => {

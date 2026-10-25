@@ -6,13 +6,14 @@ import { NativeFlow } from '../../backend/nativeFlow';
 import { useStore } from '../../hooks/useStore';
 
 const mockNavigate = vi.fn();
+const mockCapacitor = vi.hoisted(() => ({ isNative: true }));
 
 vi.mock('react-router', async () => {
   const actual = await vi.importActual<typeof import('react-router')>('react-router');
   return { ...actual, useNavigate: () => mockNavigate };
 });
 
-vi.mock('@capacitor/core', () => ({ Capacitor: { isNativePlatform: () => true } }));
+vi.mock('@capacitor/core', () => ({ Capacitor: { isNativePlatform: () => mockCapacitor.isNative } }));
 
 vi.mock('../../backend/nativeFlow', () => ({
   NativeFlow: {
@@ -57,6 +58,32 @@ vi.mock('../rest-mode/RestActivityView', () => ({
 }));
 vi.mock('../rest-mode/RestCompleteView', () => ({ default: () => <div>rest complete</div> }));
 
+const originalVibrateDescriptor = Object.getOwnPropertyDescriptor(navigator, 'vibrate');
+const originalUserActivationDescriptor = Object.getOwnPropertyDescriptor(navigator, 'userActivation');
+
+function setVibrationEnvironment({
+  hasBeenActive,
+  vibrate,
+}: {
+  hasBeenActive?: boolean;
+  vibrate: ReturnType<typeof vi.fn>;
+}) {
+  Object.defineProperty(navigator, 'vibrate', { configurable: true, value: vibrate });
+  if (hasBeenActive === undefined) {
+    Reflect.deleteProperty(navigator, 'userActivation');
+  } else {
+    Object.defineProperty(navigator, 'userActivation', {
+      configurable: true,
+      value: { hasBeenActive },
+    });
+  }
+}
+
+function restoreNavigatorProperty(key: 'vibrate' | 'userActivation', descriptor?: PropertyDescriptor) {
+  if (descriptor) Object.defineProperty(navigator, key, descriptor);
+  else delete (navigator as Navigator & { vibrate?: unknown; userActivation?: unknown })[key];
+}
+
 const resting = {
   state: 'RESTING' as const,
   sessionSeconds: 0,
@@ -91,6 +118,7 @@ async function mountRest() {
 describe('RestMode native state reconciliation', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    mockCapacitor.isNative = true;
     mockNavigate.mockReset();
     vi.mocked(NativeFlow.beginRest).mockReset().mockResolvedValue({
       beginRequestToken: 'begin-request-101',
@@ -103,7 +131,67 @@ describe('RestMode native state reconciliation', () => {
 
   afterEach(() => {
     cleanup();
+    restoreNavigatorProperty('vibrate', originalVibrateDescriptor);
+    restoreNavigatorProperty('userActivation', originalUserActivationDescriptor);
     vi.useRealTimers();
+  });
+
+  it('skips browser vibration without sticky user activation', async () => {
+    mockCapacitor.isNative = false;
+    const vibrate = vi.fn();
+    setVibrationEnvironment({ hasBeenActive: false, vibrate });
+
+    await mountRest();
+    await act(async () => { await vi.advanceTimersByTimeAsync(4_000); });
+
+    expect(vibrate).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('remaining seconds')).toBeInTheDocument();
+  });
+
+  it('keeps browser haptics after sticky user activation', async () => {
+    mockCapacitor.isNative = false;
+    const vibrate = vi.fn().mockReturnValue(true);
+    setVibrationEnvironment({ hasBeenActive: true, vibrate });
+
+    await mountRest();
+    expect(vibrate).toHaveBeenCalledWith(30);
+    await act(async () => { await vi.advanceTimersByTimeAsync(4_000); });
+
+    expect(vibrate).toHaveBeenCalledWith(50);
+    expect(screen.getByLabelText('remaining seconds')).toBeInTheDocument();
+  });
+
+  it('does not interrupt rest when an activated vibration call throws', async () => {
+    mockCapacitor.isNative = false;
+    const vibrate = vi.fn(() => { throw new Error('vibration unavailable'); });
+    setVibrationEnvironment({ hasBeenActive: true, vibrate });
+
+    await mountRest();
+    await act(async () => { await vi.advanceTimersByTimeAsync(4_000); });
+
+    expect(vibrate).toHaveBeenCalledWith(50);
+    expect(screen.getByLabelText('remaining seconds')).toBeInTheDocument();
+    expect(screen.getByLabelText('native clock valid')).toHaveTextContent('true');
+  });
+
+  it('keeps legacy Android vibration when the UserActivation API is unavailable', async () => {
+    const vibrate = vi.fn().mockReturnValue(true);
+    setVibrationEnvironment({ vibrate });
+
+    await mountRest();
+    expect(vibrate).toHaveBeenCalledWith(30);
+  });
+
+  it('fails closed for browser vibration when the UserActivation API is unavailable', async () => {
+    mockCapacitor.isNative = false;
+    const vibrate = vi.fn();
+    setVibrationEnvironment({ vibrate });
+
+    await mountRest();
+    await act(async () => { await vi.advanceTimersByTimeAsync(4_000); });
+
+    expect(vibrate).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('remaining seconds')).toBeInTheDocument();
   });
 
   it('waits for persisted RESTING instead of treating an enqueued command as started', async () => {

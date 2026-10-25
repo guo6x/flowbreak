@@ -111,7 +111,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          ./gradlew testPlayDebugUnitTest testDomesticDebugUnitTest lintPlayDebug lintDomesticDebug assemblePlayDebug assembleDomesticDebug assemblePlayDebugAndroidTest --stacktrace 2>&1 | tee gradle.log
+          ./gradlew testPlayDebugUnitTest testDomesticDebugUnitTest lintPlayDebug lintDomesticDebug assemblePlayDebug assembleDomesticDebug assemblePlayDebugAndroidTest assembleDomesticDebugAndroidTest --stacktrace 2>&1 | tee gradle.log
           code=${PIPESTATUS[0]}
           if [ $code -ne 0 ]; then
             echo "::error::Gradle build/test failed (exit $code)"

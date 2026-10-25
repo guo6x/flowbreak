@@ -2,6 +2,7 @@ import { ArrowLeft, ArrowRight, Leaf, LockKeyhole, ShieldCheck, Smartphone } fro
 import { useNavigate } from 'react-router';
 import { Capacitor } from '@capacitor/core';
 import Brand from '../components/Brand';
+import SupportContact from '../components/SupportContact';
 
 const questions = [
   ['为什么切换到另一个应用，时间还在累计？', '所有受限应用共用一段连续使用时间。尚未进入阻断时，离开所有受限应用或熄屏超过 30 秒会重置连续会话；已经进入阻断后，单纯离开或锁屏不会解除阻断。'],
@@ -45,6 +46,7 @@ export default function Help() {
         <div className="flex items-center gap-2 mb-2"><LockKeyhole size={18} className="text-primary" aria-hidden="true" /><h2 className="text-[15px] font-semibold">从了解开始，而不是从自责开始</h2></div>
         <p className="text-[13px] text-gray-500 leading-6">FlowBreak 是数字习惯辅助工具，不做医疗诊断，也不承诺健康疗效。今天少刷一会儿、完成一次休息，都可以是自己的节奏。</p>
       </div>
+      <SupportContact />
       <button type="button" onClick={() => navigate('/validation')} className="btn-secondary w-full flex items-center justify-between gap-3 text-[14px]">检查权限与运行状态<ArrowRight size={18} aria-hidden="true" /></button>
     </div>
   );

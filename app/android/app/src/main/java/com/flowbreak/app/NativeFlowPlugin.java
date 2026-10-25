@@ -102,6 +102,36 @@ public class NativeFlowPlugin extends Plugin {
         }
     }
 
+    private static void dispatchRestResult(Runnable completion) {
+        // A service worker can finish after Activity detachment. The bridge
+        // result still belongs on the main thread, but must not depend on an
+        // Activity that may no longer exist.
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            completion.run();
+        } else {
+            new android.os.Handler(android.os.Looper.getMainLooper()).post(completion);
+        }
+    }
+
+    FlowForegroundService.RestCompletionCallback restCompletionCallback(PluginCall call) {
+        return new FlowForegroundService.RestCompletionCallback() {
+            @Override public void onSuccess(NativeFlowRestCoordinator.Result result) {
+                dispatchRestResult(() -> call.resolve(result.response));
+            }
+
+            @Override public void onDeferred() {
+                dispatchRestResult(() -> call.reject(RestCompletionIntegrityGate.RETRYABLE_MESSAGE));
+            }
+
+            @Override public void onRejected(String message, Exception error) {
+                dispatchRestResult(() -> {
+                    if (error == null) call.reject(message);
+                    else call.reject(message, error);
+                });
+            }
+        };
+    }
+
     /**
      * Reject any transition that would activate protection without the hard
      * core prerequisites. The persisted configuration remains untouched.
@@ -310,12 +340,7 @@ public class NativeFlowPlugin extends Plugin {
                     beginRequestToken,
                     new FlowForegroundService.RestCancellationCallback() {
                         private void finishOnUiThread(Runnable completion) {
-                            android.app.Activity activity = getActivity();
-                            if (activity == null) {
-                                call.reject("休息状态暂时无法确认；请保持页面并重试。");
-                                return;
-                            }
-                            activity.runOnUiThread(completion);
+                            dispatchRestResult(completion);
                         }
 
                         @Override public void onCancelled() {
@@ -455,24 +480,7 @@ public class NativeFlowPlugin extends Plugin {
                 expectedSessionId,
                 requestedActivity,
                 restCoordinator,
-                new FlowForegroundService.RestCompletionCallback() {
-                    @Override public void onSuccess(NativeFlowRestCoordinator.Result result) {
-                        getActivity().runOnUiThread(() -> call.resolve(result.response));
-                    }
-
-                    @Override public void onDeferred() {
-                        getActivity().runOnUiThread(
-                                () -> call.reject(RestCompletionIntegrityGate.RETRYABLE_MESSAGE)
-                        );
-                    }
-
-                    @Override public void onRejected(String message, Exception error) {
-                        getActivity().runOnUiThread(() -> {
-                            if (error == null) call.reject(message);
-                            else call.reject(message, error);
-                        });
-                    }
-                }
+                restCompletionCallback(call)
         );
         if (!queued) call.reject(RestCompletionIntegrityGate.RETRYABLE_MESSAGE);
     }
@@ -514,8 +522,12 @@ public class NativeFlowPlugin extends Plugin {
             return;
         }
         SharedPreferences current = prefs();
-        boolean shouldReload = current.getBoolean("serviceConfigured", false)
-                && current.getBoolean("monitoringEnabled", true);
+        boolean shouldReload = ProtectionSettingsSaveGate.mayReload(
+                current.getBoolean("serviceConfigured", false),
+                current.getBoolean("monitoringEnabled", true),
+                permissions.isProtectionRuntimeAvailable(),
+                permissions.isBackgroundStabilitySatisfied()
+        );
         prefs().edit()
                 .putStringSet(PreferenceUtils.PREF_TARGET_APPS, filtered)
                 .apply();

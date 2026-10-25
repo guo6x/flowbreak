@@ -16,6 +16,14 @@ beforeEach(() => {
 });
 
 describe('帮助与我的', () => {
+  it('提供支持邮箱且不在邮件链接中附带用户数据', () => {
+    render(<MemoryRouter><Help /></MemoryRouter>);
+    expect(screen.getByRole('link', { name: /15015091629@163.com/ }))
+      .toHaveAttribute('href', 'mailto:15015091629@163.com');
+    expect(screen.getByText(/不会自动附带诊断或使用记录/)).toBeInTheDocument();
+    expect(screen.getByText(/邮件服务及收件方处理/)).toBeInTheDocument();
+  });
+
   it('网页指南明确预览不能识别或阻断其他应用', () => {
     render(<MemoryRouter><Help /></MemoryRouter>);
     expect(screen.getByRole('note')).toHaveTextContent('不能识别或阻断手机上其他应用');
