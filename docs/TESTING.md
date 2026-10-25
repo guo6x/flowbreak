@@ -2,16 +2,16 @@
 
 > 定义自动化测试层级、CI 范围、真机测试矩阵与证据标准。当前门禁和易变 HEAD/CI 状态以 [CURRENT_STATUS.md](CURRENT_STATUS.md) 为准；本文件保留明确绑定到源码 SHA 或 workflow Run 的验证证据。更早的验证记录在 `docs/archive/progress/`（含 `VERIFICATION.md` 的 Beta 1.1 记录）。
 
-## PR #29 推送前收口验证快照（2026-10-25）
+## PR #29 本地与首个推送候选验证快照（2026-10-25）
 
-- 已推送代码基线 `fd9045a3b916486588b93e477935070e640440e5` 的文档后继是推送前远端 HEAD `29573ee115ee8ba25120a3b61ce7ae87b0535fde`；Run `40145072882` 只验证这个 SHA（`verify=SUCCESS`、`release=SKIPPED`），不覆盖本轮更改。本地代码/测试提交为 `0996ca32b8cc471236b8724665dd32a683a72067`，包含 `RestMode.tsx` 的超时/原生状态对账和拒绝回执 token 校验、v3→v4 Room 迁移的历史 pullback 幂等键回填及对应回归测试。以下本地结果绑定到该代码/测试 SHA；本轮文档收口不改变已验证代码。最终推送 HEAD 仍必须由自身 hosted workflow 验证。分支目标为 `fix/fb-p1-08-protection-integrity`，未合并 master。
+- 前序候选代码 `fd9045a3b916486588b93e477935070e640440e5` 之后，推送前远端基线为 `29573ee115ee8ba25120a3b61ce7ae87b0535fde`，Run `40145072882` 只验证该 SHA。本地代码/测试提交为 `0996ca32b8cc471236b8724665dd32a683a72067`，包含 `RestMode.tsx` 超时后原生状态对账/拒绝回执 token 校验，以及 v3→v4 Room 迁移幂等键回填与回归测试。首个推送候选 `1070f920adae83fd44e2e4ee04ca7e5109d8f89b` 的 hosted Run `40151649558` 已全绿：`verify=SUCCESS`、PR release job 按策略 `SKIPPED`；本地运行时代码未再变化。本次文档补记该 Run，不改变运行时代码；新文档版本的 hosted 结论以其自身 SHA 对应的 workflow/artifact 为准。目标分支 `fix/fb-p1-08-protection-integrity`，未合并 master。
 - 本地自动化（代码提交 `0996ca3…`）：Vitest **326/326 PASS**（28 files；Windows 单 worker）；TypeScript/Vite build **PASS**；UI smoke **44/44 PASS**（`WEB_PREVIEW_ONLY`）；brand **36/36**；provenance **20/20**；release policy **8/8**；privacy static **15/15**；`Test-SEC-PORTABILITY-001.ps1` **PASS**。
 - Android：无过滤条件强制复跑 `testPlayDebugUnitTest` **489/489**、`testDomesticDebugUnitTest` **522/522**，JUnit XML 汇总 0 failure / 0 error / 0 skipped；双渠道 lint 无 error/fatal（Play 44、Domestic 45 warnings），Debug、Play AndroidTest APK 与 unsigned Release build **PASS**。REST 时钟恢复/请求 token 回归、Room v4 v3→v4 历史幂等键迁移（含重复、畸形 metadata）均包含在 JVM 测试中。AndroidTest APK 仅表示组装成功，不代表 instrumentation 已在真机运行。
 - 本地产物溯源：source `0996ca32b8cc471236b8724665dd32a683a72067` 的 Web asset sync **50/50 SHA-256 匹配**；Play AAB 与 Domestic APK 内 provenance 均精确绑定该 SHA，`versionCode=1` / `versionName=ci-local-0996ca3` 经 provenance 和二进制 manifest 独立复核；双渠道 R8 mapping、runtime dependency inventory、unsigned `artifact-manifest.json` 与 `SHA256SUMS.txt` 均生成并复核。包只用于本地工程验收，不是签名发布包。
 - 本地 unsigned 工件指纹（source `0996ca32b8cc471236b8724665dd32a683a72067`，`versionCode=1` / `versionName=ci-local-0996ca3`，均 `signed=false`）：Play AAB SHA-256 `0f7ec19b59cd7a04ba23f875610a6fede54fe3aec5ee9e98116a68af844f16f8`；Domestic APK SHA-256 `7a2f10317b7b2fc26d356f8bae82bb77503f014dc4233f7b796d88fc75d9aeca`；`artifact-manifest.json` SHA-256 `64a63e8ad847eb6f37ff48a637ec32506942b6d84fc72f4de168b6672b5ed7d3`。`SHA256SUMS.txt` 7/7 条目逐个复算一致；AAB 的 `jarsigner` 与 APK 的 `apksigner` 均确认未签名。这些不是可发布包或 GitHub artifact。
-- Hosted unsigned 工件：PR #29 Run `40145072882` 上传 artifact ID `12580044816`，artifact source SHA 与当时 PR HEAD `29573ee…` 一致；下载后 `artifact-manifest.json`、内部 `build-provenance.json` 和 `SHA256SUMS.txt` 均复核，7 项 SHA-256 全匹配，Play AAB 与 Domestic APK 均 `signed=false`。该产物只证明该 Run 的测试构建，不等于签名/发布验收。
-- npm audit 来源必须分开：本地官方 `https://registry.npmjs.org` 的生产依赖 high 与全依赖 critical 审计均 **PASS — 0 vulnerabilities**；本地默认镜像 `https://registry.npmmirror.com` 的两项审计均因 endpoint `404 / NOT_IMPLEMENTED` 而 **BLOCKED / NOT_PASS**。独立的 GitHub Actions Run `40145072882` 在精确 SHA `29573ee…` 对生产依赖及全依赖 critical 审计均报告 **0 vulnerabilities**；这是 hosted CI 结果，不会把本地镜像审计转成 PASS。
-- 旧 Run `38053414311` 只属于 PR #29 旧 HEAD `b00b9cc75073e77759e28ba5b71f960033cbf1d5`：其生产依赖 audit 对 `@capacitor/android` 受影响版本 8.0.0–8.3.4 报告 1 个 critical（GHSA-rvm3-566m-v7fv），因此 `verify=FAILURE` / `release=SKIPPED`。不得把该旧失败归属到新 SHA；推送后最终 SHA 必须由自身 hosted CI 验证，最新结论见 [PR #29 checks](https://github.com/guo6x/flowbreak/pull/29/checks)。
+- Hosted unsigned 工件：旧基线 Run `40145072882` 上传 artifact ID `12580044816`（source `29573ee…`）。首个收口候选 Run `40151649558` 上传 artifact ID `12582807009`（source `1070f920…`）；下载后 `artifact-manifest.json`、内部 `build-provenance.json`、两项 binary 均精确绑定该 SHA，`SHA256SUMS.txt` **7/7** 匹配，Play AAB 与 Domestic APK 均 `signed=false`。这是工程构建证据，不是签名/发布验收。
+- npm audit 来源必须分开：本地官方 `https://registry.npmjs.org` 的生产依赖 high 与全依赖 critical 审计均 **PASS — 0 vulnerabilities**；本地默认镜像 `https://registry.npmmirror.com` 的两项审计均因 endpoint `404 / NOT_IMPLEMENTED` 而 **BLOCKED / NOT_PASS**。GitHub Actions Run `40151649558` / SHA `1070f920…` 的生产依赖、全依赖 critical 及回归后复跑均报告 **0 vulnerabilities**；早先基线 Run `40145072882` / SHA `29573ee…` 也为 0。Hosted 结果不覆盖本地镜像阻塞。
+- 旧 Run `38053414311` 只属于 PR #29 旧 HEAD `b00b9cc75073e77759e28ba5b71f960033cbf1d5`：其生产依赖 audit 对 `@capacitor/android` 受影响版本 8.0.0–8.3.4 报告 1 个 critical（GHSA-rvm3-566m-v7fv），因此 `verify=FAILURE` / `release=SKIPPED`。不得把该旧失败归属到新 SHA；后续 docs-only HEAD 的 hosted 结论以 [PR #29 checks](https://github.com/guo6x/flowbreak/pull/29/checks) 显示的精确 SHA 为准。
 - iQOO V2073A / Android 13 是 vivo/iQOO 不支持设备。此前对旧候选的 Play Debug 安装命令返回 `INSTALL_FAILED_ABORTED: User rejected permissions`；无法仅凭此字面结果判断拒绝来源。安装未完成、未启动或改变权限，既有 `com.flowbreak.app.cn` 未触碰。本轮候选没有设备安装/运行证据，且此设备不能替代 Redmi Gate F。
 - Gate F **仍 FAIL**：Redmi 新候选短时 Bilibili 定向复测与 24 小时稳定性均未执行；不支持的 iQOO、AVD、JVM、静态审计都不能替代它们。Gate G/H/I 也保持未完成，详见 [RELEASE.md](RELEASE.md)。
 
@@ -19,8 +19,9 @@
 | ---- | ---- |
 | npm audit（官方 registry，本地候选） | **PASS — 0 vulnerabilities**；生产依赖 high 与全依赖 critical 两项门槛 |
 | npm audit（配置镜像，本地） | **BLOCKED / NOT_PASS** — `404 / NOT_IMPLEMENTED`，见上文 |
-| GitHub CI npm audit（PR #29 基线） | Run `40145072882` / SHA `29573ee…`：生产依赖与全依赖 critical 均 **0 vulnerabilities**；不是本地镜像审计结果 |
-| PR #29 hosted CI（推送前基线） | Run `40145072882` / SHA `29573ee…`：`verify=SUCCESS`，`release=SKIPPED`（PR 策略）；本次运行时代码、测试与文档差异尚未进入该 Run，最终推送 SHA 必须由自身 hosted workflow 验证 |
+| GitHub CI npm audit（PR #29 收口候选） | Run `40151649558` / SHA `1070f920…`：生产依赖与全依赖 critical（含回归后复跑）均 **0 vulnerabilities**；不是本地镜像审计结果 |
+| PR #29 hosted CI（首个收口候选） | Run `40151649558` / SHA `1070f920…`：`verify=SUCCESS`，`release=SKIPPED`（PR 策略）；后续 docs-only HEAD 仍须以 PR checks 的精确 SHA/Run 验证 |
+| GitHub CI npm audit（早先基线） | Run `40145072882` / SHA `29573ee…`：生产依赖与全依赖 critical 均 **0 vulnerabilities**；不覆盖本次候选 |
 | GitHub CI npm audit（PR #42 历史） | Run `39301143402` 对 source `f7abbad7…` 报告 **0 vulnerabilities**；这是另一 PR/历史 SHA 的独立证据 |
 | Android device smoke | **NOT EXECUTED（本候选）** — 旧候选 iQOO 安装曾返回 `INSTALL_FAILED_ABORTED: User rejected permissions`；不推断拒绝来源；未成功安装/启动、未改权限，旧 `.cn` 应用未触碰 |
 | 24h stability / Gate F | **NOT EXECUTED / FAIL** — 仍需受支持 Redmi 的独立证据 |

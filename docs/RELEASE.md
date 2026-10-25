@@ -5,10 +5,10 @@
 
 ## 当前发布状态
 
-**RELEASE PREPARATION · NOT APPROVED**。本地验证快照及对应代码 SHA 见 [TESTING.md](TESTING.md)；PR #29 目标分支为 `fix/fb-p1-08-protection-integrity`。推送前远端基线 SHA `29573ee…` 的 Run `40145072882` 为 `verify=SUCCESS`、PR release job `SKIPPED`；该 Run 不覆盖本轮未推送的候选代码、回归测试和文档差异。最终候选 SHA 必须由自身 hosted CI 验证。旧 HEAD `b00b9cc75073e77759e28ba5b71f960033cbf1d5` 的生产依赖 audit 曾发现 1 个 critical（受影响的 `@capacitor/android` 8.0.0–8.3.4，GHSA-rvm3-566m-v7fv），其失败只属于该旧 SHA。当前远端 HEAD/hosted 状态以 [CURRENT_STATUS.md](CURRENT_STATUS.md) 和 [PR #29 checks](https://github.com/guo6x/flowbreak/pull/29/checks) 为准。未合并 master、未使用生产签名、未创建 release。
+**RELEASE PREPARATION · NOT APPROVED**。本地验证快照及对应代码 SHA 见 [TESTING.md](TESTING.md)；PR #29 目标分支为 `fix/fb-p1-08-protection-integrity`。首个推送收口候选 SHA `1070f920…` 的 Run `40151649558` 为 `verify=SUCCESS`、PR release job `SKIPPED`；production-high 与 all-critical npm audit（含复跑）均为 0 vulnerabilities，unsigned artifact ID `12582807009` 已独立核对 provenance 与 7/7 SHA。该 Run 绑定 `1070f920…`，本轮 docs-only 后继 HEAD 必须由自身 hosted CI 验证。旧 HEAD `b00b9cc75073e77759e28ba5b71f960033cbf1d5` 的 audit 失败只属于旧 SHA。当前远端 HEAD/hosted 状态以 [CURRENT_STATUS.md](CURRENT_STATUS.md) 和 [PR #29 checks](https://github.com/guo6x/flowbreak/pull/29/checks) 为准。未合并 master、未使用生产签名、未创建 release。
 
 - 当前本地代码验证、自动化数量与边界见 [TESTING.md](TESTING.md)；Room schema v4 与 1→2→3→4 迁移、诊断实际数据库版本状态和重复事件幂等均有自动化覆盖。最终 SHA 的 hosted 结果必须以 PR checks 的精确 HEAD 为准。
-- npm 审计来源必须分开：本地官方 `https://registry.npmjs.org` 的生产依赖 high 与全依赖 critical 审计为 **PASS / 0 vulnerabilities**；本地配置镜像 `https://registry.npmmirror.com` 审计端点 404/`NOT_IMPLEMENTED`，明确为 **BLOCKED / NOT_PASS**；GitHub Actions Run `40145072882` / SHA `29573ee…` 的生产依赖与全依赖 critical 审计为 **0 vulnerabilities**，是该远端基线的独立 hosted 结果。任何一类结果都不改写另两类；各自 SHA/Run 见 [TESTING.md](TESTING.md)。
+- npm 审计来源必须分开：本地官方 `https://registry.npmjs.org` 的生产依赖 high 与全依赖 critical 审计为 **PASS / 0 vulnerabilities**；本地配置镜像 `https://registry.npmmirror.com` 审计端点 404/`NOT_IMPLEMENTED`，明确为 **BLOCKED / NOT_PASS**；GitHub Actions Run `40151649558` / SHA `1070f920…` 的 production-high、all-critical 及回归后复跑均为 **0 vulnerabilities**。这些 hosted 结果不改写镜像状态；历史基线及精确 Run 见 [TESTING.md](TESTING.md)。
 - **GATE F = FAIL / NOT_CLOSED**：Redmi 新候选短时 Bilibili 定向复测未执行；历史约 33 秒 REST 倒计时异常根因仍未通过新证据排除，24 小时稳定性 `NOT_EXECUTED`。iQOO V2073A 属不支持的 vivo/iQOO 设备；此前对旧候选执行的 Play Debug 安装命令返回 `INSTALL_FAILED_ABORTED: User rejected permissions`，该文字不判定拒绝来源；安装未完成，未启动、未改变权限，既有 `.cn` 应用未触碰。本轮候选未在设备上安装或运行；iQOO 也不能替代 Redmi Gate F。见 [设备验收交接](FB-P1-08-FINAL-DEVICE-HANDOFF.md)。
 - **GATE G = PENDING**：`CROSS_MACHINE_SIGNING_RECOVERY=NOT_YET_TESTED`，`TRUE_VERSION_UPGRADE=NOT_TESTED`。本地恢复、已有安装/同签名覆盖安装与 off-machine backup 记录不能替代这两个独立验证；本候选没有签名发布包。
 - **GATE H = PENDING**：发行主体、公开支持联系方式、隐私政策 URL、最终包网络/依赖审查、平台申报与审核资质仍未完成。静态扫描不等于运行时流量证明。
@@ -21,7 +21,7 @@
 | ---- | ---- | ---- |
 | GATE A | Core automated validation | **Local checks PASS; final pushed PR HEAD must pass hosted verify before any merge decision** |
 | GATE B | Redmi targeted P1/P2 revalidation | **Historical R1–R4 only; current candidate smoke NOT_EXECUTED** |
-| GATE C | Artifact Provenance / Controlled Release Build | **Local and pre-closeout hosted unsigned artifacts are verified against their stated source SHAs; final PR HEAD artifact must come from that SHA's latest successful hosted check. Historical artifacts remain bound to their SHAs; unsigned only, not a signed release** |
+| GATE C | Artifact Provenance / Controlled Release Build | **Local artifact for source `0996ca32…` and hosted unsigned artifact ID `12582807009` for source `1070f920…` verified; this docs-only successor must use its own successful PR artifact. All are unsigned engineering artifacts, not signed releases** |
 | GATE D | Supported OEM scope + fail-closed boundary | **Prior PASS_SUPPORTED_SCOPE; current iQOO install smoke NOT_EXECUTED** |
 | GATE E | Usage accounting accuracy / blocking latency + documented Android execution boundary | **Prior PASS_SUPPORTED_SCOPE_WITH_DOCUMENTED_PLATFORM_LIMITATION; current Redmi evidence not added** |
 | GATE F | 24h stability + Protection Integrity | **FAIL — Issue #28 / FB-P1-08 remains OPEN; 24h run NOT_EXECUTED** |
@@ -232,6 +232,7 @@ GATE H remains **PENDING**. Do not submit store forms, invent a contact, or mark
 - [x] 当前本地官方 npm registry audit：生产依赖 high 与全依赖 critical 均 **0 vulnerabilities**
 - [ ] 本地 npm audit（`https://registry.npmmirror.com`）可复核（当前返回 404/`NOT_IMPLEMENTED`，状态为 **BLOCKED / NOT_PASS**；该环境阻塞不覆盖 hosted CI 结论）
 - [x] PR #29 推送前基线 GitHub CI Run `40145072882` / SHA `29573ee…`：生产依赖与全依赖 critical 均 **0 vulnerabilities**；该证据不覆盖本地镜像审计，也不覆盖当前候选差异或未来 SHA
+- [x] PR #29 首个收口候选 GitHub CI Run `40151649558` / SHA `1070f920…`：verify 全步骤通过，production-high/all-critical 审计含复跑均 **0 vulnerabilities**；artifact `12582807009` 的 source SHA、signed=false 与 7/7 sums 已核验。后续 docs-only HEAD 仍以自身 PR checks 为准
 - [x] **历史 SHA** hosted unsigned artifact provenance 已上传并独立复核：PR #1 Run `31900444404` / source `ea53a22136dd58663291581763eb3614c4b10ba6`；PR #42 Run `39301143402` / source `f7abbad7e900b32db5291cf26754cbd492721948`。不代表当前 PR #29 有产物。
 - [x] provenance 工具链测试 `npm run test:provenance` 20/20（原 18 + signing evidence 2）
 - [x] **历史 SHA** Web asset sync 校验（dist → Android assets SHA-256 全量一致，缺失/mismatch 即 FAIL；见 PR #1 Run `31900444404`）
