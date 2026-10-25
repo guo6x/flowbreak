@@ -590,6 +590,15 @@ public class FlowDatabaseMigrationTest {
         db = createDatabaseAtVersion(3);
         db.execSQL("INSERT INTO flow_events (timestamp,type,packageName,activity,durationSeconds,metadata) "
                 + "VALUES (123456789,'rest_complete','','',180,'{}')");
+        db.execSQL("INSERT INTO flow_events (timestamp,type,packageName,activity,durationSeconds,metadata) "
+                + "VALUES (123456790,'post_rest_return','','',0,'{\"sessionId\":42}')");
+        db.execSQL("INSERT INTO flow_events (timestamp,type,packageName,activity,durationSeconds,metadata) "
+                + "VALUES (123456791,'pullback_success','','',12,'{\"sessionId\":42}')");
+        db.execSQL("INSERT INTO daily_summary "
+                + "(date,legacyScreenSeconds,restCount,interventionCount,blockCount,graceSeconds,"
+                + "successfulPullbackCount,pullbackOutcomeCount,postRestReturnCount,"
+                + "postRestTargetSeconds,reflectionValue,reflectionUpdatedAt) "
+                + "VALUES ('2026-10-25',0,0,0,0,0,1,1,1,12,0,0)");
         closeLegacyResources();
 
         Context context = ApplicationProvider.getApplicationContext();
@@ -601,9 +610,11 @@ public class FlowDatabaseMigrationTest {
             SupportSQLiteDatabase migrated = database.getOpenHelper().getWritableDatabase();
             assertEquals(4, getUserVersion(migrated));
             assertEquals(8, countColumns(migrated, "flow_events"));
-            assertEquals(1, dao.eventCount());
+            assertEquals(3, dao.eventCount());
             assertEquals("rest_complete", dao.allEvents().get(0).type);
             assertEquals(null, dao.allEvents().get(0).idempotencyKey);
+            assertEquals("pullback:42:return", dao.allEvents().get(1).idempotencyKey);
+            assertEquals("pullback:42:outcome", dao.allEvents().get(2).idempotencyKey);
 
             FlowEventEntity returned = new FlowEventEntity(
                     1_800_000_000_000L, "post_rest_return", "", "", 0L,
@@ -630,6 +641,52 @@ public class FlowDatabaseMigrationTest {
                 assertTrue(c.moveToFirst());
                 assertEquals(2, c.getInt(0));
             }
+        } finally {
+            database.close();
+        }
+    }
+
+    @Test
+    public void productionBuilder_migratesV3WithDuplicateAndMalformedPullbackEvents() throws Exception {
+        db = createDatabaseAtVersion(3);
+        db.execSQL("INSERT INTO flow_events (timestamp,type,packageName,activity,durationSeconds,metadata) "
+                + "VALUES (1000,'post_rest_return','','',0,'{\"sessionId\":42}')");
+        db.execSQL("INSERT INTO flow_events (timestamp,type,packageName,activity,durationSeconds,metadata) "
+                + "VALUES (1001,'post_rest_return','','',0,'{\"sessionId\":42}')");
+        db.execSQL("INSERT INTO flow_events (timestamp,type,packageName,activity,durationSeconds,metadata) "
+                + "VALUES (1002,'pullback_success','','',12,'{\"sessionId\":42}')");
+        db.execSQL("INSERT INTO flow_events (timestamp,type,packageName,activity,durationSeconds,metadata) "
+                + "VALUES (1003,'pullback_unresolved','','',12,'{\"sessionId\":42}')");
+        db.execSQL("INSERT INTO flow_events (timestamp,type,packageName,activity,durationSeconds,metadata) "
+                + "VALUES (1004,'post_rest_return','','',0,'not-json')");
+        db.execSQL("INSERT INTO flow_events (timestamp,type,packageName,activity,durationSeconds,metadata) "
+                + "VALUES (1005,'pullback_success','','',12,'{}')");
+        db.execSQL("INSERT INTO flow_events (timestamp,type,packageName,activity,durationSeconds,metadata) "
+                + "VALUES (1006,'pullback_unresolved','','',12,'{\"sessionId\":null}')");
+        db.execSQL("INSERT INTO flow_events (timestamp,type,packageName,activity,durationSeconds,metadata) "
+                + "VALUES (1007,'post_rest_return','','',0,'{\"sessionId\":0}')");
+        closeLegacyResources();
+
+        Context context = ApplicationProvider.getApplicationContext();
+        FlowDatabase database = FlowDatabase.builder(context, TEST_DB)
+                .allowMainThreadQueries()
+                .build();
+        try {
+            FlowDao dao = database.flowDao();
+            SupportSQLiteDatabase migrated = database.getOpenHelper().getWritableDatabase();
+            assertEquals(4, getUserVersion(migrated));
+            assertEquals(8, dao.eventCount());
+
+            List<FlowEventEntity> events = dao.allEvents();
+            assertEquals(8, events.size());
+            assertEquals("pullback:42:return", events.get(0).idempotencyKey);
+            assertEquals(null, events.get(1).idempotencyKey);
+            assertEquals("pullback:42:outcome", events.get(2).idempotencyKey);
+            assertEquals(null, events.get(3).idempotencyKey);
+            assertEquals(null, events.get(4).idempotencyKey);
+            assertEquals(null, events.get(5).idempotencyKey);
+            assertEquals(null, events.get(6).idempotencyKey);
+            assertEquals(null, events.get(7).idempotencyKey);
         } finally {
             database.close();
         }

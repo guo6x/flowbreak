@@ -147,12 +147,19 @@ export default function RestMode() {
     };
     startupTimeout = window.setTimeout(() => {
       if (!active || startupFinished) return;
-      startupFinished = true;
-      active = false;
+      finishStartup();
       setNativeStartPending(false);
-      setOperationError(observedResting
-        ? '设备已报告休息进行中，但计时持续无法确认；完成入口仍保持关闭。请返回面板核对保护状态。'
-        : '设备尚未确认休息是否启动，计时没有开始。请返回面板核对保护状态后再试。');
+      if (observedResting) {
+        // A confirmed RESTING session with an invalid clock is not a failed
+        // start. Keep reconciling it and never cancel it just because clock
+        // recovery exceeded the startup timeout.
+        setOperationError(
+          '设备已报告休息进行中，但计时持续无法确认；完成入口仍保持关闭。请等待计时恢复，或确认退出休息。',
+        );
+        return;
+      }
+      active = false;
+      setOperationError('设备尚未确认休息是否启动，计时没有开始。请返回面板核对保护状态后再试。');
       if (beginRequestToken) cancelBoundRequest(beginRequestToken);
       else cancelWhenBeginResolves = true;
     }, NATIVE_BEGIN_CONFIRMATION_TIMEOUT_MS);
@@ -616,6 +623,35 @@ export default function RestMode() {
       }
       navigate('/dashboard');
     } catch (error) {
+      if (isNative) {
+        const beginRequestToken = beginRequestTokenRef.current;
+        if (beginRequestToken) {
+          try {
+            const nativeState = await NativeFlow.getBlockState();
+            if (nativeState.state !== 'RESTING'
+                && (!nativeState.restBeginRequestToken
+                    || nativeState.restBeginRequestToken === beginRequestToken)
+                && nativeState.restBeginRequestStatusToken === beginRequestToken
+                && nativeState.restBeginRequestStatus === 'REJECTED') {
+              // The service authoritatively rejected this start and confirms
+              // there is no REST session to cancel; a stale cancel receipt
+              // must not trap the user on the page.
+              beginRequestRejectedRef.current = true;
+              cancelledRestRef.current = true;
+              setBlockState(
+                nativeState.state,
+                nativeState.graceUntil,
+                nativeState.blockedPackage,
+              );
+              navigate('/dashboard');
+              return;
+            }
+          } catch {
+            // Keep the original cancellation error unless native state can
+            // positively prove that this request was rejected without REST.
+          }
+        }
+      }
       setOperationError(error instanceof Error ? error.message : '退出休息模式失败，请重试。');
     } finally {
       setClosing(false);
