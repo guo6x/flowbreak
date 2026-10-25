@@ -86,7 +86,7 @@ TargetSessionGapReconciler
 | 存储 | 内容 | 谁写 |
 | ---- | ---- | ---- |
 | SharedPreferences `FlowBreakPrefs` | 设置（targetApps/limitMinutes/restDuration/emergency 开关/strongBlockingEnabled）、状态快照、心跳 | 原生服务/插件 |
-| Room `FlowDatabase`（schema v3，迁移 1→2、2→3） | daily_usage、daily_summary、flow_events、progress 等 | 原生服务（前台扫描只在服务内执行） |
+| Room `FlowDatabase`（schema v4，迁移 1→2→3→4） | daily_usage、daily_summary、flow_events、progress 等；拉回统计事件按 session key 幂等 | 原生服务（前台扫描只在服务内执行） |
 | localStorage | Web 界面层 profile/statistics/achievements/reflections 缓存（UI Projection） | React 层 |
 
 - 原生统计/仪表盘/导出统一从 Room 读取；界面不再直接执行使用扫描。

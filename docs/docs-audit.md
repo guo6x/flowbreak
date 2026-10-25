@@ -46,8 +46,8 @@
 | 默认目标App | 锚点：抖音/B站/快手/微信/小红书 5个 | 源码 `appNames.ts DEFAULT_TARGET_APPS`：同上 5 个 | 一致 | PRODUCT 保留 |
 | 首次权限数量 | 锚点：「四项权限（使用情况/悬浮窗/通知/电池白名单）」 | 源码 `Permissions.tsx`：必需=使用情况访问+悬浮窗（`canProceed = hasUsageStats && hasOverlay`，缺失时「继续设置保护」禁用并提示缺失项）；可选稳定性设置按渠道/OEM 动态出现（通知、电池豁免、OEM 自启动、无障碍） | 首次流程 2 项必需权限，缺失阻塞继续；可选稳定性设置动态出现（Redmi Domestic 实际为：通知、电池优化、自启动、无障碍） | PRODUCT 按源码；真机 T06-T11 佐证 |
 | Login是否真实账号 | 锚点：「Login页为本地占位」 | 源码 `Login.tsx`：直接重定向 `/permissions`，仅本地昵称；真机 T05「旧Login不出现」 | 无账号体系，Login 为遗留占位页 | PRODUCT 明确「无账号」 |
-| 数据存储方式 | README：SharedPreferences + Room；锚点：Web localStorage / 原生 SharedPreferences | 源码：Web UI=localStorage；原生=SharedPreferences + Room v3（FlowDatabase version=3） | 三层本地存储并存 | ARCHITECTURE 写明三种存储的职责 |
-| Room 版本 | THIRD_PARTY_NOTICES：「Room 2.7.2」 | 源码 `FlowDatabase` version=3，迁移 1→2、2→3 | 两者不矛盾：2.7.2 是 AndroidX Room 库版本，3 是数据库 schema 版本 | 文档中明确区分「库版本」与「schema版本」 |
+| 数据存储方式 | README：SharedPreferences + Room；锚点：Web localStorage / 原生 SharedPreferences | 源码：Web UI=localStorage；原生=SharedPreferences + Room v4（FlowDatabase version=4） | 三层本地存储并存 | ARCHITECTURE 写明三种存储的职责 |
+| Room 版本 | THIRD_PARTY_NOTICES：「Room 2.7.2」 | 源码 `FlowDatabase` version=4，迁移 1→2→3→4 | 两者不矛盾：2.7.2 是 AndroidX Room 库版本，4 是数据库 schema 版本 | 文档中明确区分「库版本」与「schema版本」 |
 | GRACE 时长 | README/锚点：完成休息后 10 分钟 | 源码 `FlowServiceStateStore.GRACE_MS = 10 * 60_000`；真机 T27/T28 PASS | 一致：10 分钟 | PRODUCT 保留 |
 | Emergency 时长 | README/锚点：每日一次、5分钟 | 源码 `EMERGENCY_GRACE_MS = 5 * 60_000`、长按10秒、每日一次（`EmergencyUnlockManager`）；真机 T37/T38 PASS | 一致：5 分钟、每日一次 | PRODUCT 保留 |
 | 强阻断渠道差异 | README：Play不含无障碍、国内版可选实验性 | 源码：`src/domestic/AndroidManifest.xml` 声明 `FlowAccessibilityService`，main manifest 无；真机 T38 授权/自动回桌面 PASS | 一致 | PRODUCT/ARCHITECTURE 保留 |

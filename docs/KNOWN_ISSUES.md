@@ -65,12 +65,12 @@
 ### FB-P2-03 Domestic strong-blocking default differs from the documented opt-in UI
 
 - Severity：**P2（默认设置与产品规范一致性）**
-- Status：**OPEN IN MASTER — FIXED ON `product/experience-polish-20261018`; API 36 AVD VERIFIED; MERGE PENDING**。模拟器完成了本项针对性验证；按本仓库关闭规则，分支修复尚未合入 master，故不标记为 RESOLVED。
+- Status：**RESOLVED IN MASTER — merged by PR #42**。修复提交 `154a7cfab7da1c7924ae1acb53acd63a931c2626` 已进入当前 master；针对性 Domestic/Play JVM 与 API 36 AVD 证据见下方。此结论仅关闭默认值一致性缺陷，不代表 Redmi/OEM 或 Gate F 验收。
 - Affected scope：Domestic 原生偏好读取、保护状态展示、设置加载和无障碍执行门禁。未保存时按关闭处理；显式保存的用户选择不因读取缺省值而改变。
 - Observed before fix：`NativeFlowPlugin.loadSettings()` 在未存储该选项时按 Domestic 渠道返回 `strongBlockingEnabled=true`；`BlockingSettings` 成功读取后显示为开启。系统无障碍授权仍独立、可选，不能由这个布尔值推断已授权或正在执行强阻断。
 - Expected：`PRODUCT.md` 的默认 UI 关闭目标，与实际初始值和可选授权表述应一致，且不得覆盖用户已有选择。
 - Evidence：修复点为 `PreferenceUtils.isStrongBlockingEnabled()`；设置读取、`getProtectionStatus()` 与 Domestic `FlowAccessibilityService.canEnforce()` 共用关闭缺省。源码提交 `154a7cfab7da1c7924ae1acb53acd63a931c2626`；Domestic/Play JVM 分别 412/382 项通过，覆盖缺失值不写入、显式开/关保留、Play 不启用及 Accessibility 缺失值不执行。2026-10-18 在 `Medium_Phone_API_36.0`（Android 16 / API 36）以 `install -r` 覆盖安装后，`FlowBreakPrefs.xml` 仍无 `strongBlockingEnabled` 键；权限页为 0/2，系统“使用情况访问”设置返回后仍为 0/2。APK SHA-256：`41de12d1eecbcd3778d72bafca3d0824d5d8fb720d17638e5e180464ffd4c64a`。截图：`D:\temp\flowbreak-avd-evidence-20261018\flowbreak-final-154a7cf-settings-return.png`。AVD 结果不代表 Redmi/OEM 真机验收。
-- Next action：将体验分支经常规 review/merge 纳入 master 后，再按本仓库状态规则更新缺陷；更广泛的受支持手机/OEM smoke、Gate F 稳定性及既有 Gate D/E 证据继续按各自范围执行。
+- Next action：本缺陷无待合并动作。更广泛的受支持手机/OEM smoke、Gate F 稳定性及既有 Gate D/E 证据继续按各自范围执行，不随本项关闭而自动通过。
 
 ## Platform limitations
 

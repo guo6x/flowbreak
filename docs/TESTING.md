@@ -1,8 +1,29 @@
 # TESTING — 测试与验证
 
-> 定义自动化测试层级、CI 范围、真机测试矩阵与证据标准。易变的数字只出现在下方「验证快照」；历史验证记录在 `docs/archive/progress/`（含 `VERIFICATION.md` 的 Beta 1.1 记录）。
+> 定义自动化测试层级、CI 范围、真机测试矩阵与证据标准。当前候选的数量与结论见顶部快照；后续带日期的快照仅保留历史证据，不覆盖当前状态。更早的验证记录在 `docs/archive/progress/`（含 `VERIFICATION.md` 的 Beta 1.1 记录）。
 
-## 本轮集成验证来源（2026-10-23 核对，历史计数与产物不转移）
+## 当前候选验证（PR #29，2026-10-25）
+
+- 本地验证源码提交：`fd9045a3b916486588b93e477935070e640440e5`（父提交 `0cc7a0636102fdd0c0ef1f9c3f4c428cf8a69ee3`）；目标远端分支为 `fix/fb-p1-08-protection-integrity`。候选历史含 `77c1e749` 对当时 `origin/master=67d1b7c` 的分支内合并，未合并到 master。后续文档快照提交不改运行时代码；最终 PR HEAD 仍须由 hosted CI 按实际 SHA 验证。
+- 本地自动化：Vitest **319/319 PASS**（28 files）；TypeScript/Vite build **PASS**；UI smoke **44/44**（仅浏览器预览）；brand **36/36**；provenance **20/20**；release policy **8/8**；privacy static **15/15**。
+- Android：`testPlayDebugUnitTest` **488/488**、`testDomesticDebugUnitTest` **521/521**，JUnit XML 为 0 failure / 0 error / 0 skipped；双渠道 lint、Debug、Play AndroidTest APK 与 unsigned Release build **PASS**。新增的单调时钟恢复与终态收据门禁有 JVM 覆盖；Room v4 迁移 1→2→3→4 和重复统计事件回放幂等也通过 JVM 回归。AndroidTest APK 只表示 APK 已构建，不代表 instrumentation 已在手机运行。
+- 产物溯源：source `fd9045a3…` 的 Web asset sync **50/50 SHA-256 匹配**；Domestic APK 与 Play AAB 内 provenance、各自版本信息的独立读取、Play/Domestic R8 mapping、双渠道 runtime dependency 清单、unsigned `artifact-manifest.json` 与 `SHA256SUMS.txt` 均已复核。产物只用于本地工程验收；hosted artifact 仍以 PR 当前 HEAD 的 CI 为准。
+- 本地 unsigned 工件指纹（`versionCode=1` / `versionName=ci-local-fd9045a3`，均 `signed=false`）：Play AAB SHA-256 `90c2f0f9ebf8cdb7ee4e3268bff080dcc07ca40e39b2216a0c3588a499bbee0f`；Domestic APK SHA-256 `de8cf24640a8f9925a765b23e5503fe89eefed005a39db45b116753b9ad2e85f`；`artifact-manifest.json` SHA-256 `fb168f5cec9abe9b24b0093b41811a98c8703daa53d108cd79b6b49e1b1b74da`。`SHA256SUMS.txt` 中所有条目逐个复算一致；这些不是可发布签名包或 GitHub artifact。
+- npm audit 来源必须分开：本地官方 `https://registry.npmjs.org` 的生产依赖 high 与全依赖 critical 审计均 **PASS — 0 vulnerabilities**；本地配置镜像 `https://registry.npmmirror.com` 的审计 API 返回 `404 / NOT_IMPLEMENTED`，属 **BLOCKED / NOT_PASS**。GitHub CI 的结论只可归属其精确 SHA/Run；PR #29 hosted 状态以最新检查页为准。
+- 本地复验时 PR #29 云端旧 HEAD=`b00b9cc75073e77759e28ba5b71f960033cbf1d5`；Run `38053414311` 的生产依赖 audit 对 `@capacitor/android` 受影响版本 8.0.0–8.3.4 报告 1 个 critical（GHSA-rvm3-566m-v7fv），因此 `verify=FAILURE` / `release=SKIPPED`。此失败只属于旧 SHA，不是本地差异的验证；后续 hosted 结果以 [PR #29 checks](https://github.com/guo6x/flowbreak/pull/29/checks) 显示的最新精确 SHA 为准。
+- iQOO V2073A / Android 13 是 vivo/iQOO 不支持设备。此前对旧候选的 Play Debug 安装命令返回 `INSTALL_FAILED_ABORTED: User rejected permissions`；无法仅凭此字面结果判断拒绝来源。安装未完成、未启动或改变权限，既有 `com.flowbreak.app.cn` 未触碰。本轮候选没有设备安装/运行证据，且此设备不能替代 Redmi Gate F。
+- Gate F **仍 FAIL**：Redmi 新候选短时 Bilibili 定向复测与 24 小时稳定性均未执行；不支持的 iQOO、AVD、JVM、静态审计都不能替代它们。Gate G/H/I 也保持未完成，详见 [RELEASE.md](RELEASE.md)。
+
+| 检查 | 结果与边界 |
+| ---- | ---- |
+| npm audit（官方 registry，本地候选） | **PASS — 0 vulnerabilities**；生产依赖 high 与全依赖 critical 两项门槛 |
+| npm audit（配置镜像，本地） | **BLOCKED / NOT_PASS** — `404 / NOT_IMPLEMENTED`，见上文 |
+| GitHub CI npm audit（历史） | PR #42 Run `39301143402` 对 source `f7abbad7…` 报告 **0 vulnerabilities**；这是历史 SHA 的独立证据，不代表 PR #29 当前候选 |
+| PR #29 hosted CI | 旧 HEAD `b00b9cc…` 的 Run `38053414311` 因生产依赖 critical audit 失败，release 跳过；该历史结果不能代表新候选。当前 HEAD 的 CI 结论须以 PR checks 的精确 SHA 为准 |
+| Android device smoke | **NOT EXECUTED（本候选）** — 旧候选 iQOO 安装曾返回 `INSTALL_FAILED_ABORTED: User rejected permissions`；不推断拒绝来源；未成功安装/启动、未改权限，旧 `.cn` 应用未触碰 |
+| 24h stability / Gate F | **NOT EXECUTED / FAIL** — 仍需受支持 Redmi 的独立证据 |
+
+## PR #42 历史集成验证快照（2026-10-23；不是当前候选）
 
 - 集成来源：`integration/experience-quality-20261019`；功能修复源 `f7abbad7e900b32db5291cf26754cbd492721948`（更早功能基线 `64d2e42d675b0f6ef757e1084d68d285c1ac4daa`）；合并审查起点为 `origin/master=695b11f0fe68e4260864c638fda51b949c3a04f8`。
 - 本次审查修补前最后已验证 HEAD 为 `afe404fe094bb3968f8ef16a372cb09131b8a3f7`，仅文档有变化；hosted verify [Run `39303124166`](https://github.com/guo6x/flowbreak/actions/runs/39303124166) **PASS**，release 按策略 **SKIPPED**。它才是当时的 PR HEAD，不能继续把 `f7abbad7…` 称为当前 HEAD。
@@ -115,7 +136,7 @@ Gradle 复核命令（cwd `app/android`）：
 | Play JVM | `cd app/android && ./gradlew testPlayDebugUnitTest` | Robolectric：状态机、前台追踪、服务恢复、统计等（Play 渠道） |
 | Domestic JVM | `./gradlew testDomesticDebugUnitTest` | 同上（Domestic 渠道，含无障碍强阻断回归测试） |
 | RecoveryIntegration | 包含在上述 JVM 任务中 | 前台服务重建/重启恢复集成测试 |
-| Room migrations | 包含在上述 JVM 任务中 | schema 1→2→3 迁移测试 |
+| Room migrations | 包含在上述 JVM 任务中 | schema 1→2→3→4 升级与幂等重放测试 |
 | Build/Lint | `./gradlew lintPlayDebug lintDomesticDebug assemblePlayDebug assembleDomesticDebug` | 源码分析 + 双渠道 Debug 构建 |
 | Release 构建 | `./gradlew bundlePlayRelease assembleDomesticRelease` | R8、资源压缩、Release Lint Vital（**未签名**产物） |
 

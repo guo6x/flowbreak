@@ -5,25 +5,25 @@
 
 ## 当前发布状态
 
-**RELEASE PREPARATION · NOT APPROVED**（当前状态快照见 [CURRENT_STATUS.md](CURRENT_STATUS.md)；测试和候选来源事实见 [TESTING.md](TESTING.md)）。
+**RELEASE PREPARATION · NOT APPROVED**。本地验证快照及对应代码 SHA 见 [TESTING.md](TESTING.md)；PR #29 目标分支为 `fix/fb-p1-08-protection-integrity`。旧 HEAD `b00b9cc75073e77759e28ba5b71f960033cbf1d5` 的 Run `38053414311` 曾在生产依赖 audit 报告 1 个 critical（受影响的 `@capacitor/android` 8.0.0–8.3.4，GHSA-rvm3-566m-v7fv）后失败，`release=SKIPPED`；此历史结果不代表任何后续 SHA。PR 的当前 HEAD/hosted 状态以 [PR #29 checks](https://github.com/guo6x/flowbreak/pull/29/checks) 为准。未合并 master、未使用生产签名、未创建 release。
 
-- 功能修复源为 `f7abbad7e900b32db5291cf26754cbd492721948`；对应 hosted verify [Run `39301143402`](https://github.com/guo6x/flowbreak/actions/runs/39301143402) 与 [unsigned artifact](https://github.com/guo6x/flowbreak/actions/runs/39301143402/artifacts/12211868639) 只归属这个 SHA。其后仅文档变化的 `afe404fe094bb3968f8ef16a372cb09131b8a3f7` 已通过精确 HEAD [Run `39303124166`](https://github.com/guo6x/flowbreak/actions/runs/39303124166)。2026-10-23 审查跟进后的最新 HEAD、checks 与合并状态见 [PR #42](https://github.com/guo6x/flowbreak/pull/42)；不把任一旧 SHA 称为后续当前 HEAD，也不重新归属旧二进制哈希。unsigned APK/AAB 不能冒充最终签名发布包。Gate A–E 的既有 PASS 是已记录的历史/支持范围决策；它们不是本轮候选的真实设备发布验收。
-- **GATE F = FAIL**：Issue #28 / `FB-P1-08` 仍 OPEN。真实设备摘要报告 Bilibili 前台约 33 秒时 REST 页面仍倒计时；摘要未含足够原生诊断，根因未定。**24 小时稳定性运行 NOT_EXECUTED**。见 [设备验收交接](FB-P1-08-FINAL-DEVICE-HANDOFF.md)。
-- **GATE G = PENDING**：`CROSS_MACHINE_SIGNING_RECOVERY=NOT_YET_TESTED`，`TRUE_VERSION_UPGRADE=NOT_TESTED`。本地恢复、已有安装/同签名覆盖安装与 off-machine backup 记录不能替代这两个独立验证，也不等于本轮集成候选有签名发布包。
-- **GATE H = PENDING**：PR #33 的无手机准备及国内无障碍独立告知已合并；发行主体、公开支持联系方式、隐私政策 URL、最终包网络/依赖审查、平台申报与审核资质仍未完成。网络审计来源 [PR #39](https://github.com/guo6x/flowbreak/pull/39) 与工程集成 PR #42 的生命周期以云端记录为准；合并或清理旧分支不证明运行时没有网络流量。
+- 当前本地代码验证、自动化数量与边界见 [TESTING.md](TESTING.md) 的验证快照；Room schema v4 与 1→2→3→4 迁移、诊断实际数据库版本状态和重复事件幂等均有自动化覆盖。旧 HEAD 的失败 Run `38053414311` 不代表后续候选；hosted 结果必须以 PR checks 显示的精确 HEAD 为准。
+- npm 审计来源必须分开：本地官方 `https://registry.npmjs.org` 生产依赖 high 与全依赖 critical 审计均 **0 vulnerabilities / PASS**；本地镜像 `https://registry.npmmirror.com` 的 audit API 返回 `404 / NOT_IMPLEMENTED`，明确标记 **BLOCKED / NOT_PASS**。PR #42 Run `39301143402` / source `f7abbad7…` 的 GitHub CI 曾报告 **0 vulnerabilities**，仅属历史 SHA；PR #29 旧 Run `38053414311` 则因旧版 Capacitor critical audit 失败。当前 PR #29 hosted 结果见 PR checks 的最新精确 HEAD，不从历史 Run 推断。
+- **GATE F = FAIL / NOT_CLOSED**：Redmi 新候选短时 Bilibili 定向复测未执行；历史约 33 秒 REST 倒计时异常根因仍未通过新证据排除，24 小时稳定性 `NOT_EXECUTED`。iQOO V2073A 属不支持的 vivo/iQOO 设备；此前对旧候选执行的 Play Debug 安装命令返回 `INSTALL_FAILED_ABORTED: User rejected permissions`，该文字不判定拒绝来源；安装未完成，未启动、未改变权限，既有 `.cn` 应用未触碰。本轮候选未在设备上安装或运行；iQOO 也不能替代 Redmi Gate F。见 [设备验收交接](FB-P1-08-FINAL-DEVICE-HANDOFF.md)。
+- **GATE G = PENDING**：`CROSS_MACHINE_SIGNING_RECOVERY=NOT_YET_TESTED`，`TRUE_VERSION_UPGRADE=NOT_TESTED`。本地恢复、已有安装/同签名覆盖安装与 off-machine backup 记录不能替代这两个独立验证；本候选没有签名发布包。
+- **GATE H = PENDING**：发行主体、公开支持联系方式、隐私政策 URL、最终包网络/依赖审查、平台申报与审核资质仍未完成。静态扫描不等于运行时流量证明。
 - **GATE I = PENDING / NOT_STARTED**：真实小规模 Beta 未开始。
 - **绝对门禁**：`STORE_READY=NO`；`PRODUCTION_RELEASE_APPROVED=NO`；不得创建正式发布 tag、使用生产密钥进行未授权发布或将现有失败门禁标为通过。
-- **工程合并不等于发布批准**：2026-10-23 用户允许在最新检查通过后经普通 PR 合并代码并清理冗余分支；master push 只触发 unsigned verify。生产签名、设备验收、正式 tag 与商店发布仍不在此次授权范围。
 
 ## 发布门禁总览
 
 | Gate | 内容 | 状态 |
 | ---- | ---- | ---- |
-| GATE A | Core automated validation | **已记录 PASS — functional source Run `39301143402`；docs-only `afe404fe…` Run `39303124166`；新修补须独立 CI** |
-| GATE B | Redmi targeted P1/P2 revalidation | **PASS — historical R1–R4 evidence; not a new-build smoke** |
-| GATE C | Artifact Provenance / Controlled Release Build | **PASS — source `f7abbad7…` unsigned provenance Run `39301143402`; not a later HEAD or signed release** |
-| GATE D | Supported OEM scope + fail-closed boundary | **PASS_SUPPORTED_SCOPE — prior supported-scope evidence** |
-| GATE E | Usage accounting accuracy / blocking latency + documented Android execution boundary | **PASS_SUPPORTED_SCOPE_WITH_DOCUMENTED_PLATFORM_LIMITATION — prior evidence only** |
+| GATE A | Core automated validation | **Local checks PASS; hosted verify must pass on exact current PR HEAD before merge** |
+| GATE B | Redmi targeted P1/P2 revalidation | **Historical R1–R4 only; current candidate smoke NOT_EXECUTED** |
+| GATE C | Artifact Provenance / Controlled Release Build | **Local unsigned artifacts are verified against their stated source SHA; the artifact for the current PR HEAD must be read from its latest successful hosted check. The old verify failed before artifact generation/upload. Historical artifacts remain bound to their own SHAs; unsigned only, not a signed release** |
+| GATE D | Supported OEM scope + fail-closed boundary | **Prior PASS_SUPPORTED_SCOPE; current iQOO install smoke NOT_EXECUTED** |
+| GATE E | Usage accounting accuracy / blocking latency + documented Android execution boundary | **Prior PASS_SUPPORTED_SCOPE_WITH_DOCUMENTED_PLATFORM_LIMITATION; current Redmi evidence not added** |
 | GATE F | 24h stability + Protection Integrity | **FAIL — Issue #28 / FB-P1-08 remains OPEN; 24h run NOT_EXECUTED** |
 | GATE G | Signing / Versioning / Publishable Build | **PENDING — cross-machine recovery and true version upgrade not tested** |
 | GATE H | Store / Compliance Readiness | **PENDING** |
@@ -31,9 +31,9 @@
 
 最终发布条件：**所有 release-blocking gates PASS**。
 
-表中的 A/C 是所列精确来源的自动化/unsigned 产物证据，B/D/E 是既有 v1.1.0 的历史设备/支持范围裁定；均不可自动转移到后续提交。Gate F 的 FAIL 是保留的设备失败状态；虚拟设备、自动化、静态审计或旧签名 APK 均不能替代其未完成的候选验收和稳定性要求。
+表中的 B/D/E 是既有 v1.1.0 的历史设备/支持范围裁定，不转移为本候选新验收。Gate F 的 FAIL 是保留的设备失败状态；虚拟设备、自动化、静态审计、不支持的 iQOO 或旧签名 APK 都不能替代其未完成的候选验收和稳定性要求。
 
-### GATE A — Core automated validation：PASS
+### GATE A — Core automated validation：LOCAL PASS / HOSTED HEAD CHECK REQUIRED
 
 - 历史 CI Run `31900444404`（PR #1，verify Job `95050260127`）**SUCCESS**，HEAD = `ea53a22136dd58663291581763eb3614c4b10ba6`（不是当前最新全矩阵验证）。
 - 基线运行 `31577669420`（verify Job `94053353542`）SUCCESS，HEAD = `99fdcc2f6f357e78fb70dd127adedfa31a098a71`。
@@ -46,11 +46,11 @@
 - 关闭：`FB-P1-01`（R1 ×3）、`FB-P1-02`（R2）、`FB-P1-03`（R3 ×3）、`FB-P2-01`（R4）。
 - 证据：External device evidence: `reports/R1-R4-retest-2026-08-14.md`、`reports/final-report.md`（第二轮结论）。
 
-### GATE C — Artifact Provenance / Controlled Release Build：PASS
+### GATE C — Artifact Provenance / Controlled Release Build：LOCAL CANDIDATE VERIFIED; HOSTED CURRENT HEAD VIA PR CHECKS
 
-> 术语说明：「Controlled / reproducible」指**受控、可重复执行的构建流程**（同一 SHA 可按同一工作流重复构建并复核），**不是 bit-for-bit deterministic build**——`build-provenance.json` 含冻结的 `buildUtc`，同一 SHA 在不同时间重建的产物字节哈希可以不同。GATE C 保持 PASS，本说明不重新打开 GATE C。
+> 术语说明：「Controlled / reproducible」指**受控、可重复执行的构建流程**（同一 SHA 可按同一工作流重复构建并复核），**不是 bit-for-bit deterministic build**——`build-provenance.json` 含冻结的 `buildUtc`，同一 SHA 在不同时间重建的产物字节哈希可以不同。下列历史和本地检查各自绑定明确 SHA；最终 hosted artifact 只以 PR 当前精确 HEAD 的成功 workflow 产物为准。
 
-**ARTIFACT_PROVENANCE 要求（7 条已全部实现，PR #1 真实验证）**：
+**ARTIFACT_PROVENANCE 要求（7 条已实现，并由历史 PR #1/PR #42 SHA 验证）**：
 
 1. 前端 build ✓
 2. cap sync ✓
@@ -69,11 +69,13 @@
 - `artifact-manifest.json`（binaries 的 filename/size/sha256）+ `SHA256SUMS.txt`（binaries + 双渠道 mapping + manifest 自身）。
 - GitHub Actions artifact `flowbreak-unsigned-<sourceSha>` 持久上传（retention 90 天）；PR / master verify 产物明确 **UNSIGNED / TEST ONLY**，不冒充可发布产物；tag 签名发布（GATE G 范围）复用同一 provenance 链（signing 设计未改）。
 
-GATE C PASS 的范围（重要）：
+历史 GATE C PASS 的范围（重要；不转移到当前候选）：
 
 - **历史功能修复源已验证**：PR #42 hosted verify Run `39301143402`，source `f7abbad7e900b32db5291cf26754cbd492721948`；Play AAB SHA-256 `989af971a7683ba615fca335335c44b51acbf6e96c97fc8ef15aca995c0c796`，Domestic unsigned APK SHA-256 `cc8e9f01cb11d41ef58ff25751863496ab47bb36a82e74069216d361d488376e`；artifact manifest 与 `SHA256SUMS.txt` 已上传并可复核，`signed=false`，版本为 CI test-only `versionCode=1` / `versionName=ci-2a7b01cceecf46031ec5ea04ac43b467fd280453`。这些哈希不代表后续 HEAD 的二进制。
 - **unsigned CI artifact provenance pipeline 已验证**：PR #1 CI Run `31900444404` verify SUCCESS；artifact 可下载、SHA256SUMS 复核一致、manifest sourceGitSha = PR head SHA、APK/AAB 内部 provenance 一致、版本信息与二进制独立读取一致。
 - **signed publishable build 仍属于 GATE G**；STORE READY 仍为 NO。
+
+- **本地 PR #29 候选代码源**：`fd9045a3…` 的 dist→Android Web asset sync、Play AAB 与 Domestic APK 内部 provenance、二进制版本独立读取、双渠道 R8 mapping、runtime dependency 清单、unsigned artifact manifest 与 SHA-256 清单已按本地工程流程复核。该证据不表示最终 PR HEAD hosted workflow 已通过；后续文档提交或其他新 HEAD 必须以 PR checks 对应 workflow 与 artifact 再确认。
 
 历史缺口（已关闭，保留记录）：本地曾出现「native 已更新、Web bundle 仍旧」的不一致 APK；旧 CI Run `31577669420` 未持久上传 artifacts。
 
@@ -107,7 +109,7 @@ GATE C PASS 的范围（重要）：
 - **24h 连续运行 = NOT_EXECUTED**。不得将短时测试、前端/JVM 模拟、AVD 或历史设备证据称为 24h PASS。
 - Protection Integrity 原则（`TESTING.md`）：**UI promise ≤ actual protection capability**。最终候选应在正常路径同步做失效注入：撤销 Usage Access / Overlay、关闭可选 Accessibility、service 被杀、battery saver、OEM 后台限制、force-stop 后手动重开；逐项验证实际保护行为与界面是否如实反映能力。
 - force-stop 语义：不要求自动复活；手动重开后 UI 不得谎称旧保护状态仍完全有效，应走合法恢复。
-- 当前无真实手机，可用 AVD 验证其可覆盖的受控功能与页面状态；它不模拟 Redmi/HyperOS 调度，也不能关闭 Issue #28 或 Gate F。未来若有真实设备证据，按 [FB-P1-08 交接协议](FB-P1-08-FINAL-DEVICE-HANDOFF.md) 执行。
+- 已连接 iQOO V2073A 属于不支持设备；一次 Play Debug 安装命令返回 `INSTALL_FAILED_ABORTED: User rejected permissions`，不据此判断拒绝来源，也未成功安装/启动或改变权限。当前没有受支持 Redmi 的 Gate F 候选复测。AVD 可验证受控功能与页面状态，但不模拟 Redmi/HyperOS 调度，也不能关闭 Issue #28 或 Gate F。未来若有真实设备证据，按 [FB-P1-08 交接协议](FB-P1-08-FINAL-DEVICE-HANDOFF.md) 执行。
 
 ### GATE G — Signing / Versioning / Publishable Build：PENDING
 
@@ -198,7 +200,7 @@ Gate H source facts and owner-dependent deliverables:
 | Item | Current evidence | State |
 | --- | --- | --- |
 | Product data / permission description | Updated in `PRIVACY.md`; source declares Android `INTERNET`, local Room/SharedPreferences/WebView storage, and Domestic-only optional Accessibility; full export includes existing SharedPreferences values | Draft; final merged-manifest/dependency/network verification required |
-| Diagnostics sharing | Share JSON is assembled from a field allowlist and excludes `runtimeTracking`; current source has no implemented `restCheatEvidence` field. Full local data export is separate and broader | Historical regression exists; exact final-candidate review remains required |
+| Diagnostics sharing | 本机完整运行时诊断可含 `runtimeTracking.restCheatEvidence`；脱敏分享字段白名单排除整个 `runtimeTracking`。完整本地导出是不同且更广的数据范围 | Source and whitelist reviewed; runtime/network proof and release-build review remain required |
 | Public privacy policy URL | None configured | Owner must provide and host |
 | Public support contact / publisher identity | None configured | Owner must provide verified legal/contact details |
 | Play Data Safety / FGS / Accessibility declarations | No final Console submission evidence in this workspace | Owner account and final artifact required |
@@ -222,16 +224,18 @@ GATE H remains **PENDING**. Do not submit store forms, invent a contact, or mark
 
 ### CI
 
-- [x] 历史功能修复源 `f7abbad7…` 的 `npm test` **291/291** / `npm run test:provenance` **20/20** / `npm run test:release` **8/8** / `npm run build` / `npx cap sync android` 通过（PR #42 Run `39301143402`）；本轮审查/恢复逻辑修补须另跑新 HEAD CI
-- [x] 同一历史快照 `testPlayDebugUnitTest` **456/456**、`testDomesticDebugUnitTest` **489/489**、lint 双渠道通过（JUnit XML 汇总 0 failure / 0 error / 0 skipped）
+- [x] 本地前端、来源与隐私审计通过；单项数量见 [TESTING.md](TESTING.md)，hosted 结果必须绑定 PR checks 当前精确 HEAD
+- [x] Play / Domestic JVM、lint 与构建矩阵通过；JVM 数量及 failure/error/skipped 总数见 [TESTING.md](TESTING.md)
 - [x] `assemblePlayDebug`、`assembleDomesticDebug`、`bundlePlayRelease`、`assembleDomesticRelease` 通过，R8 mapping 存在
-- [x] Room schema drift 检查通过（migrations 6/6，无未提交 schema 变更）
-- [x] GitHub CI npm audit 门禁通过（Run `39301143402` 的生产依赖 high、全依赖 critical 及 build 后重跑均为 **0 vulnerabilities**）
+- [x] Room schema drift 检查通过（schema v4，迁移 1→2→3→4；schema 文件须与候选一同提交）
+- [x] 历史 GitHub CI npm audit（PR #42 Run `39301143402` / source `f7abbad7…`）生产依赖 high、全依赖 critical 及 build 后重跑均为 **0 vulnerabilities**；这是历史 SHA 的 CI 证据，不代表当前 PR #29 hosted 检查
+- [x] 当前本地官方 npm registry audit：生产依赖 high 与全依赖 critical 均 **0 vulnerabilities**
 - [ ] 本地 npm audit（`https://registry.npmmirror.com`）可复核（当前返回 404/`NOT_IMPLEMENTED`，状态为 **BLOCKED / NOT_PASS**；该环境阻塞不覆盖 hosted CI 结论）
-- [x] 构建产物持久上传/归档并可复核（GATE C，PASS：`flowbreak-unsigned-<sha>` artifact，retention 90 天，已实际下载复核）
+- [x] **历史 SHA** hosted unsigned artifact provenance 已上传并独立复核：PR #1 Run `31900444404` / source `ea53a22136dd58663291581763eb3614c4b10ba6`；PR #42 Run `39301143402` / source `f7abbad7e900b32db5291cf26754cbd492721948`。不代表当前 PR #29 有产物。
 - [x] provenance 工具链测试 `npm run test:provenance` 20/20（原 18 + signing evidence 2）
-- [x] Web asset sync 校验（dist → Android assets SHA-256 全量一致，缺失/mismatch 即 FAIL）
-- [x] APK/AAB 内部 provenance 校验（sourceGitSha + 版本独立读取对照）
+- [x] **历史 SHA** Web asset sync 校验（dist → Android assets SHA-256 全量一致，缺失/mismatch 即 FAIL；见 PR #1 Run `31900444404`）
+- [x] **历史 SHA** APK/AAB 内部 provenance 校验（sourceGitSha + 版本独立读取对照；见 PR #1 Run `31900444404`）
+- [x] 本地候选代码源 `fd9045a3…` 的 Web asset sync、APK/AAB 内部 provenance、独立版本信息、双渠道 mapping、runtime dependency inventory 与 unsigned artifact manifest / SHA-256 清单已复验；该产物不替代 PR 当前 HEAD 的 hosted artifact 核验
 - [x] release 版本策略测试 `npm run test:release` 8/8（SemVer / tag / versionCode 编码 / overflow）
 - [x] 签名验证链已实现（apksigner / jarsigner / keytool + fingerprint allowlist；TEST ONLY 密钥本地实测）
 - [x] 历史 technical dry-run secrets provision（8 secrets，2026-08-16；对应身份已 superseded，不得用于正式发行）
@@ -249,7 +253,7 @@ GATE H remains **PENDING**. Do not submit store forms, invent a contact, or mark
 
 - [ ] `PRIVACY.md` 与实际权限/数据行为一致（发布前最终核对）
 - [ ] 无密钥/敏感信息入库；release 使用环境变量签名
-- [x] 脱敏诊断分享采用字段白名单，与完整 JSON 数据导出严格区分；该范围的历史回归快照见 `TESTING.md`。当前候选源码不含 `restCheatEvidence`，分享白名单不含 `runtimeTracking`；完整本地导出包含全部现存 SharedPreferences 值（见 `PRIVACY.md`）
+- [x] 脱敏诊断分享采用字段白名单，与完整 JSON 数据导出严格区分；该范围的历史回归快照见 `TESTING.md`。本机完整运行时诊断可含 `runtimeTracking.restCheatEvidence`；分享白名单排除整个 `runtimeTracking`。完整本地导出包含全部现存 SharedPreferences 值（见 `PRIVACY.md`）
 - [ ] 提供公开隐私政策 URL 和支持邮箱（当前未配置）
 
 ### Android / 双渠道
